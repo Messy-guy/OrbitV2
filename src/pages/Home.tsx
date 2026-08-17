@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Plus, Orbit, FolderPlus, Terminal } from 'lucide-react';
+import { Plus, Orbit, FolderPlus } from 'lucide-react';
 import { useWorkspaceStore } from '../stores/workspace.store';
 import { useUIStore } from '../stores/ui.store';
 import { WorkspaceCard } from '../components/workspace/WorkspaceCard';
@@ -14,30 +14,30 @@ export const Home: React.FC = () => {
   }, [loadWorkspaces]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto bg-background p-6 md:p-8 select-none font-sans">
+    <div className="flex-1 flex flex-col overflow-y-auto bg-canvas p-6 md:p-8 select-none font-sans">
       <div className="max-w-4xl w-full mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
           <div>
-            <div className="flex items-center gap-1.5 mb-1 text-accent font-mono text-[10.5px] uppercase tracking-widest font-semibold">
+            <div className="flex items-center gap-1.5 mb-1 text-text-muted font-mono text-[10.5px] uppercase tracking-widest font-bold">
               <Orbit size={13} />
               <span>Multi-Agent Desktop Workspace</span>
             </div>
-            <h1 className="text-xl font-bold text-text-primary tracking-tight font-mono">
+            <h1 className="text-xl font-bold text-text-primary tracking-tight font-mono uppercase">
               Projects & Workspaces
             </h1>
-            <p className="text-xs text-text-muted mt-0.5 font-sans">
+            <p className="text-xs text-text-muted mt-1 font-sans">
               Select a project directory or spawn an isolated workspace to collaborate with coding agents.
             </p>
           </div>
 
           <Button
-            variant="accent"
+            variant="primary"
             size="sm"
             onClick={() => setCreateWorkspaceOpen(true)}
-            className="gap-1.5 self-start sm:self-auto font-mono text-xs"
+            className="gap-1.5 self-start sm:self-auto font-mono text-xs font-bold tracking-wider"
           >
-            <Plus size={13} />
+            <Plus size={13} strokeWidth={2.5} />
             <span>New Workspace</span>
           </Button>
         </div>
@@ -55,12 +55,12 @@ export const Home: React.FC = () => {
           {/* New Workspace Dashed Card */}
           <button
             onClick={() => setCreateWorkspaceOpen(true)}
-            className="h-36 rounded-panel border border-dashed border-border hover:border-border-active bg-panel/30 hover:bg-panel/60 p-4 flex flex-col items-center justify-center gap-2 text-text-muted hover:text-text-primary transition-colors group"
+            className="h-36 rounded-panel border border-dashed border-border hover:border-border-hover bg-panel-subtle hover:bg-panel p-4 flex flex-col items-center justify-center gap-2 text-text-muted hover:text-text-primary transition-colors group"
           >
-            <div className="w-8 h-8 rounded bg-background border border-border group-hover:border-border-hover flex items-center justify-center text-text-dim group-hover:text-text-primary transition-colors">
+            <div className="w-8 h-8 rounded-btn btn-base flex items-center justify-center text-text-dim group-hover:text-text-primary transition-colors">
               <FolderPlus size={15} />
             </div>
-            <span className="text-xs font-mono font-medium">Create New Workspace</span>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider">Create New Workspace</span>
           </button>
         </div>
       </div>

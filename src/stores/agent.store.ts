@@ -1,12 +1,14 @@
 import { create } from 'zustand';
-import { Agent, AgentProvider, AgentStatus, Message, Session, AgentGridTileLayout } from '../types/orbit';
+import { Agent, AgentProvider, AgentStatus, Message, Session, AgentGridTileLayout, TerminalLine } from '../types/orbit';
 import { agentService, sessionService } from '../services';
+import { INITIAL_TERMINAL_LOGS } from '../mock/terminals';
 
 interface AgentState {
   agents: Agent[];
   sessions: Record<string, Session[]>; // agentId -> Session[]
   activeSessionIdByAgent: Record<string, string>; // agentId -> sessionId
   messages: Record<string, Message[]>; // sessionId -> Message[]
+  terminalLogs: Record<string, TerminalLine[]>; // agentId -> TerminalLine[]
   gridLayouts: AgentGridTileLayout[];
   isLoading: boolean;
 
@@ -15,10 +17,14 @@ interface AgentState {
   addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string) => Promise<Agent>;
   removeAgent: (agentId: string) => Promise<void>;
   setAgentStatus: (agentId: string, status: AgentStatus) => Promise<void>;
+  toggleAgentViewMode: (agentId: string) => void;
   setActiveSession: (agentId: string, sessionId: string) => void;
   createNewSession: (agentId: string, workspaceId: string, title?: string) => Promise<Session>;
   loadMessagesForSession: (sessionId: string) => Promise<void>;
   sendMessage: (agentId: string, sessionId: string, content: string) => Promise<void>;
+  sendTerminalCommand: (agentId: string, command: string) => Promise<void>;
+  clearTerminal: (agentId: string) => void;
+  interruptAgent: (agentId: string) => void;
   addDirectMessage: (sessionId: string, message: Message) => void;
   updateGridLayouts: (layouts: AgentGridTileLayout[]) => void;
 }
@@ -28,13 +34,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   sessions: {},
   activeSessionIdByAgent: {},
   messages: {},
+  terminalLogs: INITIAL_TERMINAL_LOGS,
   gridLayouts: [],
   isLoading: false,
 
   loadAgentsForWorkspace: async (workspaceId: string) => {
     set({ isLoading: true });
     try {
-      const agents = await agentService.getAgents(workspaceId);
+      const rawAgents = await agentService.getAgents(workspaceId);
+      // Default viewMode to 'terminal' for AgentGrid style experience
+      const agents: Agent[] = rawAgents.map((a, idx) => ({
+        ...a,
+        viewMode: a.viewMode || 'terminal',
+        pid: 3200 + idx * 42,
+      }));
+
       const sessionsMap: Record<string, Session[]> = {};
       const activeSessionMap: Record<string, string> = {};
       const messagesMap: Record<string, Message[]> = {};
@@ -81,10 +95,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   addAgent: async (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string) => {
-    const newAgent = await agentService.addAgent(workspaceId, provider, customName, customModel);
-    const newSession = await sessionService.createSession(newAgent.id, workspaceId, `Session 01 — Initialization`);
+    const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel);
+    const newSession = await sessionService.createSession(rawAgent.id, workspaceId, `Session 01 — Initialization`);
     
-    newAgent.currentSessionId = newSession.id;
+    const newAgent: Agent = {
+      ...rawAgent,
+      currentSessionId: newSession.id,
+      viewMode: 'terminal',
+      pid: 3200 + Math.floor(Math.random() * 5000),
+    };
 
     set(state => {
       const existingCount = state.agents.length;
@@ -101,6 +120,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         minH: 4,
       };
 
+      const initialLogs: TerminalLine[] = [
+        { id: `log-${Date.now()}-1`, type: 'system', text: `\x1b[1;37m[Orbit Harness]\x1b[0m Spawning ${newAgent.name} terminal runtime (PID ${newAgent.pid})...`, timestamp: Date.now() },
+        { id: `log-${Date.now()}-2`, type: 'stdout', text: `Interactive CLI harness ready. Attached to ${workspaceId}.`, timestamp: Date.now() + 10 },
+      ];
+
       return {
         agents: [...state.agents, newAgent],
         sessions: {
@@ -111,6 +135,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           ...state.activeSessionIdByAgent,
           [newAgent.id]: newSession.id,
         },
+        terminalLogs: {
+          ...state.terminalLogs,
+          [newAgent.id]: initialLogs,
+        },
         messages: {
           ...state.messages,
           [newSession.id]: [
@@ -118,7 +146,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               id: `msg-welcome-${Date.now()}`,
               sessionId: newSession.id,
               role: 'agent',
-              content: `Ready. I'm connected to the workspace with ${newAgent.model}.`,
+              content: `Terminal harness connected with ${newAgent.model}.`,
               timestamp: Date.now(),
             }
           ],
@@ -142,6 +170,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     await agentService.updateAgentStatus(agentId, status);
     set(state => ({
       agents: state.agents.map(a => (a.id === agentId ? { ...a, status } : a)),
+    }));
+  },
+
+  toggleAgentViewMode: (agentId: string) => {
+    set(state => ({
+      agents: state.agents.map(a => 
+        a.id === agentId ? { ...a, viewMode: a.viewMode === 'chat' ? 'terminal' : 'chat' } : a
+      ),
     }));
   },
 
@@ -192,10 +228,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       content,
     });
 
+    // Also mirror to terminal log
+    const userLog: TerminalLine = {
+      id: `stdin-${Date.now()}`,
+      type: 'stdin',
+      text: `$ ${content}`,
+      timestamp: Date.now(),
+    };
+
     set(state => ({
       messages: {
         ...state.messages,
         [sessionId]: [...(state.messages[sessionId] || []), userMsg],
+      },
+      terminalLogs: {
+        ...state.terminalLogs,
+        [agentId]: [...(state.terminalLogs[agentId] || []), userLog],
       },
       agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'working' } : a)),
     }));
@@ -205,14 +253,110 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const agentReply = await agentService.sendMessage(sessionId, agentId, content);
       await sessionService.addMessage(agentReply);
 
+      const agentLogs: TerminalLine[] = [
+        { id: `out-${Date.now()}-1`, type: 'stdout', text: agentReply.content, timestamp: Date.now() },
+      ];
+
+      if (agentReply.toolInvocations) {
+        agentReply.toolInvocations.forEach((t, i) => {
+          agentLogs.push({
+            id: `tool-${Date.now()}-${i}`,
+            type: 'tool',
+            text: `\x1b[36m[TOOL:${t.toolName}]\x1b[0m ${t.file || ''} ${t.output || '✓ Done'}`,
+            timestamp: Date.now() + i * 5,
+          });
+        });
+      }
+
       set(state => ({
         messages: {
           ...state.messages,
           [sessionId]: [...(state.messages[sessionId] || []), agentReply],
         },
+        terminalLogs: {
+          ...state.terminalLogs,
+          [agentId]: [...(state.terminalLogs[agentId] || []), ...agentLogs],
+        },
         agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
       }));
     }, 900);
+  },
+
+  sendTerminalCommand: async (agentId: string, command: string) => {
+    const sessionId = get().activeSessionIdByAgent[agentId] || get().sessions[agentId]?.[0]?.id;
+    if (!sessionId) return;
+
+    const trimmed = command.trim();
+    if (trimmed === 'clear' || trimmed === '/clear') {
+      get().clearTerminal(agentId);
+      return;
+    }
+
+    // Append stdin line
+    const stdinLine: TerminalLine = {
+      id: `stdin-${Date.now()}`,
+      type: 'stdin',
+      text: `$ ${command}`,
+      timestamp: Date.now(),
+    };
+
+    set(state => ({
+      terminalLogs: {
+        ...state.terminalLogs,
+        [agentId]: [...(state.terminalLogs[agentId] || []), stdinLine],
+      },
+      agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'working' } : a)),
+    }));
+
+    setTimeout(async () => {
+      const response = await agentService.sendMessage(sessionId, agentId, command);
+      const outLines: TerminalLine[] = [
+        { id: `out-${Date.now()}-1`, type: 'stdout', text: response.content, timestamp: Date.now() },
+      ];
+
+      if (response.toolInvocations) {
+        response.toolInvocations.forEach((t, idx) => {
+          outLines.push({
+            id: `tool-${Date.now()}-${idx}`,
+            type: 'tool',
+            text: `\x1b[36m[TOOL:${t.toolName}]\x1b[0m ${t.file || ''} ${t.output || '✓ Done'}`,
+            timestamp: Date.now() + idx * 5,
+          });
+        });
+      }
+
+      set(state => ({
+        terminalLogs: {
+          ...state.terminalLogs,
+          [agentId]: [...(state.terminalLogs[agentId] || []), ...outLines],
+        },
+        agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
+      }));
+    }, 700);
+  },
+
+  clearTerminal: (agentId: string) => {
+    set(state => ({
+      terminalLogs: {
+        ...state.terminalLogs,
+        [agentId]: [
+          { id: `clr-${Date.now()}`, type: 'system', text: '\x1b[38;5;244mTerminal buffer cleared.\x1b[0m', timestamp: Date.now() }
+        ],
+      },
+    }));
+  },
+
+  interruptAgent: (agentId: string) => {
+    set(state => ({
+      terminalLogs: {
+        ...state.terminalLogs,
+        [agentId]: [
+          ...(state.terminalLogs[agentId] || []),
+          { id: `sigint-${Date.now()}`, type: 'stderr', text: '^C\n[Process interrupted by SIGINT]', timestamp: Date.now() }
+        ],
+      },
+      agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
+    }));
   },
 
   addDirectMessage: (sessionId: string, message: Message) => {

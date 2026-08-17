@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Check, Sparkles, Plus, Terminal } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -49,7 +49,7 @@ export const AddAgentModal: React.FC = () => {
       subtitle="Select an AI coding agent to connect to this workspace"
       maxWidth="lg"
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3.5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {AVAILABLE_AGENT_PRESETS.map((preset) => {
             const isSelected = selectedProvider === preset.provider;
@@ -58,36 +58,36 @@ export const AddAgentModal: React.FC = () => {
                 key={preset.provider}
                 onClick={() => setSelectedProvider(preset.provider)}
                 className={clsx(
-                  'p-3.5 rounded-panel border cursor-pointer transition-all duration-150 flex flex-col justify-between select-none group',
+                  'p-3.5 rounded-panel border cursor-pointer transition-all flex flex-col justify-between select-none group',
                   isSelected
-                    ? 'bg-panel-elevated border-accent shadow-sm ring-1 ring-accent/30'
-                    : 'bg-background-secondary border-border/80 hover:border-border-hover hover:bg-panel'
+                    ? 'bg-panel-elevated border-border-highlight shadow-elevated'
+                    : 'bg-panel border-border hover:border-border-hover hover:bg-panel-hover'
                 )}
               >
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-bold text-xs tracking-wider uppercase text-text-primary">
+                    <span className="font-bold text-xs tracking-wider uppercase text-text-primary font-mono">
                       {preset.name}
                     </span>
-                    <Badge variant="success" dot className="text-[10px]">
+                    <Badge variant="success" dot className="text-[9.5px] uppercase font-bold">
                       Connected
                     </Badge>
                   </div>
-                  <div className="text-[11px] font-mono text-accent/90 mb-1">
+                  <div className="text-[11px] font-mono text-text-secondary mb-1">
                     {preset.model}
                   </div>
-                  <p className="text-[11px] text-text-secondary leading-snug">
+                  <p className="text-[11.5px] text-text-muted leading-snug">
                     {preset.description}
                   </p>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-border/50 flex items-center justify-between text-[11px]">
-                  <span className="text-text-muted font-mono uppercase">{preset.provider}</span>
+                <div className="mt-3.5 pt-2 border-t border-border flex items-center justify-between text-[10.5px]">
+                  <span className="text-text-dim font-mono uppercase font-bold">{preset.provider}</span>
                   <div className={clsx(
                     'w-4 h-4 rounded-full border flex items-center justify-center transition-colors',
-                    isSelected ? 'border-accent bg-accent text-background' : 'border-border group-hover:border-text-muted'
+                    isSelected ? 'border-white bg-white text-canvas-chrome font-bold' : 'border-border-hover group-hover:border-border-highlight'
                   )}>
-                    {isSelected && <Check size={10} strokeWidth={3} />}
+                    {isSelected && <Check size={10} strokeWidth={3.5} />}
                   </div>
                 </div>
               </div>
@@ -96,8 +96,8 @@ export const AddAgentModal: React.FC = () => {
         </div>
 
         {selectedProvider === 'custom' && (
-          <div className="p-3 bg-panel-elevated/80 rounded-panel border border-border mt-2 space-y-2.5">
-            <h4 className="text-xs font-semibold text-text-primary">Custom Agent Adapter Configuration</h4>
+          <div className="p-3.5 surface-well rounded-panel border border-border mt-1 space-y-2.5">
+            <h4 className="text-xs font-bold text-text-primary font-mono uppercase">Custom Agent Adapter Configuration</h4>
             <div className="grid grid-cols-2 gap-2">
               <Input
                 placeholder="Agent Name (e.g. Aider, Cursor CLI)"
@@ -113,7 +113,7 @@ export const AddAgentModal: React.FC = () => {
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-border/80">
+        <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-border">
           <Button
             variant="ghost"
             onClick={() => setAddAgentOpen(false)}
@@ -121,10 +121,9 @@ export const AddAgentModal: React.FC = () => {
             Cancel
           </Button>
           <Button
-            variant="accent"
+            variant="primary"
             onClick={handleAdd}
             isLoading={isSubmitting}
-            className="shadow-accent-glow"
           >
             Add Agent to Workspace
           </Button>

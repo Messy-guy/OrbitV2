@@ -3,7 +3,7 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'accent' | 'outline' | 'secondary';
+  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'accent' | 'outline' | 'secondary' | 'well';
   dot?: boolean;
 }
 
@@ -14,17 +14,18 @@ export const Badge: React.FC<BadgeProps> = ({
   dot = false,
   ...props
 }) => {
-  const baseStyles = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-badge text-[11px] font-mono tracking-tight font-medium';
+  const baseStyles = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-badge text-[10px] font-mono tracking-tight font-medium select-none';
 
   const variants = {
-    default: 'bg-panel-elevated text-text-secondary border border-border',
-    secondary: 'bg-background-tertiary text-text-muted border border-border-subtle',
-    success: 'bg-status-success/10 text-status-success border border-status-success/20',
-    warning: 'bg-status-warning/10 text-status-warning border border-status-warning/20',
-    error: 'bg-status-error/10 text-status-error border border-status-error/20',
-    info: 'bg-status-info/10 text-status-info border border-status-info/20',
-    accent: 'bg-accent/10 text-accent border border-accent/25',
+    default: 'bg-panel-elevated text-text-primary border border-border shadow-subtle',
+    secondary: 'bg-well text-text-muted border border-border-subtle',
+    success: 'bg-status-success/15 text-status-success border border-status-success/30',
+    warning: 'bg-status-warning/15 text-status-warning border border-status-warning/30',
+    error: 'bg-status-error/15 text-status-error border border-status-error/30',
+    info: 'bg-panel-highlight text-text-secondary border border-border',
+    accent: 'bg-white text-canvas-chrome font-bold border border-white shadow-subtle',
     outline: 'border border-border text-text-muted bg-transparent',
+    well: 'surface-well text-text-secondary',
   };
 
   const dotColors = {
@@ -33,9 +34,10 @@ export const Badge: React.FC<BadgeProps> = ({
     success: 'bg-status-success',
     warning: 'bg-status-warning',
     error: 'bg-status-error',
-    info: 'bg-status-info',
-    accent: 'bg-accent',
-    outline: 'bg-border',
+    info: 'bg-text-secondary',
+    accent: 'bg-canvas-chrome',
+    outline: 'bg-border-highlight',
+    well: 'bg-text-dim',
   };
 
   return (

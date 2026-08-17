@@ -54,8 +54,8 @@ export const BottomDock: React.FC = () => {
   ];
 
   return (
-    <footer className="h-7 bg-panel border-t border-border px-2 flex items-center justify-between select-none z-20 font-mono text-[11px]">
-      <div className="flex items-center gap-0.5">
+    <footer className="h-7 bg-canvas-chrome border-t border-border-subtle px-2 flex items-center justify-between select-none z-20 font-mono text-[11px] shadow-dock">
+      <div className="flex items-center gap-1">
         {navItems.map(item => {
           const isActive = activeBottomPanel === item.id;
           return (
@@ -63,21 +63,21 @@ export const BottomDock: React.FC = () => {
               key={item.id}
               onClick={() => toggleBottomPanel(item.id)}
               className={clsx(
-                'flex items-center gap-1.5 px-2.5 py-0.5 rounded transition-colors',
+                'flex items-center gap-1.5 px-2.5 py-0.5 rounded-btn transition-colors',
                 isActive
-                  ? 'bg-panel-elevated text-text-primary border border-border shadow-subtle font-medium'
-                  : 'text-text-muted hover:text-text-secondary hover:bg-panel-elevated/40 border border-transparent'
+                  ? 'bg-panel-elevated text-text-primary border border-border font-semibold shadow-subtle'
+                  : 'text-text-muted hover:text-text-primary hover:bg-panel/40 border border-transparent'
               )}
             >
-              <span className={clsx(isActive ? 'text-accent' : 'text-text-dim')}>
+              <span className={clsx(isActive ? 'text-text-primary' : 'text-text-dim')}>
                 {item.icon}
               </span>
-              <span>{item.label}</span>
+              <span className="tracking-tight">{item.label}</span>
               {item.badge !== undefined && (
                 <span
                   className={clsx(
-                    'text-[10px] px-1 rounded',
-                    isActive ? 'bg-accent/15 text-accent font-semibold' : 'bg-background text-text-dim'
+                    'text-[9.5px] px-1 rounded font-mono',
+                    isActive ? 'bg-well text-text-primary font-bold border border-border-subtle' : 'bg-well/60 text-text-dim'
                   )}
                 >
                   {item.badge}
@@ -90,14 +90,14 @@ export const BottomDock: React.FC = () => {
 
       <div className="flex items-center gap-3 text-[10px] text-text-muted">
         {currentContext?.lastCheckpointTime && (
-          <span className="hidden sm:inline">chk: {currentContext.lastCheckpointTime}</span>
+          <span className="hidden sm:inline font-mono text-text-dim">chk: <strong className="text-text-secondary">{currentContext.lastCheckpointTime}</strong></span>
         )}
         <button
           onClick={() => toggleBottomPanel(activeBottomPanel || 'context')}
-          className="text-text-dim hover:text-text-secondary p-0.5 rounded transition-colors"
-          title="Toggle Dock Panel"
+          className="text-text-dim hover:text-text-primary p-0.5 rounded btn-base transition-colors"
+          title="Toggle Dock Drawer"
         >
-          {activeBottomPanel ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          {activeBottomPanel ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
         </button>
       </div>
     </footer>

@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { CornerDownLeft, Sparkles, FileCode, CheckCircle2, ArrowRight, Copy, Check, Terminal } from 'lucide-react';
-import { Agent, Message } from '../../types/orbit';
+import { CornerDownLeft, Sparkles, Copy, Check } from 'lucide-react';
+import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { ToolActivity } from './ToolActivity';
-import { clsx } from 'clsx';
 
 interface AgentChatProps {
   agent: Agent;
@@ -57,13 +56,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   ];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-panel">
+    <div className="flex-1 flex flex-col min-h-0 surface-well">
       {/* Scrollable Conversation Stream */}
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-3 select-text font-sans">
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 select-text font-sans">
         {sessionMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-4 text-text-muted text-xs">
-            <span className="font-mono mb-1 text-text-secondary text-[11px]">Session initialized</span>
-            <span className="text-[11px] mb-3">Direct developer prompt interface to {agent.name}.</span>
+            <span className="font-mono mb-1 text-text-secondary text-[11px] font-semibold uppercase tracking-wider">Session Initialized</span>
+            <span className="text-[11px] text-text-dim mb-4 max-w-xs">Direct developer prompt interface connected to {agent.name}.</span>
             
             {/* Quick Prompts */}
             <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-xs">
@@ -71,7 +70,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
                 <button
                   key={i}
                   onClick={() => handleSend(qp)}
-                  className="px-2 py-1 rounded bg-panel-elevated hover:bg-panel-hover border border-border text-[10.5px] font-mono text-text-secondary hover:text-text-primary transition-colors text-left"
+                  className="px-2.5 py-1 rounded-btn btn-base text-[10.5px] font-mono text-text-secondary hover:text-text-primary transition-colors text-left"
                 >
                   &gt; {qp}
                 </button>
@@ -87,41 +86,41 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
             return (
               <div
                 key={msg.id}
-                className="p-3 rounded bg-background border border-accent/40 text-xs font-mono space-y-2 my-2 shadow-subtle"
+                className="p-3.5 rounded-panel surface-elevated text-xs font-mono space-y-2.5 my-2 shadow-elevated border-border-hover"
               >
-                <div className="flex items-center justify-between border-b border-border pb-1.5">
-                  <div className="flex items-center gap-1.5 text-accent font-bold tracking-wider uppercase text-[10px]">
-                    <Sparkles size={11} />
+                <div className="flex items-center justify-between border-b border-border pb-2">
+                  <div className="flex items-center gap-1.5 text-text-primary font-bold tracking-wider uppercase text-[10.5px]">
+                    <Sparkles size={12} className="text-text-primary" />
                     <span>ORBIT CONTEXT HANDOFF</span>
                   </div>
-                  <span className="text-[10px] text-text-muted">
+                  <span className="text-[10px] text-text-muted px-1.5 py-0.2 rounded-badge bg-well border border-border-subtle font-mono">
                     {h.tokenCount ? `~${(h.tokenCount / 1000).toFixed(1)}k tokens` : ''}
                   </span>
                 </div>
 
                 <div className="text-text-primary text-[12px] font-sans">
-                  Resumed state from <strong className="text-accent font-semibold">{h.fromAgent}</strong>
+                  Resumed state from <strong className="text-text-primary font-bold font-mono">{h.fromAgent}</strong>
                 </div>
 
-                <div className="space-y-1 text-[11px]">
-                  <div>
-                    <span className="text-text-muted uppercase text-[9px] block font-bold">Objective</span>
+                <div className="space-y-1.5 text-[11.5px]">
+                  <div className="p-2.5 rounded-btn surface-well">
+                    <span className="text-text-dim uppercase text-[9px] block font-mono font-bold">Objective</span>
                     <span className="text-text-primary font-medium">{h.task}</span>
                   </div>
-                  <div>
-                    <span className="text-text-muted uppercase text-[9px] block font-bold">Progress</span>
+                  <div className="p-2.5 rounded-btn surface-well">
+                    <span className="text-text-dim uppercase text-[9px] block font-mono font-bold">Progress</span>
                     <span className="text-text-secondary">{h.progress}</span>
                   </div>
-                  <div>
-                    <span className="text-text-muted uppercase text-[9px] block font-bold">Current Issue</span>
+                  <div className="p-2.5 rounded-btn surface-well">
+                    <span className="text-text-dim uppercase text-[9px] block font-mono font-bold">Current Issue</span>
                     <span className="text-status-warning font-medium">{h.issues}</span>
                   </div>
                   {h.files && h.files.length > 0 && (
-                    <div>
-                      <span className="text-text-muted uppercase text-[9px] block font-bold">Relevant Files</span>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
+                    <div className="p-2.5 rounded-btn surface-well">
+                      <span className="text-text-dim uppercase text-[9px] block font-mono font-bold mb-1">Relevant Files</span>
+                      <div className="flex flex-wrap gap-1">
                         {h.files.map((f, i) => (
-                          <span key={i} className="px-1.5 py-0.2 rounded bg-panel-elevated border border-border text-text-primary text-[10px]">
+                          <span key={i} className="px-2 py-0.5 rounded-badge btn-base text-text-primary text-[10px] font-mono">
                             {f}
                           </span>
                         ))}
@@ -136,10 +135,10 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
           if (msg.role === 'user') {
             return (
               <div key={msg.id} className="flex flex-col items-end group">
-                <div className="flex items-center gap-1 mb-0.5 mr-1">
-                  <span className="text-[9px] font-mono text-text-dim uppercase font-bold">You</span>
+                <div className="flex items-center gap-1 mb-1 mr-1">
+                  <span className="text-[9px] font-mono text-text-dim uppercase font-bold tracking-wider">You</span>
                 </div>
-                <div className="max-w-[92%] bg-panel-elevated border border-border rounded-lg px-3 py-1.5 text-[12.5px] text-text-primary leading-relaxed shadow-subtle">
+                <div className="max-w-[88%] bg-panel-elevated border border-border-hover rounded-panel px-3.5 py-2 text-[12px] text-text-primary leading-relaxed shadow-subtle">
                   {msg.content}
                 </div>
               </div>
@@ -148,17 +147,17 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
 
           return (
             <div key={msg.id} className="flex flex-col items-start group">
-              <div className="flex items-center justify-between w-full mb-0.5 px-1">
-                <span className="text-[9px] font-mono text-text-dim uppercase font-bold">{agent.name}</span>
+              <div className="flex items-center justify-between w-full mb-1 px-1">
+                <span className="text-[9.5px] font-mono text-text-muted uppercase font-bold tracking-wider">{agent.name}</span>
                 <button
                   onClick={() => copyToClipboard(msg.id, msg.content)}
-                  className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-text-secondary transition-opacity p-0.5"
+                  className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-text-primary transition-colors p-1 rounded hover:bg-panel"
                   title="Copy message"
                 >
                   {copiedId === msg.id ? <Check size={10} className="text-status-success" /> : <Copy size={10} />}
                 </button>
               </div>
-              <div className="max-w-[96%] bg-background-secondary border border-border-subtle rounded-lg px-3 py-2 text-[12.5px] text-text-primary leading-relaxed">
+              <div className="max-w-[96%] bg-panel/75 rounded-panel px-3.5 py-2.5 text-[12px] text-text-primary leading-relaxed border border-border">
                 <p className="whitespace-pre-wrap">{msg.content}</p>
                 {msg.toolInvocations && msg.toolInvocations.length > 0 && (
                   <ToolActivity toolInvocations={msg.toolInvocations} />
@@ -170,8 +169,8 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
 
         {agent.status === 'working' && (
           <div className="flex flex-col items-start">
-            <span className="text-[9px] font-mono text-text-dim mb-0.5 ml-1 uppercase font-bold">{agent.name}</span>
-            <div className="bg-background-secondary border border-border-subtle rounded-lg px-3 py-1.5">
+            <span className="text-[9.5px] font-mono text-text-dim mb-1 ml-1 uppercase font-bold">{agent.name}</span>
+            <div className="bg-panel rounded-panel px-3.5 py-2 border border-border">
               <ToolActivity isWorking={true} />
             </div>
           </div>
@@ -181,9 +180,9 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
       </div>
 
       {/* Input Box */}
-      <div className="p-2 bg-panel-elevated/40 border-t border-border no-drag">
-        <div className="relative flex items-center bg-background border border-border rounded-btn focus-within:border-border-active focus-within:ring-1 focus-within:ring-accent/30 transition-all">
-          <span className="pl-2.5 text-text-muted font-mono text-xs select-none font-bold">&gt;</span>
+      <div className="p-2.5 bg-panel border-t border-border no-drag">
+        <div className="relative flex items-center surface-well rounded-btn focus-within:border-border-highlight transition-colors shadow-well">
+          <span className="pl-3 text-text-dim font-mono text-xs select-none font-bold">&gt;</span>
           <textarea
             ref={textareaRef}
             value={input}
@@ -195,15 +194,15 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
             onKeyDown={handleKeyDown}
             placeholder={`Ask ${agent.name}... (Press Enter to send)`}
             rows={1}
-            className="flex-1 bg-transparent py-1.5 px-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none resize-none min-h-[30px] max-h-[100px] font-sans"
+            className="flex-1 bg-transparent py-2 px-2.5 text-xs text-text-primary placeholder:text-text-dim focus:outline-none resize-none min-h-[32px] max-h-[100px] font-sans"
           />
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || agent.status === 'working'}
-            className="p-1 mr-1 text-text-muted hover:text-accent disabled:opacity-20 disabled:hover:text-text-muted transition-colors rounded"
+            className="p-1.5 mr-1 text-text-muted hover:text-text-primary disabled:opacity-20 disabled:hover:text-text-muted transition-colors rounded hover:bg-panel"
             title="Send prompt"
           >
-            <CornerDownLeft size={13} />
+            <CornerDownLeft size={13} strokeWidth={2.5} />
           </button>
         </div>
       </div>

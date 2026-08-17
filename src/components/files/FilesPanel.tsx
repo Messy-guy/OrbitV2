@@ -30,12 +30,12 @@ export const FilesPanel: React.FC = () => {
         <div key={item.id} className="select-none">
           <div
             onClick={() => toggleFolder(item.path)}
-            className="flex items-center gap-1.5 py-0.5 px-1.5 rounded hover:bg-panel cursor-pointer text-text-secondary hover:text-text-primary text-[11px]"
-            style={{ paddingLeft: `${depth * 12 + 4}px` }}
+            className="flex items-center gap-1.5 py-1 px-1.5 rounded hover:bg-panel-hover cursor-pointer text-text-secondary hover:text-text-primary text-[11px] transition-colors"
+            style={{ paddingLeft: `${depth * 14 + 4}px` }}
           >
-            {isExpanded ? <ChevronDown size={11} className="text-text-muted" /> : <ChevronRight size={11} className="text-text-muted" />}
-            {isExpanded ? <FolderOpen size={12} className="text-accent" /> : <Folder size={12} className="text-text-muted" />}
-            <span className="font-mono text-[11px]">{item.name}/</span>
+            {isExpanded ? <ChevronDown size={11} className="text-text-dim" /> : <ChevronRight size={11} className="text-text-dim" />}
+            {isExpanded ? <FolderOpen size={12} className="text-text-primary" /> : <Folder size={12} className="text-text-muted" />}
+            <span className="font-mono text-[11.5px] font-medium">{item.name}/</span>
           </div>
 
           {isExpanded && item.children && (
@@ -50,21 +50,21 @@ export const FilesPanel: React.FC = () => {
     return (
       <div
         key={item.id}
-        className="flex items-center justify-between py-0.5 px-1.5 rounded hover:bg-panel text-[11px] group cursor-default"
-        style={{ paddingLeft: `${depth * 12 + 16}px` }}
+        className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-panel-hover text-[11px] group cursor-default transition-colors"
+        style={{ paddingLeft: `${depth * 14 + 18}px` }}
       >
         <div className="flex items-center gap-1.5 truncate">
-          <FileCode size={11} className="text-text-muted group-hover:text-text-secondary shrink-0" />
+          <FileCode size={11} className="text-text-dim group-hover:text-text-secondary shrink-0" />
           <span className={clsx(
             'text-[11px] font-mono truncate',
-            item.status === 'modified' ? 'text-accent font-medium' : 'text-text-secondary'
+            item.status === 'modified' ? 'text-text-primary font-medium' : 'text-text-secondary'
           )}>
             {item.name}
           </span>
         </div>
 
         {item.status === 'modified' && (
-          <span className="text-[8.5px] font-mono font-bold px-1 rounded bg-accent/15 text-accent">
+          <span className="text-[8.5px] font-mono font-bold px-1 py-0.2 rounded bg-panel text-text-muted border border-border">
             MOD
           </span>
         )}
@@ -73,25 +73,25 @@ export const FilesPanel: React.FC = () => {
   };
 
   return (
-    <div className="h-72 bg-panel-elevated border-t border-border flex flex-col overflow-hidden text-xs select-none font-mono">
+    <div className="h-72 bg-canvas-chrome border-t border-border flex flex-col overflow-hidden text-xs select-none font-mono shadow-dock">
       {/* Header */}
-      <div className="h-7 px-3 bg-background-secondary border-b border-border flex items-center justify-between">
+      <div className="h-7 px-3 bg-panel border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="uppercase tracking-wider text-text-secondary font-bold text-[10px]">
+          <span className="uppercase tracking-wider text-text-primary font-bold text-[10px]">
             Project Explorer
           </span>
         </div>
 
         <button
           onClick={() => setActiveBottomPanel(null)}
-          className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel"
+          className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel-hover transition-colors"
         >
           <X size={13} />
         </button>
       </div>
 
       {/* Files Tree */}
-      <div className="flex-1 overflow-y-auto p-2 font-mono space-y-0.5">
+      <div className="flex-1 overflow-y-auto p-2 font-mono space-y-0.5 surface-well m-2 rounded-panel border-border">
         {files.map(item => renderItem(item, 0))}
       </div>
     </div>

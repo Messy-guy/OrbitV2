@@ -3,7 +3,6 @@ import { MessageSquare, BookmarkPlus, X } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useContextStore } from '../../stores/context.store';
 import { useUIStore } from '../../stores/ui.store';
-import { Badge } from '../ui/Badge';
 import { clsx } from 'clsx';
 
 export const SessionsPanel: React.FC = () => {
@@ -12,29 +11,29 @@ export const SessionsPanel: React.FC = () => {
   const { setActiveBottomPanel } = useUIStore();
 
   return (
-    <div className="h-72 bg-panel-elevated border-t border-border flex flex-col overflow-hidden text-xs select-none font-mono">
+    <div className="h-72 bg-canvas-chrome border-t border-border flex flex-col overflow-hidden text-xs select-none font-mono shadow-dock">
       {/* Header */}
-      <div className="h-7 px-3 bg-background-secondary border-b border-border flex items-center justify-between">
+      <div className="h-7 px-3 bg-panel border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="uppercase tracking-wider text-text-secondary font-bold text-[10px]">
+          <span className="uppercase tracking-wider text-text-primary font-bold text-[10px]">
             Agent Sessions & Checkpoints
           </span>
         </div>
 
         <button
           onClick={() => setActiveBottomPanel(null)}
-          className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel"
+          className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel-hover transition-colors"
         >
           <X size={13} />
         </button>
       </div>
 
       {/* Grid: Sessions List + Checkpoints History */}
-      <div className="flex-1 overflow-y-auto p-3.5 grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 gap-2.5">
         {/* Sessions list */}
-        <div className="p-3 rounded bg-panel border border-border flex flex-col">
-          <span className="text-[9.5px] uppercase tracking-widest text-text-muted font-bold mb-2 flex items-center gap-1.5">
-            <MessageSquare size={11} className="text-accent" />
+        <div className="p-3 rounded-panel surface-well border border-border flex flex-col">
+          <span className="text-[9.5px] uppercase tracking-widest text-text-dim font-bold mb-2 flex items-center gap-1.5">
+            <MessageSquare size={11} className="text-text-primary" />
             <span>Agent Sessions</span>
           </span>
 
@@ -46,33 +45,33 @@ export const SessionsPanel: React.FC = () => {
                   key={sess.id}
                   onClick={() => setActiveSession(agent.id, sess.id)}
                   className={clsx(
-                    'p-2 rounded border cursor-pointer flex items-center justify-between transition-colors',
+                    'p-2 rounded-btn border cursor-pointer flex items-center justify-between transition-colors',
                     isActive
-                      ? 'bg-accent/10 border-accent/30 text-text-primary'
-                      : 'bg-background-secondary border-border-subtle hover:border-border text-text-secondary'
+                      ? 'btn-primary text-canvas-chrome font-bold'
+                      : 'bg-panel border-border hover:border-border-hover text-text-secondary hover:text-text-primary'
                   )}
                 >
                   <div className="flex items-center gap-2">
                     <span className={clsx(
                       'w-1.5 h-1.5 rounded-full',
-                      sess.status === 'active' ? 'bg-status-success' : 'bg-text-dim'
+                      isActive ? 'bg-canvas-chrome' : (sess.status === 'active' ? 'bg-status-success' : 'bg-text-dim')
                     )} />
                     <div>
-                      <div className="font-bold text-[11px] text-text-primary flex items-center gap-1.5">
+                      <div className={clsx("font-bold text-[11px] flex items-center gap-1.5", isActive ? "text-canvas-chrome" : "text-text-primary")}>
                         <span>{agent.name}</span>
-                        <span className="text-[10px] text-text-muted font-normal">
+                        <span className={clsx("text-[10px] font-normal", isActive ? "text-canvas-chrome/70" : "text-text-muted")}>
                           · {sess.title}
                         </span>
                       </div>
-                      <div className="text-[9.5px] text-text-muted mt-0.5">
+                      <div className={clsx("text-[9.5px] mt-0.5", isActive ? "text-canvas-chrome/80" : "text-text-dim")}>
                         {sess.lastActivityTime || 'Active'}
                       </div>
                     </div>
                   </div>
 
                   <span className={clsx(
-                    'text-[9.5px] px-1.5 py-0.2 rounded font-bold uppercase',
-                    sess.status === 'active' ? 'bg-status-success/15 text-status-success' : 'bg-background text-text-dim'
+                    'text-[9px] px-1 py-0.2 rounded font-bold uppercase',
+                    isActive ? 'bg-canvas-chrome text-white' : (sess.status === 'active' ? 'bg-status-success/20 text-status-success' : 'bg-well text-text-dim border border-border-subtle')
                   )}>
                     {sess.status}
                   </span>
@@ -83,25 +82,25 @@ export const SessionsPanel: React.FC = () => {
         </div>
 
         {/* Checkpoints History */}
-        <div className="p-3 rounded bg-panel border border-border flex flex-col">
-          <span className="text-[9.5px] uppercase tracking-widest text-text-muted font-bold mb-2 flex items-center gap-1.5">
+        <div className="p-3 rounded-panel surface-well border border-border flex flex-col">
+          <span className="text-[9.5px] uppercase tracking-widest text-text-dim font-bold mb-2 flex items-center gap-1.5">
             <BookmarkPlus size={11} className="text-status-warning" />
             <span>Checkpoints ({checkpoints.length})</span>
           </span>
 
-          <div className="space-y-1 flex-1 overflow-y-auto font-mono">
+          <div className="space-y-1.5 flex-1 overflow-y-auto font-mono">
             {checkpoints.map(chk => (
               <div
                 key={chk.id}
-                className="p-2 rounded bg-background-secondary border border-border-subtle text-[11px]"
+                className="p-2 rounded-btn bg-panel border border-border text-[11px]"
               >
                 <div className="flex items-center justify-between font-medium text-text-primary mb-0.5">
                   <span className="font-bold">{chk.name}</span>
-                  <span className="text-[9.5px] text-text-muted">
+                  <span className="text-[9.5px] text-text-dim font-mono">
                     {new Date(chk.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                <p className="text-[10.5px] text-text-secondary font-sans leading-snug">{chk.summary}</p>
+                <p className="text-[11px] text-text-secondary font-sans leading-snug">{chk.summary}</p>
               </div>
             ))}
           </div>

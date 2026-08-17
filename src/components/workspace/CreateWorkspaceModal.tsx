@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, Sparkles } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
@@ -45,9 +45,9 @@ export const CreateWorkspaceModal: React.FC = () => {
       subtitle="Connect a project directory to launch multi-agent collaboration"
       maxWidth="md"
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4 font-mono">
         <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">
+          <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider mb-1.5 block">
             Workspace Name
           </label>
           <Input
@@ -63,7 +63,7 @@ export const CreateWorkspaceModal: React.FC = () => {
         </div>
 
         <div>
-          <label className="text-xs font-medium text-text-secondary mb-1.5 block">
+          <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider mb-1.5 block">
             Project Folder Path
           </label>
           <Input
@@ -72,12 +72,12 @@ export const CreateWorkspaceModal: React.FC = () => {
             placeholder={name ? `/home/leo/projects/${name.toLowerCase().replace(/\s+/g, '-')}` : '/home/leo/projects/my-app'}
             icon={<Folder size={14} />}
           />
-          <span className="text-[11px] text-text-muted mt-1 block font-mono">
+          <span className="text-[10.5px] text-text-dim mt-1 block font-mono">
             Phase 1 mock path — no local filesystem modification.
           </span>
         </div>
 
-        <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-border/80">
+        <div className="flex items-center justify-end gap-2 mt-2 pt-4 border-t border-border">
           <Button
             type="button"
             variant="ghost"
@@ -87,8 +87,9 @@ export const CreateWorkspaceModal: React.FC = () => {
           </Button>
           <Button
             type="submit"
-            variant="accent"
+            variant="primary"
             isLoading={isSubmitting}
+            className="tracking-wider font-bold"
           >
             Create Workspace
           </Button>

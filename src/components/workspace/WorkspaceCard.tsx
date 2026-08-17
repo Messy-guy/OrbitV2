@@ -11,34 +11,34 @@ export const WorkspaceCard: React.FC<WorkspaceCardProps> = ({ workspace, onSelec
   return (
     <div
       onClick={() => onSelect(workspace.id)}
-      className="group relative bg-panel border border-border hover:border-border-hover rounded-panel p-4 cursor-pointer transition-all duration-150 flex flex-col justify-between shadow-panel select-none hover:-translate-y-0.5"
+      className="group relative surface-panel rounded-panel p-4 cursor-pointer transition-all flex flex-col justify-between shadow-panel select-none hover:border-border-hover hover:bg-panel-hover"
     >
       <div>
         <div className="flex items-center justify-between mb-3">
-          <div className="w-8 h-8 rounded bg-background border border-border flex items-center justify-center text-text-secondary group-hover:text-accent group-hover:border-accent/40 transition-colors">
+          <div className="w-8 h-8 rounded-btn btn-base flex items-center justify-center text-text-muted group-hover:text-text-primary transition-colors">
             <Folder size={15} />
           </div>
-          <span className="font-mono text-[10px] text-text-muted px-1.5 py-0.5 rounded bg-background border border-border-subtle">
+          <span className="font-mono text-[10px] text-text-dim px-2 py-0.5 rounded-badge bg-well border border-border-subtle font-bold">
             {workspace.lastActive}
           </span>
         </div>
 
-        <h3 className="text-sm font-semibold text-text-primary tracking-tight font-mono group-hover:text-white transition-colors">
+        <h3 className="text-sm font-bold text-text-primary tracking-tight font-mono group-hover:text-white transition-colors">
           {workspace.name}
         </h3>
-        <p className="text-[11px] text-text-muted font-mono truncate mt-0.5">
+        <p className="text-[11px] text-text-muted font-mono truncate mt-1">
           {workspace.projectPath}
         </p>
       </div>
 
-      <div className="mt-5 pt-2.5 border-t border-border flex items-center justify-between text-[11px] font-mono text-text-muted">
+      <div className="mt-5 pt-3 border-t border-border-subtle flex items-center justify-between text-[11px] font-mono text-text-muted">
         <div className="flex items-center gap-1.5">
           <Users size={12} className="text-text-dim" />
           <span>{workspace.agentCount || 0} {(workspace.agentCount || 0) === 1 ? 'agent' : 'agents'}</span>
         </div>
-        <div className="flex items-center gap-1 text-accent opacity-0 group-hover:opacity-100 transition-opacity font-bold">
+        <div className="flex items-center gap-1 text-text-primary opacity-0 group-hover:opacity-100 transition-opacity font-bold">
           <span>OPEN</span>
-          <ArrowRight size={11} />
+          <ArrowRight size={12} strokeWidth={2.5} />
         </div>
       </div>
     </div>

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Share2, ArrowRight, Check, AlertCircle } from 'lucide-react';
+import { ArrowRight, AlertCircle } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { Badge } from '../ui/Badge';
 import { useAgentStore } from '../../stores/agent.store';
 import { useContextStore } from '../../stores/context.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
@@ -84,25 +83,25 @@ export const ShareContextModal: React.FC = () => {
           {/* FROM -> TO Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             {/* Source */}
-            <div className="p-3 bg-panel-elevated rounded border border-border">
-              <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-muted font-bold block mb-1.5">
+            <div className="p-3 surface-well rounded-panel border border-border">
+              <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-dim font-bold block mb-1.5">
                 SOURCE AGENT
               </span>
               <div className="flex items-center gap-2 text-text-primary font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                <span className="w-1.5 h-1.5 rounded-full bg-white" />
                 <span className="font-bold text-[12px]">{sourceAgent?.name || 'Agent'}</span>
                 <span className="text-text-muted text-[10px]">
                   · {sourceSession?.title.split('—')[0].trim() || 'Session 01'}
                 </span>
               </div>
-              <div className="text-[10px] text-text-muted font-mono mt-0.5">
+              <div className="text-[10.5px] text-text-muted font-mono mt-0.5">
                 {sourceAgent?.model}
               </div>
             </div>
 
             {/* Target Selection */}
-            <div className="p-3 bg-panel-elevated rounded border border-border">
-              <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-muted font-bold block mb-1.5">
+            <div className="p-3 surface-well rounded-panel border border-border">
+              <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-dim font-bold block mb-1.5">
                 TARGET AGENT
               </span>
               {targetAgents.length === 0 ? (
@@ -120,23 +119,23 @@ export const ShareContextModal: React.FC = () => {
                         key={t.id}
                         onClick={() => setTargetAgentId(t.id)}
                         className={clsx(
-                          'px-2 py-1 rounded border cursor-pointer flex items-center justify-between transition-colors font-mono',
+                          'px-2.5 py-1.5 rounded-btn border cursor-pointer flex items-center justify-between transition-colors font-mono',
                           isSelected
-                            ? 'bg-accent/10 border-accent/40 text-text-primary'
-                            : 'bg-background border-border-subtle hover:border-border text-text-secondary'
+                            ? 'btn-primary text-canvas-chrome font-bold'
+                            : 'bg-panel border-border hover:border-border-hover text-text-secondary hover:text-text-primary'
                         )}
                       >
                         <div className="flex items-center gap-1.5">
                           <span className={clsx(
                             'w-1.5 h-1.5 rounded-full',
-                            isSelected ? 'bg-accent' : 'bg-text-dim'
+                            isSelected ? 'bg-canvas-chrome' : 'bg-text-dim'
                           )} />
                           <span className="font-bold text-[11px]">{t.name}</span>
-                          <span className="text-[9px] text-text-muted">
+                          <span className={clsx("text-[9px]", isSelected ? "text-canvas-chrome/70 font-normal" : "text-text-dim")}>
                             · {tSession?.title.split('—')[0].trim() || 'Session 01'}
                           </span>
                         </div>
-                        <span className="text-[9.5px] text-text-muted">{t.model}</span>
+                        <span className={clsx("text-[9.5px]", isSelected ? "text-canvas-chrome/80" : "text-text-muted")}>{t.model}</span>
                       </div>
                     );
                   })}
@@ -149,68 +148,68 @@ export const ShareContextModal: React.FC = () => {
 
           {/* Context Components Checklist */}
           <div>
-            <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-muted font-bold block mb-1.5">
+            <span className="text-[9.5px] font-mono uppercase tracking-widest text-text-dim font-bold block mb-1.5">
               Context Modules
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 font-mono text-[11px]">
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeCurrentTask}
                   onChange={() => toggleCheck('includeCurrentTask')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Current objective & task</span>
+                <span className="text-text-primary">Current objective & task</span>
               </label>
 
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeProgress}
                   onChange={() => toggleCheck('includeProgress')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Progress metrics ({currentContext?.progress}%)</span>
+                <span className="text-text-primary">Progress metrics ({currentContext?.progress}%)</span>
               </label>
 
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeDecisions}
                   onChange={() => toggleCheck('includeDecisions')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Decisions ({currentContext?.decisions.length || 0})</span>
+                <span className="text-text-primary">Decisions ({currentContext?.decisions.length || 0})</span>
               </label>
 
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeKnownIssues}
                   onChange={() => toggleCheck('includeKnownIssues')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Known issues & blockers</span>
+                <span className="text-text-primary">Known issues & blockers</span>
               </label>
 
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeChangedFiles}
                   onChange={() => toggleCheck('includeChangedFiles')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Changed & relevant files</span>
+                <span className="text-text-primary">Changed & relevant files</span>
               </label>
 
-              <label className="flex items-center gap-2 p-2 rounded bg-background border border-border-subtle hover:bg-panel cursor-pointer select-none">
+              <label className="flex items-center gap-2 p-2.5 rounded-btn surface-well border border-border-subtle hover:border-border cursor-pointer select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={selection.includeRelevantConversation}
                   onChange={() => toggleCheck('includeRelevantConversation')}
-                  className="rounded text-accent focus:ring-accent/40 bg-background"
+                  className="rounded text-white focus:ring-0 bg-well border-border"
                 />
-                <span>Recent conversation summary</span>
+                <span className="text-text-primary">Recent conversation summary</span>
               </label>
             </div>
           </div>
@@ -220,7 +219,7 @@ export const ShareContextModal: React.FC = () => {
           {/* Footer with token calculation */}
           <div className="flex items-center justify-between pt-1">
             <div className="text-[11px] font-mono text-text-muted">
-              Payload size: <span className="text-accent font-bold">~{(estimatedTokens / 1000).toFixed(1)}k tokens</span>
+              Payload estimate: <span className="text-text-primary font-bold">~{(estimatedTokens / 1000).toFixed(1)}k tokens</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -232,14 +231,14 @@ export const ShareContextModal: React.FC = () => {
                 Cancel
               </Button>
               <Button
-                variant="accent"
+                variant="primary"
                 size="sm"
                 onClick={handleOpenPreview}
                 disabled={!validTarget}
-                className="gap-1 font-mono"
+                className="gap-1 font-mono tracking-wider font-bold"
               >
                 <span>Preview Handoff</span>
-                <ArrowRight size={13} />
+                <ArrowRight size={13} strokeWidth={2.5} />
               </Button>
             </div>
           </div>

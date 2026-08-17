@@ -12,7 +12,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full relative">
         {icon && (
-          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
+          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none">
             {icon}
           </div>
         )}
@@ -20,16 +20,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           className={twMerge(
             clsx(
-              'w-full bg-background-secondary border border-border rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted transition-colors duration-120',
-              'focus:outline-none focus:border-border-active focus:ring-1 focus:ring-accent/40',
+              'w-full surface-well rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder:text-text-dim transition-colors font-mono',
+              'focus:outline-none focus:border-border-highlight focus:bg-well',
               icon && 'pl-8',
-              error && 'border-status-error focus:border-status-error focus:ring-status-error/30',
+              error && 'border-status-error focus:border-status-error',
               className
             )
           )}
           {...props}
         />
-        {error && <span className="text-[11px] text-status-error mt-1 block font-mono">{error}</span>}
+        {error && <span className="text-[10.5px] text-status-error mt-1 block font-mono font-medium">{error}</span>}
       </div>
     );
   }

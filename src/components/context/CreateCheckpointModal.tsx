@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookmarkPlus, Check, Sparkles } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -45,17 +45,17 @@ export const CreateCheckpointModal: React.FC = () => {
       maxWidth="md"
     >
       {isSuccess ? (
-        <div className="py-8 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-full bg-status-success/20 border border-status-success/40 text-status-success flex items-center justify-center mb-3">
-            <Check size={24} />
+        <div className="py-8 flex flex-col items-center justify-center text-center font-mono">
+          <div className="w-12 h-12 rounded-full surface-well border border-status-success/40 text-status-success flex items-center justify-center mb-3">
+            <Check size={24} strokeWidth={3} />
           </div>
-          <h4 className="text-base font-semibold text-text-primary">Checkpoint created</h4>
-          <p className="text-xs text-text-secondary mt-1">Project memory state has been saved.</p>
+          <h4 className="text-sm font-bold text-text-primary uppercase tracking-wider">Checkpoint Created</h4>
+          <p className="text-xs text-text-muted mt-1 font-sans">Project memory state has been saved.</p>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 font-mono">
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1.5 block">
+            <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider mb-1.5 block">
               Checkpoint Name
             </label>
             <Input
@@ -67,7 +67,7 @@ export const CreateCheckpointModal: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1.5 block">
+            <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider mb-1.5 block">
               Summary of Progress & State
             </label>
             <textarea
@@ -75,11 +75,11 @@ export const CreateCheckpointModal: React.FC = () => {
               onChange={(e) => setSummary(e.target.value)}
               rows={3}
               placeholder="Describe current milestone achievements, architectural changes, or open blockers..."
-              className="w-full bg-background-secondary border border-border rounded-btn px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/40 resize-none font-sans"
+              className="w-full surface-well rounded-btn px-3 py-2 text-[12px] text-text-primary placeholder:text-text-dim focus:outline-none focus:border-border-highlight resize-none font-sans"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 mt-2 pt-4 border-t border-border/80">
+          <div className="flex items-center justify-end gap-2 mt-2 pt-4 border-t border-border">
             <Button
               type="button"
               variant="ghost"
@@ -89,8 +89,9 @@ export const CreateCheckpointModal: React.FC = () => {
             </Button>
             <Button
               type="submit"
-              variant="accent"
+              variant="primary"
               isLoading={isSubmitting}
+              className="tracking-wider font-bold"
             >
               Create Checkpoint
             </Button>

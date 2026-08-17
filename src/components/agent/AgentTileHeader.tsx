@@ -1,64 +1,83 @@
 import React, { useState } from 'react';
-import { MoreVertical, Trash2, Plus, Play, Pause, Terminal } from 'lucide-react';
+import { MoreVertical, Trash2, Plus, Play, Pause, Terminal, MessageSquare } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types/orbit';
 import { Badge } from '../ui/Badge';
 import { useAgentStore } from '../../stores/agent.store';
-import { clsx } from 'clsx';
 
 interface AgentTileHeaderProps {
   agent: Agent;
 }
 
 export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
-  const { removeAgent, setAgentStatus, sessions, activeSessionIdByAgent, setActiveSession, createNewSession } = useAgentStore();
+  const { removeAgent, setAgentStatus, sessions, activeSessionIdByAgent, setActiveSession, createNewSession, toggleAgentViewMode } = useAgentStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const agentSessions = sessions[agent.id] || [];
   const currentSessionId = activeSessionIdByAgent[agent.id];
+  const isTerminal = agent.viewMode !== 'chat';
 
   const getStatusDot = (status: AgentStatus) => {
     switch (status) {
       case 'working':
-        return <Badge variant="info" dot className="text-[10px] py-0 px-1.5 font-mono">Working</Badge>;
+        return <Badge variant="default" dot className="text-[9.5px] py-0 px-1.5 font-mono uppercase font-bold text-text-primary">Running</Badge>;
       case 'ready':
-        return <Badge variant="success" dot className="text-[10px] py-0 px-1.5 font-mono">Ready</Badge>;
+        return <Badge variant="success" dot className="text-[9.5px] py-0 px-1.5 font-mono uppercase font-bold">Idle</Badge>;
       case 'waiting':
-        return <Badge variant="warning" dot className="text-[10px] py-0 px-1.5 font-mono">Waiting</Badge>;
+        return <Badge variant="warning" dot className="text-[9.5px] py-0 px-1.5 font-mono uppercase font-bold">Waiting</Badge>;
       case 'paused':
-        return <Badge variant="secondary" dot className="text-[10px] py-0 px-1.5 font-mono">Paused</Badge>;
+        return <Badge variant="secondary" dot className="text-[9.5px] py-0 px-1.5 font-mono uppercase font-bold">Paused</Badge>;
       case 'error':
-        return <Badge variant="error" dot className="text-[10px] py-0 px-1.5 font-mono">Error</Badge>;
+        return <Badge variant="error" dot className="text-[9.5px] py-0 px-1.5 font-mono uppercase font-bold">Error</Badge>;
       default:
-        return <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-mono">{status}</Badge>;
+        return <Badge variant="secondary" className="text-[9.5px] py-0 px-1.5 font-mono">{status}</Badge>;
     }
   };
 
   return (
-    <div className="px-3 py-2 bg-panel-elevated/70 border-b border-border flex items-center justify-between select-none handle cursor-move">
+    <div className="px-3 py-1.5 bg-panel border-b border-border flex items-center justify-between select-none handle cursor-move relative">
       {/* Left: Agent Identifier + Model */}
       <div className="flex items-center gap-2 truncate">
         {getStatusDot(agent.status)}
         <div className="truncate flex items-center gap-1.5">
-          <span className="font-mono font-bold text-[11px] tracking-wider uppercase text-text-primary">
+          <span className="font-mono font-bold text-[11.5px] tracking-wider uppercase text-text-primary">
             {agent.name}
           </span>
-          <span className="text-text-dim text-[11px] font-mono">/</span>
-          <span className="text-[11px] font-mono text-text-muted truncate">
+          <span className="text-text-dim text-[10.5px] font-mono">/</span>
+          <span className="text-[10px] font-mono text-text-muted truncate">
             {agent.model}
           </span>
         </div>
       </div>
 
-      {/* Right: Session Switcher & Menu */}
-      <div className="flex items-center gap-1.5 no-drag">
+      {/* Right: View Mode Toggle (Terminal vs Chat) + Session Switcher + Menu */}
+      <div className="flex items-center gap-1 no-drag">
+        {/* Toggle Mode Button */}
+        <button
+          onClick={() => toggleAgentViewMode(agent.id)}
+          className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 bg-well hover:bg-panel-elevated text-text-secondary hover:text-text-primary border border-border transition-colors"
+          title={isTerminal ? "Switch to Structured Chat View" : "Switch to Raw Terminal CLI"}
+        >
+          {isTerminal ? (
+            <>
+              <Terminal size={11} className="text-status-success" />
+              <span className="font-bold">CLI</span>
+            </>
+          ) : (
+            <>
+              <MessageSquare size={11} className="text-text-primary" />
+              <span>CHAT</span>
+            </>
+          )}
+        </button>
+
         {agentSessions.length > 1 && (
           <select
             value={currentSessionId || ''}
             onChange={(e) => setActiveSession(agent.id, e.target.value)}
-            className="bg-background-secondary border border-border rounded text-[10px] font-mono text-text-secondary px-1.5 py-0.5 focus:outline-none focus:border-accent"
+            className="surface-well rounded-btn text-[10px] font-mono text-text-secondary px-1.5 py-0.5 focus:outline-none focus:border-border-highlight"
           >
             {agentSessions.map(s => (
-              <option key={s.id} value={s.id}>
+              <option key={s.id} value={s.id} className="bg-well text-text-primary">
                 {s.title.split('—')[0].trim()}
               </option>
             ))}
@@ -68,14 +87,14 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-panel transition-colors"
+            className="text-text-muted hover:text-text-primary p-1 rounded-btn hover:bg-panel-hover transition-colors"
           >
             <MoreVertical size={13} />
           </button>
 
           {isMenuOpen && (
             <div
-              className="absolute right-0 top-6 w-40 bg-panel-elevated border border-border rounded-panel shadow-elevated py-1 z-50 text-xs font-mono"
+              className="absolute right-0 top-7 w-40 surface-elevated rounded-panel shadow-elevated py-1 z-50 text-xs font-mono"
               onMouseLeave={() => setIsMenuOpen(false)}
             >
               <button
@@ -83,7 +102,7 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   createNewSession(agent.id, agent.workspaceId);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-panel hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px]"
+                className="w-full text-left px-3 py-1.5 hover:bg-panel-hover hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 <Plus size={12} />
                 <span>New Session</span>
@@ -94,7 +113,7 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   setAgentStatus(agent.id, agent.status === 'paused' ? 'ready' : 'paused');
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-panel hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px]"
+                className="w-full text-left px-3 py-1.5 hover:bg-panel-hover hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 {agent.status === 'paused' ? <Play size={12} /> : <Pause size={12} />}
                 <span>{agent.status === 'paused' ? 'Resume' : 'Pause'}</span>
@@ -107,10 +126,10 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   removeAgent(agent.id);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-status-error/15 text-status-error flex items-center gap-2 text-[11px]"
+                className="w-full text-left px-3 py-1.5 hover:bg-status-error/15 text-status-error flex items-center gap-2 text-[11px] transition-colors"
               >
                 <Trash2 size={12} />
-                <span>Remove Tile</span>
+                <span>Remove Terminal</span>
               </button>
             </div>
           )}

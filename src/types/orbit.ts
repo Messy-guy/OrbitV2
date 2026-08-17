@@ -1,6 +1,6 @@
 // Core Types for Orbit Desktop (Phase 1 Frontend Data Model)
 
-export type AgentProvider = 'antigravity' | 'codex' | 'claude' | 'opencode' | 'gemini' | 'custom';
+export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'gemini' | 'terminal' | 'custom';
 
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error';
 
@@ -14,6 +14,13 @@ export interface Workspace {
   updatedAt: number;
 }
 
+export interface TerminalLine {
+  id: string;
+  type: 'stdout' | 'stderr' | 'stdin' | 'system' | 'diff-add' | 'diff-del' | 'tool';
+  text: string;
+  timestamp: number;
+}
+
 export interface Agent {
   id: string;
   workspaceId: string;
@@ -22,6 +29,9 @@ export interface Agent {
   model: string;
   status: AgentStatus;
   currentSessionId?: string;
+  viewMode?: 'terminal' | 'chat';
+  pid?: number;
+  currentCommand?: string;
   createdAt: number;
 }
 

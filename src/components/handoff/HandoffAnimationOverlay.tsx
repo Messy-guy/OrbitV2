@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, ArrowDown, Bot, Terminal, Sparkles } from 'lucide-react';
+import { Check, ArrowDown } from 'lucide-react';
 import { useContextStore } from '../../stores/context.store';
 import { Button } from '../ui/Button';
 
@@ -29,73 +29,73 @@ export const HandoffAnimationOverlay: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={dismissHandoffAnimation}
-          className="absolute inset-0 bg-black/85 backdrop-blur-[2px]"
+          className="absolute inset-0 bg-black/75 backdrop-blur-[3px]"
         />
 
         {/* Center Card */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 8 }}
+          initial={{ opacity: 0, scale: 0.96, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97, y: 8 }}
-          transition={{ duration: 0.15, ease: 'easeOut' }}
-          className="relative z-10 w-full max-w-sm bg-panel border border-border rounded-panel p-5 shadow-elevated flex flex-col items-center text-center font-mono"
+          exit={{ opacity: 0, scale: 0.96, y: 8 }}
+          transition={{ duration: 0.14, ease: [0.2, 0, 0, 1] }}
+          className="relative z-10 w-full max-w-sm surface-elevated rounded-panel p-5 shadow-elevated flex flex-col items-center text-center font-mono border-border-hover"
         >
           {/* Node Stream Diagram */}
-          <div className="flex flex-col items-center gap-1.5 mb-4">
+          <div className="flex flex-col items-center gap-1.5 mb-4 w-full">
             {/* Source Agent */}
-            <div className="px-3 py-1 rounded bg-background border border-border flex items-center gap-2 text-xs font-bold text-text-primary uppercase">
-              <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
+            <div className="px-3.5 py-1.5 rounded-btn surface-well flex items-center justify-center gap-2 text-xs font-bold text-text-muted uppercase w-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-text-dim" />
               <span>{sourceAgentName}</span>
             </div>
 
             {/* Connecting Stream */}
-            <div className="flex flex-col items-center py-1">
+            <div className="flex flex-col items-center py-1.5">
               <motion.div
                 initial={{ height: 0 }}
-                animate={{ height: 20 }}
-                transition={{ duration: 0.25 }}
-                className="w-0.5 bg-accent/60 relative"
+                animate={{ height: 16 }}
+                transition={{ duration: 0.2 }}
+                className="w-0.5 bg-border-highlight relative"
               />
-              <span className="text-[9px] uppercase tracking-widest text-accent font-bold my-0.5">
-                HANDOFF STREAM
+              <span className="text-[9px] uppercase tracking-widest text-text-muted font-bold my-0.5">
+                HANDOFF
               </span>
-              <ArrowDown size={12} className="text-accent" />
+              <ArrowDown size={12} className="text-text-primary" />
             </div>
 
             {/* Target Agent */}
-            <div className="px-3 py-1 rounded bg-accent/10 border border-accent/40 text-accent flex items-center gap-2 text-xs font-bold uppercase">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse" />
-              <span className="text-text-primary">{targetAgentName}</span>
+            <div className="px-3.5 py-1.5 rounded-btn btn-primary text-canvas-chrome flex items-center justify-center gap-2 text-xs font-bold uppercase w-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-success" />
+              <span className="text-canvas-chrome">{targetAgentName}</span>
             </div>
           </div>
 
           {/* Success Title */}
           <div className="flex items-center gap-1.5 text-status-success font-bold text-xs mb-1">
-            <Check size={14} strokeWidth={2.5} />
-            <span>Context Injected</span>
+            <Check size={14} strokeWidth={3} />
+            <span className="uppercase tracking-wider">Context Injected</span>
           </div>
 
-          <p className="text-[10px] text-text-muted mb-3">
+          <p className="text-[10px] text-text-muted mb-3 font-mono">
             {sourceAgentName} ──&gt; {targetAgentName}
           </p>
 
           {/* Transfer stats */}
           <div className="w-full grid grid-cols-2 gap-1.5 text-[10.5px] mb-4 text-text-muted">
-            <div className="p-1.5 rounded bg-background border border-border-subtle flex items-center justify-between">
+            <div className="p-2 rounded-btn surface-well flex items-center justify-between">
               <span>Decisions:</span>
               <strong className="text-text-primary font-bold">{decisionCount}</strong>
             </div>
-            <div className="p-1.5 rounded bg-background border border-border-subtle flex items-center justify-between">
+            <div className="p-2 rounded-btn surface-well flex items-center justify-between">
               <span>Issues:</span>
               <strong className="text-status-warning font-bold">{issueCount}</strong>
             </div>
-            <div className="p-1.5 rounded bg-background border border-border-subtle flex items-center justify-between">
+            <div className="p-2 rounded-btn surface-well flex items-center justify-between">
               <span>Files:</span>
               <strong className="text-text-primary font-bold">{fileCount}</strong>
             </div>
-            <div className="p-1.5 rounded bg-background border border-border-subtle flex items-center justify-between">
+            <div className="p-2 rounded-btn surface-well flex items-center justify-between">
               <span>Tokens:</span>
-              <strong className="text-accent font-bold">~{(tokenCount / 1000).toFixed(1)}k</strong>
+              <strong className="text-text-primary font-bold">~{(tokenCount / 1000).toFixed(1)}k</strong>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Agent } from '../../types/orbit';
 import { AgentTileHeader } from './AgentTileHeader';
+import { AgentTerminal } from './AgentTerminal';
 import { AgentChat } from './AgentChat';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -15,23 +16,26 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
   const { setShareContextOpen, setCreateCheckpointOpen, setActiveBottomPanel } = useUIStore();
 
   const currentSessionId = activeSessionIdByAgent[agent.id] || sessions[agent.id]?.[0]?.id;
+  const isTerminal = agent.viewMode !== 'chat';
 
   return (
-    <div className="h-full w-full bg-panel border border-border rounded-panel shadow-panel flex flex-col overflow-hidden transition-colors focus-within:border-border-hover">
-      {/* Header */}
+    <div className="h-full w-full surface-panel rounded-panel shadow-panel flex flex-col overflow-hidden transition-colors focus-within:border-border-hover">
+      {/* Header with CLI / Chat Switcher */}
       <AgentTileHeader agent={agent} />
 
-      {/* Main Conversation Stream */}
-      {currentSessionId ? (
+      {/* Main Terminal Harness / Conversation Stream */}
+      {isTerminal ? (
+        <AgentTerminal agent={agent} />
+      ) : currentSessionId ? (
         <AgentChat agent={agent} sessionId={currentSessionId} />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-xs text-text-muted font-mono">
+        <div className="flex-1 flex items-center justify-center text-xs text-text-muted font-mono surface-well">
           Session not attached
         </div>
       )}
 
       {/* Footer Quick Actions */}
-      <div className="h-7 px-2.5 bg-panel-elevated/70 border-t border-border flex items-center justify-between text-[11px] font-mono select-none no-drag">
+      <div className="h-7 px-2.5 bg-panel-elevated/70 border-t border-border-subtle flex items-center justify-between text-[11px] font-mono select-none no-drag">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveBottomPanel('context')}
@@ -44,7 +48,7 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
 
           <button
             onClick={() => setShareContextOpen(true, agent.id)}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 border border-accent/25 transition-colors font-medium"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-btn btn-base text-text-primary hover:text-white font-semibold transition-all"
             title="Share Context to another Agent"
           >
             <Share2 size={11} />
@@ -61,7 +65,7 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
           </button>
         </div>
 
-        <div className="text-[10px] text-text-dim uppercase font-bold">
+        <div className="text-[9.5px] text-text-dim uppercase font-bold tracking-wider">
           {agent.provider}
         </div>
       </div>

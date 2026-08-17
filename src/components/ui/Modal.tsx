@@ -50,32 +50,32 @@ export const Modal: React.FC<ModalProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/80 backdrop-blur-[2px]"
+            className="absolute inset-0 bg-black/70 backdrop-blur-[3px]"
           />
 
           {/* Dialog Container */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.98, y: 4 }}
+            initial={{ opacity: 0, scale: 0.98, y: 6 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 4 }}
-            transition={{ duration: 0.12, ease: 'easeOut' }}
+            exit={{ opacity: 0, scale: 0.98, y: 6 }}
+            transition={{ duration: 0.14, ease: [0.2, 0, 0, 1] }}
             className={twMerge(
               clsx(
-                'relative w-full bg-panel border border-border rounded-panel shadow-elevated overflow-hidden z-10 flex flex-col',
+                'relative w-full surface-elevated rounded-panel shadow-elevated overflow-hidden z-10 flex flex-col',
                 maxW[maxWidth],
                 className
               )
             )}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-panel-elevated/50">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-panel-elevated">
               <div>
-                <h3 className="text-[13px] font-semibold text-text-primary tracking-tight font-mono">{title}</h3>
-                {subtitle && <p className="text-[11px] text-text-muted mt-0.5">{subtitle}</p>}
+                <h3 className="text-[13px] font-bold text-text-primary tracking-wider font-mono uppercase">{title}</h3>
+                {subtitle && <p className="text-[11px] text-text-muted mt-0.5 font-sans">{subtitle}</p>}
               </div>
               <button
                 onClick={onClose}
-                className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-panel-hover transition-colors"
+                className="text-text-muted hover:text-white p-1 rounded-btn hover:bg-panel-hover transition-colors border border-transparent hover:border-border"
               >
                 <X size={14} />
               </button>
