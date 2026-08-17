@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: #090A0C;
+    --bg-secondary: #0E1013;
+    --panel-base: #121418;
+    --panel-elevated: #171A20;
+    --border-base: #22262E;
+    --accent: #4F6BFF;
+  }
+
+  body {
+    background-color: #090A0C;
+    color: #F3F4F6;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+  }
+
+  ::selection {
+    background-color: rgba(79, 107, 255, 0.25);
+    color: #FFFFFF;
+  }
+}
+
+/* Minimalist Developer Scrollbars */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #272C36;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3B4252;
+}
+
+/* Grid Layout Technical Overrides */
+.react-grid-item {
+  transition: all 180ms cubic-bezier(0.2, 0, 0, 1);
+  transition-property: left, top, width, height;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(79, 107, 255, 0.05) !important;
+  border: 1px dashed rgba(79, 107, 255, 0.35) !important;
+  border-radius: 8px !important;
+  opacity: 0.95 !important;
+  z-index: 2 !important;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  bottom: 1px;
+  right: 1px;
+  cursor: se-resize;
+  z-index: 10;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid #475569;
+  border-bottom: 1.5px solid #475569;
+}
