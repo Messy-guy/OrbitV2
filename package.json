@@ -8,6 +8,7 @@
     "dev:desktop": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo run'",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "tauri": "tauri",
     "tauri:host": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo run'",
     "tauri:build": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo build --release'"
   },
