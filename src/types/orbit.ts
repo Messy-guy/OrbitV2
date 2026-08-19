@@ -1,18 +1,40 @@
-// Core Types for Orbit Desktop (Phase 1 Frontend Data Model)
+// Core Types for Orbit Desktop (Phase 3 Data Model)
 
 export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'gemini' | 'terminal' | 'custom';
 
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error';
 
-export interface Workspace {
+export interface AgentUsageStats {
+  provider: string;
+  activeTokens: number;
+  maxContextTokens: number;
+  percentageUsed: number;
+  transcriptTurns: number;
+  estimatedCostUsd: number;
+  lastUpdated: number;
+}
+
+export interface Space {
+  id: string;
+  projectId: string;
+  name: string;
+  agentCount?: number;
+  createdAt: number;
+}
+
+export interface Project {
   id: string;
   name: string;
   projectPath: string;
+  spaces?: Space[];
+  activeSpaceId?: string;
   agentCount?: number;
   lastActive: string;
   createdAt: number;
   updatedAt: number;
 }
+
+export interface Workspace extends Project {}
 
 export interface TerminalLine {
   id: string;
@@ -24,6 +46,7 @@ export interface TerminalLine {
 export interface Agent {
   id: string;
   workspaceId: string;
+  spaceId?: string;
   provider: AgentProvider;
   name: string;
   model: string;
@@ -74,6 +97,39 @@ export interface Message {
   };
 }
 
+export interface ChangedFileItem {
+  path: string;
+  status: 'modified' | 'added' | 'deleted' | 'untracked';
+}
+
+export interface GitBranch {
+  name: string;
+  isCurrent: boolean;
+  lastCommit: string;
+}
+
+export interface GitState {
+  currentBranch: string;
+  headCommit: string;
+  modifiedFiles: ChangedFileItem[];
+  recentCommits: string[];
+}
+
+export interface Checkpoint {
+  id: string;
+  workspaceId: string;
+  name: string;
+  task: string;
+  progress: string;
+  decisions: string[];
+  knownIssues: string[];
+  notes?: string;
+  changedFiles: ChangedFileItem[];
+  agentId?: string;
+  agentName?: string;
+  createdAt: number;
+}
+
 export interface ProjectDecision {
   id: string;
   title: string;
@@ -92,23 +148,17 @@ export interface ProjectIssue {
 export interface ProjectContext {
   id: string;
   workspaceId: string;
+  currentTask: string;
   goal: string;
   progress: number; // 0 to 100
+  activeWork: string;
   decisions: ProjectDecision[];
   issues: ProjectIssue[];
+  notes: string[];
   architecture: string;
   relevantFiles: string[];
   lastCheckpointTime?: string;
   updatedAt: number;
-}
-
-export interface Checkpoint {
-  id: string;
-  workspaceId: string;
-  name: string;
-  summary: string;
-  agentId?: string;
-  createdAt: number;
 }
 
 export interface HandoffSelection {
@@ -117,10 +167,52 @@ export interface HandoffSelection {
   includeDecisions: boolean;
   includeKnownIssues: boolean;
   includeChangedFiles: boolean;
+  includeGitState: boolean;
   includeRelevantConversation: boolean;
   includeFullConversation: boolean;
 }
 
+export interface ContextPackage {
+  schemaVersion: number;
+  sourceAgent: string;
+  sourceSessionId: string;
+  targetAgent: string;
+  workspaceId: string;
+  workspaceName: string;
+  projectPath: string;
+  checkpointId?: string;
+  currentTask: string;
+  progress: string;
+  decisions: string[];
+  changedFiles: ChangedFileItem[];
+  knownIssues: string[];
+  gitState?: GitState;
+  relevantHistory?: string[];
+  notes?: string[];
+  generatedAt: number;
+  estimatedTokens: number;
+  formattedInstruction?: string;
+}
+
+export type HandoffStatus = 'created' | 'sent' | 'accepted' | 'failed';
+
+export interface HandoffRecord {
+  id: string;
+  workspaceId: string;
+  sourceAgentId: string;
+  sourceAgentName: string;
+  targetAgentId: string;
+  targetAgentName: string;
+  sourceSessionId: string;
+  targetSessionId?: string;
+  checkpointId?: string;
+  task: string;
+  contextPackage: ContextPackage;
+  status: HandoffStatus;
+  createdAt: number;
+}
+
+// Retain legacy Handoff interface for backward compatibility where needed
 export interface Handoff {
   id: string;
   workspaceId: string;
@@ -146,7 +238,7 @@ export type ActivityType =
   | 'agent_paused' 
   | 'file_changed' 
   | 'test_run' 
-  | 'test_failed'
+  | 'test_failed' 
   | 'checkpoint' 
   | 'handoff';
 
@@ -171,21 +263,6 @@ export interface FileItem {
   status?: 'modified' | 'added' | 'unmodified';
 }
 
-export interface GitBranch {
-  name: string;
-  isCurrent: boolean;
-  lastCommit: string;
-}
-
-export interface GitState {
-  currentBranch: string;
-  branches: GitBranch[];
-  modifiedFiles: Array<{
-    path: string;
-    status: 'M' | 'A' | 'D' | 'U';
-  }>;
-}
-
 export type BottomPanelType = 'context' | 'activity' | 'files' | 'git' | 'sessions' | null;
 
 export interface AgentGridTileLayout {
@@ -197,3 +274,74 @@ export interface AgentGridTileLayout {
   minW?: number;
   minH?: number;
 }
+
+// Phase 4: Intelligent Context Engine Types
+export interface CommandRecord {
+  command: string;
+  timestamp: number;
+  exitCode?: number;
+  durationMs?: number;
+}
+
+export interface IssueRecord {
+  id: string;
+  title: string;
+  filePath?: string;
+  lineNumber?: number;
+  code?: string;
+  severity: 'critical' | 'warning' | 'info';
+  status: 'open' | 'investigating' | 'resolved';
+  firstSeenAt: number;
+  lastSeenAt: number;
+  occurrenceCount: number;
+}
+
+export interface BuildSummary {
+  status: 'passed' | 'failed' | 'running';
+  errorCount: number;
+  warningCount: number;
+  timestamp: number;
+  message?: string;
+}
+
+export interface TestSummary {
+  status: 'passed' | 'failed' | 'running';
+  passedCount: number;
+  failedCount: number;
+  totalCount: number;
+  timestamp: number;
+  runner: string;
+}
+
+export interface ProjectActivityState {
+  workspaceId: string;
+  activeAgentId?: string;
+  recentCommands: CommandRecord[];
+  changedFiles: ChangedFileItem[];
+  recentIssues: IssueRecord[];
+  lastBuild?: BuildSummary;
+  lastTest?: TestSummary;
+  gitState: GitState;
+  lastActivityAt: number;
+  lastCheckpointTime?: number;
+  contextFreshness: number; // 0 to 100%
+}
+
+export interface DraftItem {
+  text: string;
+  confidence: 'High' | 'Medium' | 'Low';
+  source: string;
+  confirmed: boolean;
+}
+
+export interface ContextDraft {
+  workspaceId: string;
+  taskProposal: DraftItem;
+  progressProposals: DraftItem[];
+  changedFiles: ChangedFileItem[];
+  activeIssues: IssueRecord[];
+  recentDecisions: DraftItem[];
+  gitSummary: string;
+  generatedAt: number;
+}
+

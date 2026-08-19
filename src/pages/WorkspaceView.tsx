@@ -6,7 +6,7 @@ import { useActivityStore } from '../stores/activity.store';
 import { useUIStore } from '../stores/ui.store';
 import { Sidebar } from '../components/layout/Sidebar';
 import { BottomDock } from '../components/layout/BottomDock';
-import { AgentGrid } from '../components/agent/AgentGrid';
+import { AgentCanvas } from '../components/agent/AgentCanvas';
 import { EmptyWorkspace } from '../components/workspace/EmptyWorkspace';
 import { ContextPanel } from '../components/context/ContextPanel';
 import { ActivityPanel } from '../components/activity/ActivityPanel';
@@ -16,6 +16,7 @@ import { SessionsPanel } from '../components/sessions/SessionsPanel';
 import { AddAgentModal } from '../components/agent/AddAgentModal';
 import { ShareContextModal } from '../components/handoff/ShareContextModal';
 import { CreateCheckpointModal } from '../components/context/CreateCheckpointModal';
+import { ContextDraftModal } from '../components/context/ContextDraftModal';
 import { HandoffAnimationOverlay } from '../components/handoff/HandoffAnimationOverlay';
 
 export const WorkspaceView: React.FC = () => {
@@ -28,12 +29,12 @@ export const WorkspaceView: React.FC = () => {
   const activeWorkspace = getActiveWorkspace();
 
   useEffect(() => {
-    if (activeWorkspaceId) {
-      loadAgentsForWorkspace(activeWorkspaceId);
-      loadContextForWorkspace(activeWorkspaceId);
+    if (activeWorkspaceId && activeWorkspace) {
+      loadAgentsForWorkspace(activeWorkspaceId, activeWorkspace.projectPath);
+      loadContextForWorkspace(activeWorkspaceId, activeWorkspace.projectPath);
       loadWorkspaceData(activeWorkspaceId);
     }
-  }, [activeWorkspaceId, loadAgentsForWorkspace, loadContextForWorkspace, loadWorkspaceData]);
+  }, [activeWorkspaceId, activeWorkspace?.projectPath, loadAgentsForWorkspace, loadContextForWorkspace, loadWorkspaceData]);
 
   if (!activeWorkspace) return null;
 
@@ -44,13 +45,9 @@ export const WorkspaceView: React.FC = () => {
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden">
-        {/* Agent Grid or Empty State */}
+        {/* Agent Canvas Workspace */}
         <main className="flex-1 overflow-hidden relative">
-          {agents.length === 0 ? (
-            <EmptyWorkspace workspaceName={activeWorkspace.name} />
-          ) : (
-            <AgentGrid />
-          )}
+          <AgentCanvas />
         </main>
 
         {/* Active Bottom Panel Drawer */}
@@ -59,15 +56,13 @@ export const WorkspaceView: React.FC = () => {
         {activeBottomPanel === 'files' && <FilesPanel />}
         {activeBottomPanel === 'git' && <GitPanel />}
         {activeBottomPanel === 'sessions' && <SessionsPanel />}
-
-        {/* Bottom Navigation Dock */}
-        <BottomDock />
       </div>
 
       {/* Modals & Overlays */}
       <AddAgentModal />
       <ShareContextModal />
       <CreateCheckpointModal />
+      <ContextDraftModal />
       <HandoffAnimationOverlay />
     </div>
   );

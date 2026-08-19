@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { CornerDownLeft, Sparkles, Copy, Check } from 'lucide-react';
+import { CornerDownLeft, ArrowLeftRight, Copy, Check } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
+import { useWorkspaceStore } from '../../stores/workspace.store';
 import { ToolActivity } from './ToolActivity';
 
 interface AgentChatProps {
@@ -11,11 +12,13 @@ interface AgentChatProps {
 
 export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   const { messages, sendMessage } = useAgentStore();
+  const { getActiveWorkspace } = useWorkspaceStore();
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const activeWorkspace = getActiveWorkspace();
   const sessionMessages = messages[sessionId] || [];
 
   const scrollToBottom = () => {
@@ -29,7 +32,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   const handleSend = (textToSend?: string) => {
     const text = textToSend || input;
     if (!text.trim()) return;
-    sendMessage(agent.id, sessionId, text.trim());
+    sendMessage(agent.id, sessionId, text.trim(), activeWorkspace?.projectPath);
     setInput('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -90,7 +93,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
               >
                 <div className="flex items-center justify-between border-b border-border pb-2">
                   <div className="flex items-center gap-1.5 text-text-primary font-bold tracking-wider uppercase text-[10.5px]">
-                    <Sparkles size={12} className="text-text-primary" />
+                    <ArrowLeftRight size={12} className="text-text-primary" />
                     <span>ORBIT CONTEXT HANDOFF</span>
                   </div>
                   <span className="text-[10px] text-text-muted px-1.5 py-0.2 rounded-badge bg-well border border-border-subtle font-mono">

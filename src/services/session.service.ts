@@ -1,6 +1,7 @@
 import { Session, Message } from '../types/orbit';
 import { INITIAL_SESSIONS } from '../mock/sessions';
 import { INITIAL_MESSAGES } from '../mock/messages';
+import { isTauriAvailable, tauriService } from './tauri.service';
 
 export interface ISessionService {
   getSessions(workspaceId: string): Promise<Session[]>;
@@ -11,37 +12,55 @@ export interface ISessionService {
   addMessage(message: Omit<Message, 'id' | 'timestamp'>): Promise<Message>;
 }
 
-export class MockSessionService implements ISessionService {
-  private sessions: Session[] = [...INITIAL_SESSIONS];
-  private messages: Record<string, Message[]> = { ...INITIAL_MESSAGES };
+export class HybridSessionService implements ISessionService {
+  private fallbackSessions: Session[] = [];
+  private messages: Record<string, Message[]> = {};
 
   async getSessions(workspaceId: string): Promise<Session[]> {
-    return this.sessions.filter(s => s.workspaceId === workspaceId);
+    if (isTauriAvailable()) {
+      try {
+        const list = await tauriService.getSessions(workspaceId);
+        if (list && list.length > 0) return list;
+      } catch (e) {
+        console.warn('Tauri getSessions failed, falling back', e);
+      }
+    }
+    return this.fallbackSessions.filter(s => s.workspaceId === workspaceId);
   }
 
   async getSessionById(sessionId: string): Promise<Session | undefined> {
-    return this.sessions.find(s => s.id === sessionId);
+    const all = this.fallbackSessions;
+    return all.find(s => s.id === sessionId);
   }
 
   async getAgentSessions(agentId: string): Promise<Session[]> {
-    return this.sessions.filter(s => s.agentId === agentId);
+    return this.fallbackSessions.filter(s => s.agentId === agentId);
   }
 
   async createSession(agentId: string, workspaceId: string, title?: string): Promise<Session> {
-    const sessionCount = this.sessions.filter(s => s.agentId === agentId).length + 1;
+    const sessionCount = this.fallbackSessions.filter(s => s.agentId === agentId).length + 1;
     const pad = sessionCount < 10 ? `0${sessionCount}` : `${sessionCount}`;
     const newSession: Session = {
       id: `sess-${agentId}-${Date.now().toString().slice(-4)}`,
       agentId,
       workspaceId,
-      title: title || `Session ${pad} — New Session`,
+      title: title || `Session ${pad} — Interactive CLI`,
       status: 'active',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messageCount: 0,
       lastActivityTime: 'Just now',
     };
-    this.sessions.push(newSession);
+
+    if (isTauriAvailable()) {
+      try {
+        await tauriService.createSession(newSession);
+      } catch (e) {
+        console.warn('Tauri createSession failed', e);
+      }
+    }
+
+    this.fallbackSessions.push(newSession);
     this.messages[newSession.id] = [];
     return newSession;
   }
@@ -62,7 +81,7 @@ export class MockSessionService implements ISessionService {
     }
     this.messages[message.sessionId].push(newMessage);
 
-    const session = this.sessions.find(s => s.id === message.sessionId);
+    const session = this.fallbackSessions.find(s => s.id === message.sessionId);
     if (session) {
       session.messageCount = this.messages[message.sessionId].length;
       session.updatedAt = Date.now();

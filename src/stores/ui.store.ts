@@ -8,6 +8,7 @@ interface UIState {
   isShareContextOpen: boolean;
   isCreateCheckpointOpen: boolean;
   selectedAgentForModal: string | null; // agentId
+  maximizedAgentId: string | null; // agentId for fullscreen/maximized terminal
 
   // Actions
   setActiveBottomPanel: (panel: BottomPanelType) => void;
@@ -16,6 +17,7 @@ interface UIState {
   setAddAgentOpen: (open: boolean) => void;
   setShareContextOpen: (open: boolean, agentId?: string) => void;
   setCreateCheckpointOpen: (open: boolean, agentId?: string) => void;
+  setMaximizedAgentId: (agentId: string | null) => void;
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -25,6 +27,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   isShareContextOpen: false,
   isCreateCheckpointOpen: false,
   selectedAgentForModal: null,
+  maximizedAgentId: null,
+
+  setMaximizedAgentId: (agentId: string | null) => {
+    set({ maximizedAgentId: agentId });
+  },
 
   setActiveBottomPanel: (panel: BottomPanelType) => {
     set({ activeBottomPanel: panel });

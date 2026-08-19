@@ -1,18 +1,21 @@
 import { GitState } from '../types/orbit';
 
-export const INITIAL_GIT_STATE: Record<string, GitState> = {
+export const MOCK_GIT_STATE: Record<string, GitState> = {
   'ws-music-app': {
-    currentBranch: 'playlist-sync',
-    branches: [
-      { name: 'main', isCurrent: false, lastCommit: 'Merge pull request #12 from feature/auth' },
-      { name: 'playlist-sync', isCurrent: true, lastCommit: 'WIP: socket state resync protocol on peer reconnect' },
-      { name: 'fix/reconnect', isCurrent: false, lastCommit: 'Add exponential backoff jitter calculation' },
+    currentBranch: 'main',
+    headCommit: 'a82f31c',
+    recentCommits: [
+      'a82f31c Add socket reconnection backoff',
+      '9d01e12 Initialize playlist store slice',
+      '4b33a01 Add audio buffer decoders',
     ],
     modifiedFiles: [
-      { path: 'src/store/playlist.store.ts', status: 'M' },
-      { path: 'src/socket/playlist.socket.ts', status: 'M' },
-      { path: 'src/server/websocket.server.ts', status: 'M' },
-      { path: 'tests/reconnect.spec.ts', status: 'M' },
-    ]
-  }
+      { path: 'src/store/playlist.store.ts', status: 'modified' },
+      { path: 'src/socket/playlist.socket.ts', status: 'modified' },
+      { path: 'src/server/websocket.server.ts', status: 'modified' },
+      { path: 'tests/reconnect.spec.ts', status: 'modified' },
+    ],
+  },
 };
+
+export const INITIAL_GIT_STATE = MOCK_GIT_STATE;

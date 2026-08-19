@@ -1,68 +1,77 @@
-# ORBIT DESKTOP — MASTER AGENTS GUIDELINE
+# ORBIT DESKTOP — MASTER ARCHITECTURE & AGENT GUIDELINES
 
-## Current Phase: PHASE 1 (FRONTEND ONLY)
-The goal is to validate Orbit's product UX before building the backend and agent engine.
-All agent integration, context generation, and project data are **strictly MOCKED**.
+## Current State: Phase 3 Completed + Native PTY & Real CLI Runtime Verified
 
----
-
-## 1. Product Definition
-Orbit is a desktop workspace for developers who work with multiple AI coding agents (Antigravity, Codex, Claude Code, OpenCode, Gemini CLI, etc.).
-- **Workspace**: Project
-- **Agent Tile**: Coding Agent working on the project
-- **Session**: One agent's conversation/work history
-- **Project Context**: Shared project memory
-- **Checkpoint**: Saved project state
-- **Handoff**: Context transfer from one agent/session to another
-
-Orbit does NOT replace coding agents — it is the multi-agent workspace around them.
+Orbit is an industrial, multi-agent desktop runtime built with Tauri 2, React, TypeScript, Rust, and `@xterm/xterm`. It orchestrates host CLI coding agents (Antigravity `agy`, Claude Code `claude`, Codex, OpenCode, Shell) inside isolated native pseudo-terminals with shared project context handoff.
 
 ---
 
-## 2. Prohibited in Phase 1 (DO NOT IMPLEMENT)
-- Real PTY / shell execution / terminal spawning
-- Real Agent CLI / API / LLM connections (Antigravity, Codex, Claude, etc.)
-- Database / SQLite / filesystem scanning
-- Real Git integration or indexing
-- Backend server / cloud synchronization
+## 1. Core Architecture
+
+```
+React 18 Frontend (@xterm/xterm Canvas)
+       │
+       ▼ (Tauri IPC invoke: 'start_agent_session', 'send_agent_input', 'resize_agent_terminal')
+Tauri 2 Rust Backend (src-tauri/src/runtime/pty_manager.rs)
+       │
+       ▼ (portable_pty native master/slave allocation)
+Host Linux PTY Subsystem (/dev/pts/*)
+       │
+       ▼ (Inherits environment variables: PATH, HOME, USER, LANG, TERM=xterm-256color)
+Real CLI Agent Processes:
+  • Antigravity CLI: /home/leo/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin/agy
+  • Claude Code CLI: /home/leo/.local/bin/claude
+  • Shell Terminal: /bin/bash -i
+```
 
 ---
 
-## 3. Technology Stack
-- **Framework**: Tauri 2 + React 18/19 + TypeScript + Vite
-- **Styling**: Tailwind CSS + CSS Variables (Dark-first UI)
-- **Icons**: Lucide React
-- **Animations**: Framer Motion
-- **State Management**: Zustand
-- **Grid Layout**: react-grid-layout
-- **Component Primitives**: Radix UI / custom developer-grade components
+## 2. Key Modules & Implementations
+
+### Frontend (`src/`)
+- **Terminal Emulator (`src/components/agent/AgentTerminal.tsx`)**:
+  - Direct `@xterm/xterm` canvas with `@xterm/addon-fit` and `ResizeObserver`.
+  - Raw bidirectional I/O keystroke listener (`term.onData`).
+  - Automatic history buffer replaying on tile mount.
+  - Case-insensitive provider binding.
+- **Spatial Agent Grid (`src/components/agent/AgentGrid.tsx`)**:
+  - Multi-agent canvas powered by `react-grid-layout`.
+  - Grid layout persistence and dynamic tile resizing.
+- **Context Engine & Handoff (`src/components/context/`, `src/components/handoff/`)**:
+  - Context Package generation with token estimation and diff indexing.
+  - Project checkpoints and intelligent agent-to-agent prompt compilation.
+
+### Backend Runtime (`src-tauri/`)
+- **PTY Manager (`src-tauri/src/runtime/pty_manager.rs`)**:
+  - Native master/slave pseudo-terminal allocation via `portable_pty`.
+  - Raw byte streaming over `agent-output` and `agent-status` Tauri events.
+  - In-memory scrollback buffer (`output_history`) for instant replay.
+  - Native signal dispatching (SIGINT / Ctrl+C, window resize / SIGWINCH, process termination).
+- **Agent Discovery (`src-tauri/src/discovery.rs`)**:
+  - System `PATH` and flatpak host executable resolution.
+  - Live version detection (`agy --version`, `claude --version`).
+- **Storage & State (`src-tauri/src/storage.rs`)**:
+  - JSON persistence at `~/.config/orbit/orbit_state.json`.
 
 ---
 
-## 4. Design & Aesthetic Rules
-- **Dark-first**:
-  - Background Base: `#09090B`
-  - Background Secondary: `#0F1013`
-  - Panel: `#13151A`
-  - Elevated Panel: `#181A20`
-  - Border: `#272A31`
-  - Accent (use sparingly): `#7C8CFF`
-  - Text Primary: `#F4F4F5`
-  - Text Secondary: `#A1A1AA`
-  - Text Muted: `#71717A`
-  - Status: Success (`#4ADE80`), Warning (`#FBBF24`), Error (`#F87171`), Info (`#60A5FA`)
-- **Restrained Radii**: Panels 10–12px, Buttons/Inputs 7–8px, Badges 5–6px.
-- **Typography**: Inter (UI), JetBrains Mono (Code/Terminal/Prompts).
-- **Tone**: Technical, focused, minimal, sophisticated, developer-centric. No excessive purple glow, no giant AI blobs.
+## 3. Verified Host Binaries
+
+| Provider | Path | Host Version |
+|---|---|---|
+| **Antigravity (`agy`)** | `/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin/agy` | `1.1.13` |
+| **Claude Code (`claude`)** | `/home/leo/.local/bin/claude` | `2.1.233` |
+| **Shell Terminal** | `/bin/bash` | Native Linux Shell |
 
 ---
 
-## 5. Architecture & Service Abstraction
-UI components MUST interact via defined Service Interfaces:
-- `AgentService` → `MockAgentService`
-- `SessionService` → `MockSessionService`
-- `ContextService` → `MockContextService`
-- `HandoffService` → `MockHandoffService`
-- `WorkspaceService` → `MockWorkspaceService`
+## 4. Operational Instructions
 
-This guarantees that when Phase 2 (Tauri Rust IPC / real agent adapters) arrives, frontend components do not need rewrites.
+To launch Orbit Desktop:
+```bash
+# Start Vite development server
+npm run dev
+
+# Launch Native Tauri Desktop Application
+flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo run'
+```

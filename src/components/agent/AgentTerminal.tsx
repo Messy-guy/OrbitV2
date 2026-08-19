@@ -1,250 +1,327 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Terminal as TerminalIcon, CornerDownLeft, Play, XCircle, RotateCcw, Copy, Check } from 'lucide-react';
-import { Agent, TerminalLine } from '../../types/orbit';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
+import { Terminal as TerminalIcon, Play } from 'lucide-react';
+import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
+import { useContextStore } from '../../stores/context.store';
+import { tauriService, isTauriAvailable } from '../../services';
 
 interface AgentTerminalProps {
   agent: Agent;
 }
 
+type Phase = 'idle' | 'booting' | 'active' | 'exited' | 'error';
+
 export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
-  const { terminalLogs, sendTerminalCommand, clearTerminal, interruptAgent } = useAgentStore();
+  const { resizeTerminal } = useAgentStore();
   const { getActiveWorkspace } = useWorkspaceStore();
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
-  const [copied, setCopied] = useState(false);
-  const terminalEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  const activeWorkspace = getActiveWorkspace();
-  const logs = terminalLogs[agent.id] || [];
+  const hostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const unlistenRef = useRef<(() => void) | null>(null);
+  const isBootedRef = useRef<boolean>(false);
+  const agentRef = useRef<Agent>(agent);
+  const workspaceRef = useRef(getActiveWorkspace());
 
-  const scrollToBottom = () => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  agentRef.current = agent;
+  workspaceRef.current = getActiveWorkspace();
+
+  const [phase, setPhase] = useState<Phase>('booting');
+  const [errorMsg, setErrorMsg] = useState<string>('');
+
+  const cleanupTerminal = useCallback(() => {
+    if (unlistenRef.current) {
+      unlistenRef.current();
+      unlistenRef.current = null;
+    }
+    if (termRef.current) {
+      try {
+        termRef.current.dispose();
+      } catch {}
+      termRef.current = null;
+    }
+    fitRef.current = null;
+    isBootedRef.current = false;
+  }, []);
+
+  const startSession = useCallback(async () => {
+    if (!hostRef.current || isBootedRef.current) return;
+    isBootedRef.current = true;
+    setPhase('booting');
+    setErrorMsg('');
+
+    // Clean any prior instance
+    if (unlistenRef.current) {
+      unlistenRef.current();
+      unlistenRef.current = null;
+    }
+    if (termRef.current) {
+      try {
+        termRef.current.dispose();
+      } catch {}
+      termRef.current = null;
+    }
+
+    const host = hostRef.current;
+
+    // 1. Create standard xterm instance with clean dark theme
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontSize: 12,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace, "JetBrains Mono"',
+      lineHeight: 1.15,
+      letterSpacing: 0,
+      convertEol: false, // Critical: true breaks Ink/readline cursor movements & TUI logos
+      scrollback: 10000,
+      allowTransparency: false,
+      theme: {
+        background: '#090a0f',
+        foreground: '#e4e4e7',
+        cursor: '#ffffff',
+        cursorAccent: '#090a0f',
+        selectionBackground: 'rgba(255, 255, 255, 0.25)',
+        black: '#18181b',
+        red: '#ef4444',
+        green: '#22c55e',
+        yellow: '#eab308',
+        blue: '#3b82f6',
+        magenta: '#a855f7',
+        cyan: '#06b6d4',
+        white: '#f4f4f5',
+        brightBlack: '#71717a',
+        brightRed: '#f87171',
+        brightGreen: '#4ade80',
+        brightYellow: '#fde047',
+        brightBlue: '#60a5fa',
+        brightMagenta: '#c084fc',
+        brightCyan: '#22d3ee',
+        brightWhite: '#ffffff',
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(host);
+    termRef.current = term;
+    fitRef.current = fitAddon;
+
+    // Initial fit
+    try {
+      fitAddon.fit();
+    } catch {}
+
+    const containerHeight = host.clientHeight || 400;
+    const containerWidth = host.clientWidth || 600;
+    const estimatedRows = Math.floor(containerHeight / 14);
+    const estimatedCols = Math.floor(containerWidth / 7.5);
+
+    const rows = Math.max(term.rows || 0, estimatedRows, 24);
+    const cols = Math.max(term.cols || 0, estimatedCols, 80);
+
+    try {
+      if (!isTauriAvailable()) {
+        throw new Error('Tauri runtime not available.');
+      }
+
+      // 2. Subscribe to output events
+      const unlistenOutput = await tauriService.onAgentOutput((payload) => {
+        if (payload.agentId === agentRef.current.id && termRef.current) {
+          termRef.current.write(payload.text);
+        }
+      });
+
+      // 3. Forward user input to PTY
+      term.onData((data) => {
+        if (isTauriAvailable()) {
+          const sessId = agentRef.current.currentSessionId || 'default';
+          tauriService.sendAgentInput(agentRef.current.id, sessId, data).catch(() => {});
+        }
+      });
+
+      // 4. Status listener
+      const unlistenStatus = await tauriService.onAgentStatus((payload) => {
+        if (payload.agentId === agentRef.current.id) {
+          if (payload.status === 'working') {
+            setPhase('active');
+          } else if (payload.status === 'exited') {
+            isBootedRef.current = false;
+            setPhase('exited');
+          }
+        }
+      });
+
+      unlistenRef.current = () => {
+        unlistenOutput();
+        unlistenStatus();
+      };
+
+      // 5. Spawn PTY session
+      const ws = workspaceRef.current;
+      const projPath = ws?.projectPath || '/home/leo/Desktop/personal_projects/OrbitV2';
+      const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}-${Date.now()}`;
+
+      await tauriService.startAgentSession(
+        projPath,
+        agentRef.current.id,
+        sessionId,
+        agentRef.current.provider,
+        undefined,
+        ws?.id || 'ws-orbit',
+        rows,
+        cols
+      );
+
+      setPhase('active');
+      resizeTerminal(agentRef.current.id, rows, cols);
+      term.focus();
+
+      // 6. Replay history if any
+      const history = await tauriService.getAgentTerminalHistory(agentRef.current.id);
+      if (history && history.length > 0 && termRef.current) {
+        termRef.current.write(history);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
+      setPhase('error');
+      if (termRef.current) {
+        termRef.current.write(`\r\n\x1b[31m[Orbit PTY Error] ${msg}\x1b[0m\r\n`);
+      }
+    }
+
+    // 7. Responsive auto-resize observer & PTY SIGWINCH synchronization
+    let resizeTimer: NodeJS.Timeout | null = null;
+    const triggerRefit = () => {
+      try {
+        fitAddon.fit();
+        if (term.rows && term.cols && term.rows >= 4 && term.cols >= 20) {
+          resizeTerminal(agentRef.current.id, term.rows, term.cols);
+          if (isTauriAvailable()) {
+            tauriService.resizeAgentTerminal(agentRef.current.id, term.rows, term.cols).catch(() => {});
+          }
+        }
+      } catch {}
+    };
+
+    const handleResize = () => {
+      triggerRefit();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(triggerRefit, 50);
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(host);
+
+    // Initial refit sequence
+    requestAnimationFrame(triggerRefit);
+    setTimeout(triggerRefit, 100);
+    setTimeout(triggerRefit, 400);
+    setTimeout(triggerRefit, 1200);
+
+    const prevUnlisten = unlistenRef.current;
+    unlistenRef.current = () => {
+      if (prevUnlisten) prevUnlisten();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeObserver.disconnect();
+    };
+  }, [resizeTerminal]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [logs]);
+    startSession();
+    return () => {
+      cleanupTerminal();
+    };
+  }, [agent.id, startSession, cleanupTerminal]);
 
-  const handleSend = (cmdToSend?: string) => {
-    const cmd = cmdToSend || input;
-    if (!cmd.trim()) return;
-
-    sendTerminalCommand(agent.id, cmd.trim());
-    setHistory(prev => [cmd.trim(), ...prev]);
-    setHistoryIndex(-1);
-    setInput('');
+  const restart = async () => {
+    isBootedRef.current = false;
+    if (isTauriAvailable()) {
+      await tauriService.stopAgentSession(agent.id).catch(() => {});
+    }
+    if (termRef.current) {
+      termRef.current.reset();
+      termRef.current.clear();
+    }
+    await startSession();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSend();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (history.length > 0 && historyIndex < history.length - 1) {
-        const nextIdx = historyIndex + 1;
-        setHistoryIndex(nextIdx);
-        setInput(history[nextIdx]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const nextIdx = historyIndex - 1;
-        setHistoryIndex(nextIdx);
-        setInput(history[nextIdx]);
-      } else if (historyIndex === 0) {
-        setHistoryIndex(-1);
-        setInput('');
-      }
-    } else if (e.key === 'c' && e.ctrlKey) {
-      e.preventDefault();
-      interruptAgent(agent.id);
-      setInput('');
-    } else if (e.key === 'l' && e.ctrlKey) {
-      e.preventDefault();
-      clearTerminal(agent.id);
-    }
-  };
-
-  const copyBuffer = () => {
-    const text = logs.map(l => l.text.replace(/\x1b\[[0-9;]*m/g, '')).join('\n');
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  // Helper to render ANSI-like tokens in raw terminal text
-  const formatTerminalText = (line: TerminalLine) => {
-    const cleanText = line.text;
-
-    if (line.type === 'stdin') {
-      return (
-        <span className="text-white font-bold">
-          <span className="text-status-success">$ </span>
-          {cleanText.replace(/^\$\s*/, '')}
-        </span>
-      );
-    }
-
-    if (line.type === 'tool') {
-      return (
-        <span className="text-cyan-400">
-          {cleanText.replace(/\x1b\[[0-9;]*m/g, '')}
-        </span>
-      );
-    }
-
-    if (line.type === 'diff-add') {
-      return <span className="text-status-success font-mono">{cleanText}</span>;
-    }
-
-    if (line.type === 'diff-del') {
-      return <span className="text-status-error font-mono">{cleanText}</span>;
-    }
-
-    if (line.type === 'system') {
-      return (
-        <span className="text-text-muted">
-          {cleanText.replace(/\x1b\[[0-9;]*m/g, '')}
-        </span>
-      );
-    }
-
-    if (line.type === 'stderr') {
-      return <span className="text-status-error">{cleanText}</span>;
-    }
-
-    // Default stdout
-    return (
-      <span className="text-text-secondary whitespace-pre-wrap">
-        {cleanText.replace(/\x1b\[[0-9;]*m/g, '')}
-      </span>
-    );
-  };
-
-  const quickCommands = [
-    { label: 'diff', cmd: 'git diff' },
-    { label: 'test', cmd: 'npm test' },
-    { label: 'status', cmd: 'git status' },
-    { label: 'clear', cmd: 'clear' },
-  ];
+  const providerLabel = agent.provider.charAt(0).toUpperCase() + agent.provider.slice(1).toLowerCase();
+  const activeWorkspace = getActiveWorkspace();
 
   return (
-    <div
-      className="flex-1 flex flex-col min-h-0 bg-[#0E0F13] font-mono text-[11px] select-text cursor-text"
-      onClick={() => inputRef.current?.focus()}
-    >
-      {/* Terminal Mini Toolbar */}
-      <div className="h-6 px-2.5 bg-[#14151A] border-b border-border-subtle flex items-center justify-between text-[10px] text-text-dim select-none no-drag">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 text-text-muted">
-            <TerminalIcon size={10} className="text-text-dim" />
-            <span>PID {agent.pid || 4812}</span>
-          </span>
-          <span>·</span>
-          <span className="text-text-dim truncate max-w-[140px]">
-            {activeWorkspace?.name || 'workspace'}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Quick command buttons */}
-          <div className="hidden sm:flex items-center gap-1 mr-1">
-            {quickCommands.map((qc) => (
-              <button
-                key={qc.label}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSend(qc.cmd);
-                }}
-                className="px-1.5 py-0.2 rounded bg-well hover:bg-panel hover:text-text-primary text-text-muted text-[9.5px] transition-colors border border-border-subtle"
-              >
-                {qc.label}
-              </button>
-            ))}
+    <div className="flex-1 flex flex-col min-h-0 w-full h-full relative overflow-hidden bg-[#090a0f]">
+      {/* Idle Screen */}
+      {phase === 'idle' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#090a0f] z-20">
+          <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.1] flex items-center justify-center shadow-lg">
+            <TerminalIcon size={18} className="text-white" />
           </div>
-
+          <div className="text-center">
+            <p className="text-xs font-mono font-bold text-white">{providerLabel} Terminal</p>
+            <p className="text-[10px] font-mono text-[#7A7E8F] mt-0.5">Process is stopped</p>
+          </div>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              copyBuffer();
-            }}
-            className="p-0.5 text-text-dim hover:text-text-primary rounded hover:bg-panel"
-            title="Copy Terminal Buffer"
+            onClick={startSession}
+            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-white/90 rounded-lg text-xs font-mono font-extrabold text-black transition-all cursor-pointer shadow-md active:translate-y-[0.5px]"
           >
-            {copied ? <Check size={10} className="text-status-success" /> : <Copy size={10} />}
-          </button>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              interruptAgent(agent.id);
-            }}
-            className="p-0.5 text-text-dim hover:text-status-error rounded hover:bg-panel"
-            title="Interrupt (Ctrl+C)"
-          >
-            <XCircle size={10} />
-          </button>
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              clearTerminal(agent.id);
-            }}
-            className="p-0.5 text-text-dim hover:text-text-primary rounded hover:bg-panel"
-            title="Clear Terminal (Ctrl+L)"
-          >
-            <RotateCcw size={10} />
+            <Play size={11} className="fill-black" />
+            <span>Launch {providerLabel}</span>
           </button>
         </div>
-      </div>
+      )}
 
-      {/* Terminal Viewport (Scrollable Buffer) */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-[11.5px] leading-relaxed">
-        {logs.map((line) => (
-          <div key={line.id} className="leading-tight">
-            {formatTerminalText(line)}
+      {/* Booting Loader */}
+      {phase === 'booting' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#060709]/80 backdrop-blur-sm z-20">
+          <div className="flex items-center gap-2 text-xs font-mono text-white">
+            <span className="animate-pulse">▋</span>
+            <span>Spawning {providerLabel} CLI...</span>
           </div>
-        ))}
+        </div>
+      )}
 
-        {agent.status === 'working' && (
-          <div className="flex items-center gap-2 text-text-muted animate-pulse pt-1 text-[11px]">
-            <span className="w-1.5 h-3 bg-text-primary inline-block animate-ping" />
-            <span className="text-text-dim">Process executing...</span>
+      {/* Exited Notification */}
+      {phase === 'exited' && (
+        <div className="absolute bottom-0 left-0 right-0 px-3.5 py-2 bg-[#121318]/95 border-t border-white/[0.08] flex items-center justify-between z-20 backdrop-blur-md">
+          <div className="flex items-center gap-2 text-[11px] font-mono text-[#8e93a0]">
+            <span className="w-2 h-2 rounded-full bg-[#71717a]" />
+            <span>Session finished</span>
+            <span className="text-[#3f3f46]">·</span>
+            <span className="text-white font-medium">Save checkpoint?</span>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (activeWorkspace) {
+                  await useContextStore.getState().generateDraft(activeWorkspace.id, activeWorkspace.projectPath);
+                  useContextStore.getState().setDraftModalOpen(true);
+                }
+              }}
+              className="px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.15] text-white border border-white/[0.15] rounded text-[11px] font-mono font-medium transition-all cursor-pointer"
+            >
+              Review Draft
+            </button>
+            <button
+              onClick={restart}
+              className="px-2.5 py-1 bg-[#20222a] hover:bg-[#282a38] text-[#c0c4d2] border border-[#363948] rounded text-[11px] font-mono transition-colors cursor-pointer"
+            >
+              Restart
+            </button>
+          </div>
+        </div>
+      )}
 
-        <div ref={terminalEndRef} />
-      </div>
-
-      {/* Terminal Prompt Input Line */}
-      <div className="px-3 py-2 bg-[#121318] border-t border-border-subtle flex items-center gap-2 no-drag">
-        <span className="text-status-success font-bold shrink-0 select-none">
-          {agent.provider === 'claude' ? 'claude>' : agent.provider === 'codex' ? 'codex$' : `${agent.name.toLowerCase()}>`}
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type command or prompt... (Enter to run, Ctrl+C to stop)"
-          className="flex-1 bg-transparent text-text-primary placeholder:text-text-dim text-[11.5px] focus:outline-none font-mono"
-          autoFocus
-        />
-        <button
-          onClick={() => handleSend()}
-          disabled={!input.trim() || agent.status === 'working'}
-          className="p-1 text-text-muted hover:text-text-primary disabled:opacity-20 transition-colors"
-          title="Run command"
-        >
-          <CornerDownLeft size={12} />
-        </button>
-      </div>
+      {/* Terminal Canvas Container */}
+      <div
+        ref={hostRef}
+        className="w-full h-full p-0 overflow-hidden bg-[#090a0f]"
+        onClick={() => termRef.current?.focus()}
+      />
     </div>
   );
 };

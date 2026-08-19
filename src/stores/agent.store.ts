@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { Agent, AgentProvider, AgentStatus, Message, Session, AgentGridTileLayout, TerminalLine } from '../types/orbit';
-import { agentService, sessionService } from '../services';
-import { INITIAL_TERMINAL_LOGS } from '../mock/terminals';
+import { agentService, sessionService, tauriService, isTauriAvailable } from '../services';
 
 interface AgentState {
   agents: Agent[];
@@ -11,18 +10,21 @@ interface AgentState {
   terminalLogs: Record<string, TerminalLine[]>; // agentId -> TerminalLine[]
   gridLayouts: AgentGridTileLayout[];
   isLoading: boolean;
+  isEventListenerInitialized: boolean;
 
   // Actions
-  loadAgentsForWorkspace: (workspaceId: string) => Promise<void>;
-  addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string) => Promise<Agent>;
+  initializeEventListeners: () => void;
+  loadAgentsForWorkspace: (workspaceId: string, projectPath?: string) => Promise<void>;
+  addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, projectPath?: string, spaceId?: string) => Promise<Agent>;
   removeAgent: (agentId: string) => Promise<void>;
   setAgentStatus: (agentId: string, status: AgentStatus) => Promise<void>;
   toggleAgentViewMode: (agentId: string) => void;
   setActiveSession: (agentId: string, sessionId: string) => void;
   createNewSession: (agentId: string, workspaceId: string, title?: string) => Promise<Session>;
   loadMessagesForSession: (sessionId: string) => Promise<void>;
-  sendMessage: (agentId: string, sessionId: string, content: string) => Promise<void>;
-  sendTerminalCommand: (agentId: string, command: string) => Promise<void>;
+  sendMessage: (agentId: string, sessionId: string, content: string, projectPath?: string, workspaceId?: string) => Promise<void>;
+  sendTerminalCommand: (agentId: string, command: string, projectPath?: string, workspaceId?: string) => Promise<void>;
+  resizeTerminal: (agentId: string, rows: number, cols: number) => Promise<void>;
   clearTerminal: (agentId: string) => void;
   interruptAgent: (agentId: string) => void;
   addDirectMessage: (sessionId: string, message: Message) => void;
@@ -34,19 +36,60 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   sessions: {},
   activeSessionIdByAgent: {},
   messages: {},
-  terminalLogs: INITIAL_TERMINAL_LOGS,
+  terminalLogs: {},
   gridLayouts: [],
   isLoading: false,
+  isEventListenerInitialized: false,
 
-  loadAgentsForWorkspace: async (workspaceId: string) => {
+  initializeEventListeners: () => {
+    if (get().isEventListenerInitialized || !isTauriAvailable()) return;
+
+    // Listen to real-time stdout/stderr from Tauri Rust PTY runtime
+    tauriService.onAgentOutput((payload) => {
+      const { agentId, stream, text } = payload;
+      const newLine: TerminalLine = {
+        id: `t-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: stream as any,
+        text,
+        timestamp: payload.timestamp || Date.now(),
+      };
+
+      set((state) => ({
+        terminalLogs: {
+          ...state.terminalLogs,
+          [agentId]: [...(state.terminalLogs[agentId] || []), newLine],
+        },
+      }));
+    });
+
+    // Listen to PTY session status updates (started, stopped, ready, error)
+    tauriService.onAgentStatus((payload) => {
+      const { agentId, status, pid } = payload;
+      set((state) => ({
+        agents: state.agents.map((a) =>
+          a.id === agentId
+            ? {
+                ...a,
+                status: (status as AgentStatus) || a.status,
+                pid: pid !== undefined ? pid : a.pid,
+              }
+            : a
+        ),
+      }));
+    });
+
+    set({ isEventListenerInitialized: true });
+  },
+
+  loadAgentsForWorkspace: async (workspaceId: string, projectPath?: string) => {
+    get().initializeEventListeners();
     set({ isLoading: true });
     try {
       const rawAgents = await agentService.getAgents(workspaceId);
-      // Default viewMode to 'terminal' for AgentGrid style experience
       const agents: Agent[] = rawAgents.map((a, idx) => ({
         ...a,
         viewMode: a.viewMode || 'terminal',
-        pid: 3200 + idx * 42,
+        pid: a.pid || (3200 + idx * 42),
       }));
 
       const sessionsMap: Record<string, Session[]> = {};
@@ -56,15 +99,33 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       for (const agent of agents) {
         const agentSessions = await sessionService.getAgentSessions(agent.id);
         sessionsMap[agent.id] = agentSessions;
-        
+
         const activeSess = agent.currentSessionId || agentSessions[0]?.id;
         if (activeSess) {
           activeSessionMap[agent.id] = activeSess;
           messagesMap[activeSess] = await sessionService.getMessages(activeSess);
         }
+
+        // If in Tauri desktop mode and workspace path exists, spawn PTY session
+        if (isTauriAvailable() && projectPath && activeSess) {
+          agentService.startAgentProcess(
+            projectPath,
+            agent.id,
+            activeSess,
+            agent.provider,
+            undefined,
+            workspaceId
+          ).then((pid) => {
+            set((state) => ({
+              agents: state.agents.map((a) => (a.id === agent.id ? { ...a, pid } : a)),
+            }));
+          }).catch((err) => {
+            console.warn(`PTY session attach note for ${agent.name}:`, err);
+          });
+        }
       }
 
-      // Compute initial grid layout
+      // Compute grid layout
       const gridLayouts: AgentGridTileLayout[] = agents.map((agent, index) => {
         const cols = 2;
         const col = index % cols;
@@ -94,22 +155,31 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  addAgent: async (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string) => {
+  addAgent: async (
+    workspaceId: string,
+    provider: AgentProvider,
+    customName?: string,
+    customModel?: string,
+    projectPath?: string,
+    spaceId?: string
+  ) => {
+    get().initializeEventListeners();
     const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel);
-    const newSession = await sessionService.createSession(rawAgent.id, workspaceId, `Session 01 — Initialization`);
-    
+    const newSession = await sessionService.createSession(rawAgent.id, workspaceId, `Session 01`);
+
     const newAgent: Agent = {
       ...rawAgent,
+      spaceId: spaceId || 'default',
       currentSessionId: newSession.id,
       viewMode: 'terminal',
-      pid: 3200 + Math.floor(Math.random() * 5000),
+      pid: undefined,
     };
 
-    set(state => {
+    set((state) => {
       const existingCount = state.agents.length;
       const col = existingCount % 2;
       const row = Math.floor(existingCount / 2);
-      
+
       const newLayout: AgentGridTileLayout = {
         i: newAgent.id,
         x: col * 6,
@@ -119,11 +189,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         minW: 3,
         minH: 4,
       };
-
-      const initialLogs: TerminalLine[] = [
-        { id: `log-${Date.now()}-1`, type: 'system', text: `\x1b[1;37m[Orbit Harness]\x1b[0m Spawning ${newAgent.name} terminal runtime (PID ${newAgent.pid})...`, timestamp: Date.now() },
-        { id: `log-${Date.now()}-2`, type: 'stdout', text: `Interactive CLI harness ready. Attached to ${workspaceId}.`, timestamp: Date.now() + 10 },
-      ];
 
       return {
         agents: [...state.agents, newAgent],
@@ -137,52 +202,64 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         },
         terminalLogs: {
           ...state.terminalLogs,
-          [newAgent.id]: initialLogs,
+          [newAgent.id]: [],
         },
         messages: {
           ...state.messages,
-          [newSession.id]: [
-            {
-              id: `msg-welcome-${Date.now()}`,
-              sessionId: newSession.id,
-              role: 'agent',
-              content: `Terminal harness connected with ${newAgent.model}.`,
-              timestamp: Date.now(),
-            }
-          ],
+          [newSession.id]: [],
         },
         gridLayouts: [...state.gridLayouts, newLayout],
       };
     });
 
+    // Start real PTY process for the agent
+    if (isTauriAvailable() && projectPath) {
+      try {
+        const realPid = await agentService.startAgentProcess(
+          projectPath,
+          newAgent.id,
+          newSession.id,
+          newAgent.provider,
+          undefined,
+          workspaceId
+        );
+        set((state) => ({
+          agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
+        }));
+      } catch (e) {
+        console.warn('Real PTY agent process launch error:', e);
+      }
+    }
+
     return newAgent;
   },
 
   removeAgent: async (agentId: string) => {
+    await agentService.stopAgentProcess(agentId);
     await agentService.removeAgent(agentId);
-    set(state => ({
-      agents: state.agents.filter(a => a.id !== agentId),
-      gridLayouts: state.gridLayouts.filter(l => l.i !== agentId),
+    set((state) => ({
+      agents: state.agents.filter((a) => a.id !== agentId),
+      gridLayouts: state.gridLayouts.filter((l) => l.i !== agentId),
     }));
   },
 
   setAgentStatus: async (agentId: string, status: AgentStatus) => {
     await agentService.updateAgentStatus(agentId, status);
-    set(state => ({
-      agents: state.agents.map(a => (a.id === agentId ? { ...a, status } : a)),
+    set((state) => ({
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
     }));
   },
 
   toggleAgentViewMode: (agentId: string) => {
-    set(state => ({
-      agents: state.agents.map(a => 
+    set((state) => ({
+      agents: state.agents.map((a) =>
         a.id === agentId ? { ...a, viewMode: a.viewMode === 'chat' ? 'terminal' : 'chat' } : a
       ),
     }));
   },
 
   setActiveSession: (agentId: string, sessionId: string) => {
-    set(state => ({
+    set((state) => ({
       activeSessionIdByAgent: {
         ...state.activeSessionIdByAgent,
         [agentId]: sessionId,
@@ -193,7 +270,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   createNewSession: async (agentId: string, workspaceId: string, title?: string) => {
     const newSession = await sessionService.createSession(agentId, workspaceId, title);
-    set(state => ({
+    set((state) => ({
       sessions: {
         ...state.sessions,
         [agentId]: [newSession, ...(state.sessions[agentId] || [])],
@@ -212,7 +289,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   loadMessagesForSession: async (sessionId: string) => {
     const msgs = await sessionService.getMessages(sessionId);
-    set(state => ({
+    set((state) => ({
       messages: {
         ...state.messages,
         [sessionId]: msgs,
@@ -220,69 +297,78 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }));
   },
 
-  sendMessage: async (agentId: string, sessionId: string, content: string) => {
-    // 1. Add User Message
+  sendMessage: async (agentId: string, sessionId: string, content: string, projectPath?: string, workspaceId?: string) => {
+    // 1. Add User Message to session
     const userMsg = await sessionService.addMessage({
       sessionId,
       role: 'user',
       content,
     });
 
-    // Also mirror to terminal log
-    const userLog: TerminalLine = {
-      id: `stdin-${Date.now()}`,
-      type: 'stdin',
-      text: `$ ${content}`,
-      timestamp: Date.now(),
-    };
-
-    set(state => ({
+    set((state) => ({
       messages: {
         ...state.messages,
         [sessionId]: [...(state.messages[sessionId] || []), userMsg],
       },
-      terminalLogs: {
-        ...state.terminalLogs,
-        [agentId]: [...(state.terminalLogs[agentId] || []), userLog],
-      },
-      agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'working' } : a)),
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'working' } : a)),
     }));
 
-    // 2. Simulate Agent Working -> Responding with mock tool actions
-    setTimeout(async () => {
-      const agentReply = await agentService.sendMessage(sessionId, agentId, content);
-      await sessionService.addMessage(agentReply);
-
-      const agentLogs: TerminalLine[] = [
-        { id: `out-${Date.now()}-1`, type: 'stdout', text: agentReply.content, timestamp: Date.now() },
-      ];
-
-      if (agentReply.toolInvocations) {
-        agentReply.toolInvocations.forEach((t, i) => {
-          agentLogs.push({
-            id: `tool-${Date.now()}-${i}`,
-            type: 'tool',
-            text: `\x1b[36m[TOOL:${t.toolName}]\x1b[0m ${t.file || ''} ${t.output || '✓ Done'}`,
-            timestamp: Date.now() + i * 5,
-          });
-        });
+    // If Tauri is available, write to real PTY stdin directly
+    const targetAgent = get().agents.find((a) => a.id === agentId);
+    if (isTauriAvailable() && targetAgent) {
+      try {
+        await agentService.sendAgentInput(agentId, sessionId, content);
+        return;
+      } catch (e) {
+        // sendAgentInput failed — session may be dead. Restart it cleanly (no prompt),
+        // then deliver the message after the TUI has had time to initialize.
+        // NEVER pass user message content as `prompt` to startAgentProcess — that
+        // would kill any existing session and spawn a new one with a potentially
+        // multiline string that breaks TUI readline buffers (ENAMETOOLONG etc.).
+        if (projectPath) {
+          try {
+            await agentService.startAgentProcess(
+              projectPath,
+              agentId,
+              sessionId,
+              targetAgent.provider,
+              undefined, // No prompt — restart clean, send input separately
+              workspaceId
+            );
+            // Wait for TUI to mount, then send the message via normal input path
+            setTimeout(async () => {
+              try {
+                await agentService.sendAgentInput(agentId, sessionId, content);
+              } catch (err) {
+                console.warn('Delayed sendAgentInput after restart failed:', err);
+              }
+            }, 1500);
+            return;
+          } catch (err) {
+            console.warn('Real agent launch error:', err);
+          }
+        }
       }
+    }
 
-      set(state => ({
-        messages: {
-          ...state.messages,
-          [sessionId]: [...(state.messages[sessionId] || []), agentReply],
-        },
-        terminalLogs: {
-          ...state.terminalLogs,
-          [agentId]: [...(state.terminalLogs[agentId] || []), ...agentLogs],
-        },
-        agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
-      }));
-    }, 900);
+    // Web preview simulation fallback ONLY when Tauri is not available
+    if (!isTauriAvailable()) {
+      setTimeout(async () => {
+        const agentReply = await agentService.sendMessage(sessionId, agentId, content);
+        await sessionService.addMessage(agentReply);
+
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [sessionId]: [...(state.messages[sessionId] || []), agentReply],
+          },
+          agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'ready' } : a)),
+        }));
+      }, 800);
+    }
   },
 
-  sendTerminalCommand: async (agentId: string, command: string) => {
+  sendTerminalCommand: async (agentId: string, command: string, projectPath?: string, workspaceId?: string) => {
     const sessionId = get().activeSessionIdByAgent[agentId] || get().sessions[agentId]?.[0]?.id;
     if (!sessionId) return;
 
@@ -292,75 +378,96 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return;
     }
 
-    // Append stdin line
-    const stdinLine: TerminalLine = {
-      id: `stdin-${Date.now()}`,
-      type: 'stdin',
-      text: `$ ${command}`,
-      timestamp: Date.now(),
-    };
-
-    set(state => ({
-      terminalLogs: {
-        ...state.terminalLogs,
-        [agentId]: [...(state.terminalLogs[agentId] || []), stdinLine],
-      },
-      agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'working' } : a)),
-    }));
-
-    setTimeout(async () => {
-      const response = await agentService.sendMessage(sessionId, agentId, command);
-      const outLines: TerminalLine[] = [
-        { id: `out-${Date.now()}-1`, type: 'stdout', text: response.content, timestamp: Date.now() },
-      ];
-
-      if (response.toolInvocations) {
-        response.toolInvocations.forEach((t, idx) => {
-          outLines.push({
-            id: `tool-${Date.now()}-${idx}`,
-            type: 'tool',
-            text: `\x1b[36m[TOOL:${t.toolName}]\x1b[0m ${t.file || ''} ${t.output || '✓ Done'}`,
-            timestamp: Date.now() + idx * 5,
-          });
-        });
+    // In native Tauri mode, send directly to PTY master
+    const targetAgent = get().agents.find((a) => a.id === agentId);
+    if (isTauriAvailable() && targetAgent) {
+      try {
+        await agentService.sendAgentInput(agentId, sessionId, command);
+        return;
+      } catch (e) {
+        // If no active process, restart cleanly (no command as prompt) then send
+        if (projectPath) {
+          try {
+            await agentService.startAgentProcess(
+              projectPath,
+              agentId,
+              sessionId,
+              targetAgent.provider,
+              undefined, // No prompt — never pass command text as startup arg
+              workspaceId
+            );
+            setTimeout(async () => {
+              try {
+                await agentService.sendAgentInput(agentId, sessionId, command);
+              } catch (err) {
+                console.warn('Tauri PTY delayed sendAgentInput error:', err);
+              }
+            }, 1500);
+            return;
+          } catch (err) {
+            console.warn('Tauri PTY startAgentProcess error:', err);
+          }
+        }
       }
+    }
 
-      set(state => ({
+    // Web preview simulation fallback ONLY when Tauri is not available
+    if (!isTauriAvailable()) {
+      const stdinLine: TerminalLine = {
+        id: `stdin-${Date.now()}`,
+        type: 'stdin',
+        text: `$ ${command}`,
+        timestamp: Date.now(),
+      };
+
+      set((state) => ({
         terminalLogs: {
           ...state.terminalLogs,
-          [agentId]: [...(state.terminalLogs[agentId] || []), ...outLines],
+          [agentId]: [...(state.terminalLogs[agentId] || []), stdinLine],
         },
-        agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
+        agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'working' } : a)),
       }));
-    }, 700);
+
+      setTimeout(async () => {
+        const response = await agentService.sendMessage(sessionId, agentId, command);
+        const outLines: TerminalLine[] = [
+          { id: `out-${Date.now()}-1`, type: 'stdout', text: response.content, timestamp: Date.now() },
+        ];
+
+        set((state) => ({
+          terminalLogs: {
+            ...state.terminalLogs,
+            [agentId]: [...(state.terminalLogs[agentId] || []), ...outLines],
+          },
+          agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'ready' } : a)),
+        }));
+      }, 600);
+    }
+  },
+
+  resizeTerminal: async (agentId: string, rows: number, cols: number) => {
+    if (isTauriAvailable()) {
+      await agentService.resizeAgentTerminal(agentId, rows, cols);
+    }
   },
 
   clearTerminal: (agentId: string) => {
-    set(state => ({
+    set((state) => ({
       terminalLogs: {
         ...state.terminalLogs,
-        [agentId]: [
-          { id: `clr-${Date.now()}`, type: 'system', text: '\x1b[38;5;244mTerminal buffer cleared.\x1b[0m', timestamp: Date.now() }
-        ],
+        [agentId]: [],
       },
     }));
   },
 
   interruptAgent: (agentId: string) => {
-    set(state => ({
-      terminalLogs: {
-        ...state.terminalLogs,
-        [agentId]: [
-          ...(state.terminalLogs[agentId] || []),
-          { id: `sigint-${Date.now()}`, type: 'stderr', text: '^C\n[Process interrupted by SIGINT]', timestamp: Date.now() }
-        ],
-      },
-      agents: state.agents.map(a => (a.id === agentId ? { ...a, status: 'ready' } : a)),
-    }));
+    if (isTauriAvailable()) {
+      agentService.interruptAgentProcess(agentId).catch(() => {});
+    }
   },
 
   addDirectMessage: (sessionId: string, message: Message) => {
-    set(state => ({
+    set((state) => ({
       messages: {
         ...state.messages,
         [sessionId]: [...(state.messages[sessionId] || []), message],

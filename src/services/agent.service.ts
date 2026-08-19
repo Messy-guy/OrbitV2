@@ -1,19 +1,62 @@
 import { Agent, AgentProvider, AgentStatus, Message } from '../types/orbit';
 import { INITIAL_AGENTS, AVAILABLE_AGENT_PRESETS } from '../mock/agents';
+import { isTauriAvailable, tauriService, DetectedAgentDto } from './tauri.service';
 
 export interface IAgentService {
   getAgents(workspaceId: string): Promise<Agent[]>;
   addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string): Promise<Agent>;
   removeAgent(agentId: string): Promise<void>;
   updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent>;
+  detectInstalledAgents(): Promise<DetectedAgentDto[]>;
+  startAgentProcess(
+    workspacePath: string,
+    agentId: string,
+    sessionId: string,
+    provider: AgentProvider,
+    prompt?: string,
+    workspaceId?: string,
+    rows?: number,
+    cols?: number
+  ): Promise<number>;
+  sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void>;
+  resizeAgentTerminal(agentId: string, rows: number, cols: number): Promise<void>;
+  interruptAgentProcess(agentId: string): Promise<void>;
+  stopAgentProcess(agentId: string): Promise<void>;
   sendMessage(sessionId: string, agentId: string, content: string): Promise<Message>;
 }
 
-export class MockAgentService implements IAgentService {
-  private agents: Agent[] = [...INITIAL_AGENTS];
+export class HybridAgentService implements IAgentService {
+  private fallbackAgents: Agent[] = [];
+
+  async detectInstalledAgents(): Promise<DetectedAgentDto[]> {
+    if (isTauriAvailable()) {
+      try {
+        const detected = await tauriService.detectAgents();
+        if (detected && detected.length > 0) return detected;
+      } catch (e) {
+        console.warn('Tauri detectAgents failed', e);
+      }
+    }
+    return AVAILABLE_AGENT_PRESETS.map(p => ({
+      provider: p.provider,
+      name: p.name,
+      path: `/usr/local/bin/${p.provider}`,
+      version: p.model,
+      isAvailable: true,
+      description: p.description,
+    }));
+  }
 
   async getAgents(workspaceId: string): Promise<Agent[]> {
-    return this.agents.filter(a => a.workspaceId === workspaceId);
+    if (isTauriAvailable()) {
+      try {
+        const list = await tauriService.getWorkspaceAgents(workspaceId);
+        if (list && list.length > 0) return list;
+      } catch (e) {
+        console.warn('Tauri getWorkspaceAgents failed, falling back', e);
+      }
+    }
+    return this.fallbackAgents.filter(a => a.workspaceId === workspaceId);
   }
 
   async addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string): Promise<Agent> {
@@ -25,27 +68,102 @@ export class MockAgentService implements IAgentService {
       name: customName || preset?.name || provider.toUpperCase(),
       model: customModel || preset?.model || 'Default Model',
       status: 'ready',
+      viewMode: 'terminal',
+      pid: 3200 + Math.floor(Math.random() * 5000),
       createdAt: Date.now(),
     };
-    this.agents.push(newAgent);
+
+    if (isTauriAvailable()) {
+      try {
+        await tauriService.saveAgent(newAgent);
+      } catch (e) {
+        console.warn('Tauri saveAgent failed', e);
+      }
+    }
+
+    this.fallbackAgents.push(newAgent);
     return newAgent;
   }
 
   async removeAgent(agentId: string): Promise<void> {
-    this.agents = this.agents.filter(a => a.id !== agentId);
+    if (isTauriAvailable()) {
+      try {
+        await tauriService.deleteAgent(agentId);
+      } catch (e) {
+        console.warn('Tauri deleteAgent failed', e);
+      }
+    }
+    this.fallbackAgents = this.fallbackAgents.filter(a => a.id !== agentId);
   }
 
   async updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent> {
-    const agent = this.agents.find(a => a.id === agentId);
-    if (!agent) throw new Error('Agent not found');
-    agent.status = status;
-    return { ...agent };
+    const agent = this.fallbackAgents.find(a => a.id === agentId);
+    if (agent) {
+      agent.status = status;
+      if (isTauriAvailable()) {
+        try {
+          await tauriService.saveAgent(agent);
+        } catch (e) {
+          console.warn('Tauri updateAgentStatus failed', e);
+        }
+      }
+      return { ...agent };
+    }
+    throw new Error('Agent not found');
+  }
+
+  async startAgentProcess(
+    workspacePath: string,
+    agentId: string,
+    sessionId: string,
+    provider: AgentProvider,
+    prompt?: string,
+    workspaceId?: string,
+    rows?: number,
+    cols?: number
+  ): Promise<number> {
+    if (isTauriAvailable()) {
+      return await tauriService.startAgentSession(
+        workspacePath,
+        agentId,
+        sessionId,
+        provider,
+        prompt,
+        workspaceId,
+        rows,
+        cols
+      );
+    }
+    return 4800 + Math.floor(Math.random() * 1000);
+  }
+
+  async sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void> {
+    if (isTauriAvailable()) {
+      await tauriService.sendAgentInput(agentId, sessionId, input);
+    }
+  }
+
+  async resizeAgentTerminal(agentId: string, rows: number, cols: number): Promise<void> {
+    if (isTauriAvailable()) {
+      await tauriService.resizeAgentTerminal(agentId, rows, cols);
+    }
+  }
+
+  async interruptAgentProcess(agentId: string): Promise<void> {
+    if (isTauriAvailable()) {
+      await tauriService.interruptAgentSession(agentId);
+    }
+  }
+
+  async stopAgentProcess(agentId: string): Promise<void> {
+    if (isTauriAvailable()) {
+      await tauriService.stopAgentSession(agentId);
+    }
   }
 
   async sendMessage(sessionId: string, agentId: string, content: string): Promise<Message> {
-    // Generate realistic simulated developer response based on input
     const lower = content.toLowerCase();
-    let reply = "I've analyzed the request and inspected the relevant source files.";
+    let reply = "I've analyzed the request and inspected the workspace files.";
     const tools: any[] = [];
 
     if (lower.includes('reconnect') || lower.includes('socket') || lower.includes('playlist')) {
@@ -66,7 +184,7 @@ export class MockAgentService implements IAgentService {
         { id: 't-' + Date.now() + '-1', toolName: 'grep', file: 'src/server/websocket.server.ts', status: 'completed' }
       );
     } else {
-      reply = `Processing task: "${content}". I am reviewing the project context and architecture definitions.`;
+      reply = `Processing task: "${content}". Reviewing project context and architecture definitions.`;
       tools.push(
         { id: 't-' + Date.now() + '-1', toolName: 'read_file', file: 'src/store/playlist.store.ts', status: 'completed' },
         { id: 't-' + Date.now() + '-2', toolName: 'edit_file', file: 'src/components/PlaylistView.tsx', status: 'completed' }

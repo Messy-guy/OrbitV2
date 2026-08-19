@@ -1,42 +1,33 @@
-# Phase 1 Build Plan & Tracking
+# Orbit Desktop — Master Build Plan & Tracking
 
-- [x] **1. Foundation & Context Documentation**:
-  - [x] Create `agents.md`
-  - [x] Create `context/project-overview.md`
-  - [x] Create `context/architecture.md`
-  - [x] Create `context/database-schema.md`
-  - [x] Create `context/screenshots/README.md`
-  - [x] Setup Vite + React + TypeScript + Tailwind CSS + Tauri 2 foundation
-- [x] **2. Application Shell & Theme**:
-  - [x] Dark theme palette tokens (`#09090B`, `#13151A`, `#7C8CFF`), JetBrains Mono & Inter typography
-  - [x] App Header with breadcrumbs & actions, Sidebar navigation, Bottom Dock with status badges
-- [x] **3. Workspace Management**:
-  - [x] Home view with workspace cards (`Music App`, `GraphFlow`, `E-commerce API`)
-  - [x] Create Workspace modal dialog
-  - [x] Workspace switching & persistence in session
-- [x] **4. Agent Grid & Tile System**:
-  - [x] Responsive multi-agent grid (`react-grid-layout`)
-  - [x] Add Agent dialog (Antigravity, Codex, Claude Code, OpenCode, Gemini CLI, Custom)
-  - [x] Drag, resize, remove agent tiles
-  - [x] Agent Tile header (Provider, Model, Status, Actions, Session switcher)
-- [x] **5. Agent Conversations & Mock Tool Execution**:
-  - [x] In-tile chat interface with realistic developer responses
-  - [x] Mock tool activity (`read_file`, `edit_file`, `run_tests`, `grep`)
-  - [x] Agent status transitions (`Working`, `Ready`, `Waiting`, `Paused`, `Error`)
-- [x] **6. Shared Project Context Panel**:
-  - [x] Objective, Progress bar (78%), Architectural decisions list, Known issues, Changed files, Last checkpoint
-- [x] **7. Checkpoint System**:
-  - [x] Checkpoint creation dialog with realistic prefill
-  - [x] Checkpoint history & timeline integration
-- [x] **8. Context Handoff Flow**:
-  - [x] Share Context dialog (source & target selection, context checklist, token estimation ~2.9k)
-  - [x] Handoff Preview generator (structured task, progress, issues, files, next steps)
-  - [x] Interactive Handoff Animation overlay (particle stream & stats breakdown)
-  - [x] Receiving Agent reaction & banner with handoff injection
-- [x] **9. Auxiliary Bottom Panels**:
-  - [x] Activity Timeline (events: agent starts, file changes, test runs, test failures, checkpoints, handoffs)
-  - [x] Files (Mocked project tree with expand/collapse and modified badges)
-  - [x] Git (Current branch `playlist-sync`, branches list & uncommitted changes)
-  - [x] Sessions (Agent session switcher and historical log)
-- [x] **10. Polish, Validation & End-to-End Verification**:
-  - [x] Full UX flow test (Home → Workspace → Add AGY → Chat → Add Codex → Share Context → Preview → Transfer → Codex Response)
+## Phase 1: Frontend Product Validation
+- [x] Application Shell & Slate-Graphite Industrial Design System
+- [x] Workspace Management Hub
+- [x] Spatial Agent Grid (`react-grid-layout`)
+- [x] Agent Tile UI & Dual View (Terminal vs Structured Chat)
+- [x] Context & Handoff Modals & Drawers
+
+## Phase 2: Local Desktop Runtime & True PTY
+- [x] Native Host Agent Discovery (`agy`, `claude`, `codex`, `opencode`, `bash`)
+- [x] True PTY Runtime Layer with `portable-pty`
+- [x] Real-time ANSI I/O Streaming over Tauri IPC
+- [x] Direct `@xterm/xterm` Canvas Integration with VT100 / ANSI Support
+- [x] Terminal Resizing, `SIGINT` (Ctrl+C), and Process Lifecycle Management
+- [x] Scrollback Buffer Replay and Host Environment Inheritance
+- [x] Local JSON State Persistence (`~/.config/orbit/orbit_state.json`)
+
+## Phase 3: Project Context Engine & Intelligent Agent Handoff
+- [x] Structured Project Context Model (`ProjectContext`, `Checkpoint`, `ContextPackage`, `HandoffRecord`)
+- [x] Safe Git State Inspector (`branch`, `HEAD`, `modified_files`, `recent_commits`)
+- [x] Deterministic Checkpoint Creation & History
+- [x] Versioned `ContextPackage` (v1 Schema) with Secret Redaction & Token Estimation
+- [x] Provider-Agnostic Context Handoff Execution (AGY → Checkpoint → ContextPackage → Target Agent PTY)
+- [x] Context Panel with Live Context, Checkpoints, and Handoff Audit History
+- [x] Verified 0 AI/Cloud dependency for core context engine
+
+## Verification Checklist
+- [x] Frontend `npm run build`: 0 errors
+- [x] Rust backend `cargo check` / `cargo build`: 0 errors
+- [x] Real host executable verified: `/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin/agy` (v1.1.13)
+- [x] Real host executable verified: `/home/leo/.local/bin/claude` (v2.1.233)
+- [x] Interactive terminal session active on native slave PTY (`/dev/pts/*`)

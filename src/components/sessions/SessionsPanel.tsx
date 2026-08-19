@@ -100,7 +100,7 @@ export const SessionsPanel: React.FC = () => {
                     {new Date(chk.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                <p className="text-[11px] text-text-secondary font-sans leading-snug">{chk.summary}</p>
+                <p className="text-[11px] text-text-secondary font-sans leading-snug">{chk.progress || chk.task}</p>
               </div>
             ))}
           </div>

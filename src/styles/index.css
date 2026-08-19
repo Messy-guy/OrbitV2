@@ -4,40 +4,41 @@
 
 @layer base {
   :root {
-    /* Cohesive Industrial Slate-Graphite Material System */
-    --bg-canvas: #16171C;
-    --bg-chrome: #131418;
-    --bg-panel: #1B1C22;
-    --bg-panel-elevated: #20222A;
-    --bg-panel-hover: #262832;
-    --bg-well: #111216;
-    --bg-well-secondary: #14151A;
+    /* Cohesive Obsidian-Graphite Dark Material System */
+    --bg-canvas: #0b0c0e;
+    --bg-chrome: #101114;
+    --bg-panel: rgba(18, 19, 23, 0.85);
+    --bg-panel-elevated: rgba(24, 25, 30, 0.95);
+    --bg-panel-hover: rgba(34, 36, 44, 0.7);
+    --bg-well: #060709;
+    --bg-well-secondary: #0a0b0d;
 
-    --border-subtle: #22242C;
-    --border-base: #2B2D37;
-    --border-hover: #383B48;
-    --border-active: #484C5C;
-    --border-highlight: #5A5F73;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-base: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.2);
+    --border-active: rgba(255, 255, 255, 0.4);
+    --border-highlight: rgba(255, 255, 255, 0.7);
 
-    --text-primary: #F3F4F8;
-    --text-secondary: #C0C4D2;
-    --text-muted: #84899A;
-    --text-dim: #5A5E6E;
+    --text-primary: #EDEDED;
+    --text-secondary: #B4B7C4;
+    --text-muted: #7A7E8F;
+    --text-dim: #4E5262;
   }
 
   body {
-    background-color: #16171C;
-    color: #F3F4F8;
+    background-color: #0b0c0e;
+    color: #EDEDED;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     margin: 0;
     padding: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
+    overflow: hidden;
   }
 
   ::selection {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.25);
     color: #FFFFFF;
   }
 }
@@ -46,83 +47,92 @@
 @layer utilities {
   /* Main Agent Tile / Container Surface */
   .surface-panel {
-    background-color: #1B1C22;
-    border: 1px solid #2B2D37;
+    background-color: rgba(18, 19, 24, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 
       inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 4px 16px -2px rgba(0, 0, 0, 0.4),
-      0 1px 3px rgba(0, 0, 0, 0.25);
+      0 8px 24px -4px rgba(0, 0, 0, 0.55);
   }
 
   /* Elevated Surface (Modals, Popovers, Active Cards) */
   .surface-elevated {
-    background-color: #20222A;
-    border: 1px solid #383B48;
+    background-color: rgba(22, 23, 29, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 12px 36px -4px rgba(0, 0, 0, 0.6),
-      0 4px 12px rgba(0, 0, 0, 0.35);
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 20px 48px -8px rgba(0, 0, 0, 0.8),
+      0 4px 12px rgba(0, 0, 0, 0.5);
   }
 
   /* Recessed Well (Conversation Canvas, Inputs, Code Blocks, Tool Logs) */
   .surface-well {
-    background-color: #111216;
-    border: 1px solid #22242C;
+    background-color: #060709;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     box-shadow: 
-      inset 0 2px 4px rgba(0, 0, 0, 0.35),
+      inset 0 2px 5px rgba(0, 0, 0, 0.6),
       0 1px 0 rgba(255, 255, 255, 0.02);
   }
 
   .surface-well-subtle {
-    background-color: #14151A;
-    border: 1px solid #242630;
+    background-color: rgba(11, 12, 15, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.07);
   }
 
   /* Standard Tactile Button */
   .btn-base {
-    background: linear-gradient(180deg, #262832 0%, #1F2027 100%);
-    border: 1px solid #333642;
+    background: linear-gradient(180deg, rgba(38, 40, 48, 0.8) 0%, rgba(24, 25, 31, 0.95) 100%);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #EDEDED;
     box-shadow: 
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 1px 3px rgba(0, 0, 0, 0.3);
-    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
+      0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .btn-base:hover {
-    background: linear-gradient(180deg, #2D303C 0%, #242630 100%);
-    border-color: #404454;
+    background: linear-gradient(180deg, rgba(50, 53, 64, 0.9) 0%, rgba(30, 32, 40, 1) 100%);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #FFFFFF;
     box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      0 2px 6px rgba(0, 0, 0, 0.35);
+      inset 0 1px 0 rgba(255, 255, 255, 0.15),
+      0 2px 8px rgba(0, 0, 0, 0.5);
   }
 
   .btn-base:active {
-    background: #191A20;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+    background: rgba(16, 17, 21, 1);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
     transform: translateY(0.5px);
   }
 
   /* Primary High-Contrast Solid White Button */
   .btn-primary {
-    background: linear-gradient(180deg, #FFFFFF 0%, #E8EBF2 100%);
-    color: #111216;
-    border: 1px solid #FFFFFF;
+    background: linear-gradient(180deg, #FFFFFF 0%, #E2E4EB 100%);
+    color: #0B0C0E;
+    border: 1px solid rgba(255, 255, 255, 0.9);
     box-shadow: 
       inset 0 1px 0 rgba(255, 255, 255, 1),
-      0 2px 8px rgba(0, 0, 0, 0.35);
-    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
+      0 2px 10px rgba(255, 255, 255, 0.15),
+      0 2px 4px rgba(0, 0, 0, 0.4);
+    transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .btn-primary:hover {
     background: #FFFFFF;
     box-shadow: 
       inset 0 1px 0 rgba(255, 255, 255, 1),
-      0 4px 14px rgba(255, 255, 255, 0.2);
+      0 0 18px rgba(255, 255, 255, 0.35),
+      0 2px 6px rgba(0, 0, 0, 0.4);
     transform: translateY(-0.5px);
   }
 
   .btn-primary:active {
-    background: #D8DCE6;
+    background: #D0D3DE;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
     transform: translateY(0.5px);
   }
 }
@@ -181,3 +191,25 @@
   border-right: 1.5px solid #5A5E6E;
   border-bottom: 1.5px solid #5A5E6E;
 }
+
+/* ── xterm.js terminal styling ─────────────────────────────────────────── */
+.xterm {
+  height: 100% !important;
+  width: 100% !important;
+  padding: 0 !important;
+  background-color: #090a0f !important;
+}
+
+.xterm .xterm-viewport {
+  background-color: #090a0f !important;
+  overflow-y: auto !important;
+}
+
+.xterm .xterm-screen {
+  background-color: #090a0f !important;
+}
+
+.xterm .xterm-screen canvas {
+  display: block !important;
+}
+

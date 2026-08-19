@@ -1,17 +1,18 @@
-import { MockAgentService, IAgentService } from './agent.service';
-import { MockSessionService, ISessionService } from './session.service';
-import { MockContextService, IContextService } from './context.service';
-import { MockHandoffService, IHandoffService } from './handoff.service';
-import { MockWorkspaceService, IWorkspaceService } from './workspace.service';
+import { HybridAgentService, IAgentService } from './agent.service';
+import { HybridSessionService, ISessionService } from './session.service';
+import { HybridContextService, IContextService } from './context.service';
+import { HybridHandoffService, IHandoffService } from './handoff.service';
+import { HybridWorkspaceService, IWorkspaceService } from './workspace.service';
 
-export const agentService: IAgentService = new MockAgentService();
-export const sessionService: ISessionService = new MockSessionService();
-export const contextService: IContextService = new MockContextService();
-export const handoffService: IHandoffService = new MockHandoffService();
-export const workspaceService: IWorkspaceService = new MockWorkspaceService();
+export const agentService: IAgentService = new HybridAgentService();
+export const sessionService: ISessionService = new HybridSessionService();
+export const contextService: IContextService = new HybridContextService();
+export const handoffService: IHandoffService = new HybridHandoffService();
+export const workspaceService: IWorkspaceService = new HybridWorkspaceService();
 
 export * from './agent.service';
 export * from './session.service';
 export * from './context.service';
 export * from './handoff.service';
 export * from './workspace.service';
+export * from './tauri.service';

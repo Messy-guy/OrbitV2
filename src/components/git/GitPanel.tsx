@@ -1,16 +1,21 @@
-import React from 'react';
-import { GitBranch, FileCode, X } from 'lucide-react';
-import { useActivityStore } from '../../stores/activity.store';
+import React, { useEffect } from 'react';
+import { GitBranch, FileCode, X, GitCommit } from 'lucide-react';
+import { useContextStore } from '../../stores/context.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
-import { clsx } from 'clsx';
 
 export const GitPanel: React.FC = () => {
-  const { activeWorkspaceId } = useWorkspaceStore();
-  const { getGitState } = useActivityStore();
+  const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
+  const { gitState, loadGitState } = useContextStore();
   const { setActiveBottomPanel } = useUIStore();
 
-  const gitState = activeWorkspaceId ? getGitState(activeWorkspaceId) : undefined;
+  const activeWorkspace = getActiveWorkspace();
+
+  useEffect(() => {
+    if (activeWorkspace?.projectPath) {
+      loadGitState(activeWorkspace.projectPath).catch(() => {});
+    }
+  }, [activeWorkspace?.projectPath]);
 
   return (
     <div className="h-72 bg-canvas-chrome border-t border-border flex flex-col overflow-hidden text-xs select-none font-mono shadow-dock">
@@ -22,7 +27,7 @@ export const GitPanel: React.FC = () => {
           </span>
           {gitState && (
             <span className="text-[10px] text-text-secondary px-1.5 py-0.2 rounded-badge bg-well border border-border-subtle font-bold">
-              {gitState.currentBranch}
+              {gitState.currentBranch} · {gitState.headCommit}
             </span>
           )}
         </div>
@@ -35,42 +40,29 @@ export const GitPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* Grid: Branches + Working Tree Changes */}
+      {/* Grid: Recent Commits + Working Tree Changes */}
       <div className="flex-1 overflow-y-auto p-3 grid grid-cols-1 md:grid-cols-2 gap-2.5">
-        {/* Branches */}
+        {/* Recent Commits */}
         <div className="p-3 rounded-panel surface-well border border-border flex flex-col">
           <span className="text-[9.5px] uppercase tracking-widest text-text-dim font-bold mb-2 flex items-center gap-1.5">
-            <GitBranch size={11} className="text-text-primary" />
-            <span>Branches</span>
+            <GitCommit size={11} className="text-text-primary" />
+            <span>Recent Commits</span>
           </span>
 
           <div className="space-y-1 flex-1 overflow-y-auto font-mono text-[11px]">
-            {gitState?.branches.map(b => (
-              <div
-                key={b.name}
-                className={clsx(
-                  'p-2 rounded-btn border flex flex-col gap-0.5 transition-colors',
-                  b.isCurrent
-                    ? 'btn-primary text-canvas-chrome font-bold'
-                    : 'bg-panel border-border text-text-secondary hover:text-text-primary'
-                )}
-              >
-                <div className="flex items-center justify-between font-semibold text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <GitBranch size={11} className={b.isCurrent ? 'text-canvas-chrome' : 'text-text-dim'} />
-                    <span>{b.name}</span>
-                  </div>
-                  {b.isCurrent && (
-                    <span className="text-[8.5px] uppercase px-1 rounded bg-canvas-chrome text-white font-bold">
-                      HEAD
-                    </span>
-                  )}
+            {gitState?.recentCommits && gitState.recentCommits.length > 0 ? (
+              gitState.recentCommits.map((c, i) => (
+                <div
+                  key={i}
+                  className="p-2 rounded-btn bg-panel border border-border text-text-secondary hover:text-text-primary transition-colors flex items-center gap-2"
+                >
+                  <GitCommit size={11} className="text-text-dim shrink-0" />
+                  <span className="truncate">{c}</span>
                 </div>
-                <div className={clsx("text-[9.5px] truncate mt-0.5 font-sans", b.isCurrent ? "text-canvas-chrome/70" : "text-text-dim")}>
-                  {b.lastCommit}
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="text-text-dim text-[11px] p-2">No recent commits detected.</div>
+            )}
           </div>
         </div>
 
@@ -82,18 +74,23 @@ export const GitPanel: React.FC = () => {
           </span>
 
           <div className="space-y-1 flex-1 overflow-y-auto font-mono text-[11px]">
-            {gitState?.modifiedFiles.map((m, i) => (
-              <div
-                key={i}
-                className="p-2 rounded-btn bg-panel border border-border flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <span className="w-3 text-center font-bold text-text-primary">{m.status}</span>
-                  <span className="text-text-primary truncate">{m.path}</span>
+            {gitState?.modifiedFiles && gitState.modifiedFiles.length > 0 ? (
+              gitState.modifiedFiles.map((m, i) => (
+                <div
+                  key={i}
+                  className="p-2 rounded-btn bg-panel border border-border flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-status-warning font-bold text-[9px] uppercase px-1 rounded bg-panel">
+                      {m.status}
+                    </span>
+                    <span className="text-text-primary truncate">{m.path}</span>
+                  </div>
                 </div>
-                <span className="text-[9px] text-text-dim uppercase font-bold">MODIFIED</span>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="text-text-dim text-[11px] p-2">Clean working tree (0 uncommitted files).</div>
+            )}
           </div>
         </div>
       </div>

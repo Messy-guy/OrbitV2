@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Check, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -9,17 +9,30 @@ import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
 import { AVAILABLE_AGENT_PRESETS } from '../../mock/agents';
 import { AgentProvider } from '../../types/orbit';
+import { agentService, DetectedAgentDto } from '../../services';
 import { clsx } from 'clsx';
 
 export const AddAgentModal: React.FC = () => {
   const { isAddAgentOpen, setAddAgentOpen } = useUIStore();
-  const { activeWorkspaceId } = useWorkspaceStore();
+  const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
   const { addAgent } = useAgentStore();
 
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider>('antigravity');
   const [customName, setCustomName] = useState('');
   const [customModel, setCustomModel] = useState('');
+  const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const activeWorkspace = getActiveWorkspace();
+  const activeSpaceId = (activeWorkspace && activeSpaceIdByProject[activeWorkspace.id]) || activeWorkspace?.spaces?.[0]?.id || `space-${activeWorkspace?.id}-1`;
+
+  useEffect(() => {
+    if (isAddAgentOpen) {
+      agentService.detectInstalledAgents().then((res) => {
+        setDetectedAgents(res);
+      }).catch(() => {});
+    }
+  }, [isAddAgentOpen]);
 
   const handleAdd = async () => {
     if (!activeWorkspaceId) return;
@@ -29,7 +42,9 @@ export const AddAgentModal: React.FC = () => {
         activeWorkspaceId,
         selectedProvider,
         selectedProvider === 'custom' ? customName.trim() || 'Custom Agent' : undefined,
-        selectedProvider === 'custom' ? customModel.trim() || 'Local LLM' : undefined
+        selectedProvider === 'custom' ? customModel.trim() || 'Local LLM' : undefined,
+        activeWorkspace?.projectPath,
+        activeSpaceId
       );
       setAddAgentOpen(false);
       setCustomName('');
@@ -45,47 +60,57 @@ export const AddAgentModal: React.FC = () => {
     <Modal
       isOpen={isAddAgentOpen}
       onClose={() => setAddAgentOpen(false)}
-      title="Add Agent"
-      subtitle="Select an AI coding agent to connect to this workspace"
+      title="Add Agent / Terminal Harness"
+      subtitle="Select a local AI coding CLI or interactive shell to spawn in this workspace"
       maxWidth="lg"
     >
       <div className="flex flex-col gap-3.5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {AVAILABLE_AGENT_PRESETS.map((preset) => {
             const isSelected = selectedProvider === preset.provider;
+            const detected = detectedAgents.find((d) => d.provider === preset.provider);
+            const isAvailableOnHost = detected?.isAvailable ?? true;
+
             return (
               <div
                 key={preset.provider}
                 onClick={() => setSelectedProvider(preset.provider)}
                 className={clsx(
-                  'p-3.5 rounded-panel border cursor-pointer transition-all flex flex-col justify-between select-none group',
+                  'p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between select-none group',
                   isSelected
-                    ? 'bg-panel-elevated border-border-highlight shadow-elevated'
-                    : 'bg-panel border-border hover:border-border-hover hover:bg-panel-hover'
+                    ? 'bg-white/[0.08] border-white/40 shadow-md'
+                    : 'bg-[#171821]/60 hover:bg-[#1f212d]/80 border-white/[0.08] hover:border-white/[0.16]'
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-bold text-xs tracking-wider uppercase text-text-primary font-mono">
-                      {preset.name}
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs tracking-wider uppercase text-white font-mono flex items-center gap-2">
+                      <span className={clsx('w-2 h-2 rounded-full', isSelected ? 'bg-white shadow-[0_0_6px_#ffffff]' : 'bg-white/30')} />
+                      <span>{preset.name}</span>
                     </span>
-                    <Badge variant="success" dot className="text-[9.5px] uppercase font-bold">
-                      Connected
-                    </Badge>
+                    {isAvailableOnHost ? (
+                      <Badge variant="success" dot className="text-[9px] uppercase font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        Installed
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[9px] uppercase bg-white/[0.04] border border-white/[0.08] text-[#8e93a0]">
+                        Available
+                      </Badge>
+                    )}
                   </div>
-                  <div className="text-[11px] font-mono text-text-secondary mb-1">
-                    {preset.model}
+                  <div className="text-[11px] font-mono text-white/90 mb-1.5 font-medium">
+                    {detected?.version || preset.model}
                   </div>
-                  <p className="text-[11.5px] text-text-muted leading-snug">
+                  <p className="text-[11.5px] text-[#8e93a0] leading-snug">
                     {preset.description}
                   </p>
                 </div>
 
-                <div className="mt-3.5 pt-2 border-t border-border flex items-center justify-between text-[10.5px]">
-                  <span className="text-text-dim font-mono uppercase font-bold">{preset.provider}</span>
+                <div className="mt-4 pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-[10.5px]">
+                  <span className="text-white/40 font-mono uppercase font-bold tracking-wider">{preset.provider}</span>
                   <div className={clsx(
-                    'w-4 h-4 rounded-full border flex items-center justify-center transition-colors',
-                    isSelected ? 'border-white bg-white text-canvas-chrome font-bold' : 'border-border-hover group-hover:border-border-highlight'
+                    'w-4 h-4 rounded-full border flex items-center justify-center transition-all',
+                    isSelected ? 'border-white bg-white text-black font-bold shadow-sm' : 'border-white/20 group-hover:border-white/40'
                   )}>
                     {isSelected && <Check size={10} strokeWidth={3.5} />}
                   </div>
@@ -125,7 +150,7 @@ export const AddAgentModal: React.FC = () => {
             onClick={handleAdd}
             isLoading={isSubmitting}
           >
-            Add Agent to Workspace
+            Spawn in Workspace
           </Button>
         </div>
       </div>

@@ -54,8 +54,8 @@ export const BottomDock: React.FC = () => {
   ];
 
   return (
-    <footer className="h-7 bg-canvas-chrome border-t border-border-subtle px-2 flex items-center justify-between select-none z-20 font-mono text-[11px] shadow-dock">
-      <div className="flex items-center gap-1">
+    <footer className="h-8 bg-[#121318]/90 backdrop-blur-md border-t border-white/[0.08] px-3 flex items-center justify-between select-none z-20 font-mono text-[11px] shadow-sm">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         {navItems.map(item => {
           const isActive = activeBottomPanel === item.id;
           return (
@@ -63,21 +63,21 @@ export const BottomDock: React.FC = () => {
               key={item.id}
               onClick={() => toggleBottomPanel(item.id)}
               className={clsx(
-                'flex items-center gap-1.5 px-2.5 py-0.5 rounded-btn transition-colors',
+                'flex items-center gap-1.5 px-3 py-1 rounded-md transition-all shrink-0',
                 isActive
-                  ? 'bg-panel-elevated text-text-primary border border-border font-semibold shadow-subtle'
-                  : 'text-text-muted hover:text-text-primary hover:bg-panel/40 border border-transparent'
+                  ? 'bg-white/[0.1] text-white border border-white/[0.15] font-bold shadow-inner'
+                  : 'text-text-muted hover:text-white hover:bg-white/[0.04] border border-transparent'
               )}
             >
-              <span className={clsx(isActive ? 'text-text-primary' : 'text-text-dim')}>
+              <span className={clsx(isActive ? 'text-white' : 'text-text-dim')}>
                 {item.icon}
               </span>
               <span className="tracking-tight">{item.label}</span>
               {item.badge !== undefined && (
                 <span
                   className={clsx(
-                    'text-[9.5px] px-1 rounded font-mono',
-                    isActive ? 'bg-well text-text-primary font-bold border border-border-subtle' : 'bg-well/60 text-text-dim'
+                    'text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold',
+                    isActive ? 'bg-white/20 text-white border border-white/30' : 'bg-white/[0.05] text-text-dim'
                   )}
                 >
                   {item.badge}
@@ -88,16 +88,16 @@ export const BottomDock: React.FC = () => {
         })}
       </div>
 
-      <div className="flex items-center gap-3 text-[10px] text-text-muted">
+      <div className="flex items-center gap-3 text-[10px] text-text-muted shrink-0">
         {currentContext?.lastCheckpointTime && (
           <span className="hidden sm:inline font-mono text-text-dim">chk: <strong className="text-text-secondary">{currentContext.lastCheckpointTime}</strong></span>
         )}
         <button
           onClick={() => toggleBottomPanel(activeBottomPanel || 'context')}
-          className="text-text-dim hover:text-text-primary p-0.5 rounded btn-base transition-colors"
+          className="text-text-dim hover:text-white p-1 rounded-md hover:bg-white/[0.08] transition-colors"
           title="Toggle Dock Drawer"
         >
-          {activeBottomPanel ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+          {activeBottomPanel ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </div>
     </footer>

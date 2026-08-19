@@ -34,38 +34,38 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
   };
 
   return (
-    <div className="px-3 py-1.5 bg-panel border-b border-border flex items-center justify-between select-none handle cursor-move relative">
+    <div className="px-3.5 py-2 bg-[#171821]/80 backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between select-none handle cursor-move relative">
       {/* Left: Agent Identifier + Model */}
-      <div className="flex items-center gap-2 truncate">
+      <div className="flex items-center gap-2.5 truncate">
         {getStatusDot(agent.status)}
         <div className="truncate flex items-center gap-1.5">
-          <span className="font-mono font-bold text-[11.5px] tracking-wider uppercase text-text-primary">
+          <span className="font-mono font-extrabold text-xs tracking-wider uppercase text-white">
             {agent.name}
           </span>
-          <span className="text-text-dim text-[10.5px] font-mono">/</span>
-          <span className="text-[10px] font-mono text-text-muted truncate">
+          <span className="text-white/20 text-xs font-mono">/</span>
+          <span className="text-[10px] font-mono text-[#8e93a0] truncate font-medium">
             {agent.model}
           </span>
         </div>
       </div>
 
       {/* Right: View Mode Toggle (Terminal vs Chat) + Session Switcher + Menu */}
-      <div className="flex items-center gap-1 no-drag">
+      <div className="flex items-center gap-1.5 no-drag">
         {/* Toggle Mode Button */}
         <button
           onClick={() => toggleAgentViewMode(agent.id)}
-          className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 bg-well hover:bg-panel-elevated text-text-secondary hover:text-text-primary border border-border transition-colors"
+          className="px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center gap-1.5 bg-black/40 hover:bg-white/[0.08] text-text-secondary hover:text-white border border-white/[0.08] transition-all"
           title={isTerminal ? "Switch to Structured Chat View" : "Switch to Raw Terminal CLI"}
         >
           {isTerminal ? (
             <>
-              <Terminal size={11} className="text-status-success" />
-              <span className="font-bold">CLI</span>
+              <Terminal size={11} className="text-[#00e5ff]" />
+              <span className="font-bold tracking-wider">CLI</span>
             </>
           ) : (
             <>
-              <MessageSquare size={11} className="text-text-primary" />
-              <span>CHAT</span>
+              <MessageSquare size={11} className="text-emerald-400" />
+              <span className="font-bold tracking-wider">CHAT</span>
             </>
           )}
         </button>
@@ -74,10 +74,10 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
           <select
             value={currentSessionId || ''}
             onChange={(e) => setActiveSession(agent.id, e.target.value)}
-            className="surface-well rounded-btn text-[10px] font-mono text-text-secondary px-1.5 py-0.5 focus:outline-none focus:border-border-highlight"
+            className="bg-black/40 border border-white/[0.08] rounded-md text-[10px] font-mono text-text-secondary px-2 py-0.5 focus:outline-none focus:border-[#00e5ff]/50"
           >
             {agentSessions.map(s => (
-              <option key={s.id} value={s.id} className="bg-well text-text-primary">
+              <option key={s.id} value={s.id} className="bg-[#14151c] text-white">
                 {s.title.split('—')[0].trim()}
               </option>
             ))}
@@ -87,14 +87,14 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="text-text-muted hover:text-text-primary p-1 rounded-btn hover:bg-panel-hover transition-colors"
+            className="text-text-muted hover:text-white p-1 rounded-md hover:bg-white/[0.08] transition-colors"
           >
             <MoreVertical size={13} />
           </button>
 
           {isMenuOpen && (
             <div
-              className="absolute right-0 top-7 w-40 surface-elevated rounded-panel shadow-elevated py-1 z-50 text-xs font-mono"
+              className="absolute right-0 top-7 w-44 surface-elevated rounded-lg shadow-2xl py-1.5 z-50 text-xs font-mono border border-white/[0.12]"
               onMouseLeave={() => setIsMenuOpen(false)}
             >
               <button
@@ -102,7 +102,7 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   createNewSession(agent.id, agent.workspaceId);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-panel-hover hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/[0.08] hover:text-white flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 <Plus size={12} />
                 <span>New Session</span>
@@ -113,23 +113,23 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   setAgentStatus(agent.id, agent.status === 'paused' ? 'ready' : 'paused');
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-panel-hover hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-white/[0.08] hover:text-white flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 {agent.status === 'paused' ? <Play size={12} /> : <Pause size={12} />}
-                <span>{agent.status === 'paused' ? 'Resume' : 'Pause'}</span>
+                <span>{agent.status === 'paused' ? 'Resume Process' : 'Pause Process'}</span>
               </button>
 
-              <div className="h-px bg-border my-1" />
+              <div className="h-px bg-white/[0.08] my-1" />
 
               <button
                 onClick={() => {
                   removeAgent(agent.id);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-status-error/15 text-status-error flex items-center gap-2 text-[11px] transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400 flex items-center gap-2 text-[11px] transition-colors font-semibold"
               >
                 <Trash2 size={12} />
-                <span>Remove Terminal</span>
+                <span>Delete Terminal</span>
               </button>
             </div>
           )}
