@@ -109,14 +109,20 @@ export class HybridHandoffService implements IHandoffService {
 
     const primaryIssue = distilledBrief?.blockers?.[0] || context.issues[0]?.title || "None specified.";
     const files = selection.includeChangedFiles
-      ? (distilledBrief?.filesTouched?.length ? distilledBrief.filesTouched : (gitState?.modifiedFiles.map((f: any) => f.path) || context.relevantFiles)).slice(0, 6)
+      ? (distilledBrief?.filesTouched?.length ? distilledBrief.filesTouched : (gitState?.modifiedFiles.map((f: any) => f.path) || context.relevantFiles)).slice(0, 8)
       : ['src/main.rs'];
 
+    const requireConfirm = selection.requireConfirmation !== false; // Default to true (safe & polite)
+
+    const executionGuidance = requireConfirm
+      ? `## 🛑 MANDATORY INGESTION PROTOCOL (DO NOT EXECUTE TOOLS YET)\n1. DO NOT write code, edit files, or execute bash/terminal commands yet.\n2. Ingest this context and respond directly to the user with a concise briefing:\n   - **Understood Mission & Goal**\n   - **Memory & Decisions Ingested**\n   - **Active Files Mapped**\n   - **Proposed Action Plan (Step 1, Step 2)**\n   - **Clarifying Questions** (if any ambiguities exist)\n3. End your response with: *"I am ready. Shall I proceed with Step 1, or do you have adjustments?"* and wait for user confirmation.`
+      : `## 🚀 DIRECT EXECUTION PROTOCOL\nAcknowledge this brief and proceed with the next immediate step without repeating completed work.`;
+
     const narrativeSection = distilledBrief?.summaryNarrative
-      ? `\n\n--- SESSION SYNTHESIS & GRAPH CONTEXT ---\n${distilledBrief.summaryNarrative}\n`
+      ? `\n### Context Synthesis\n${distilledBrief.summaryNarrative}\n`
       : '';
 
-    const formattedInstruction = `============================================================\nORBIT CONTEXT HANDOFF\n============================================================\nProject: ${context.goal || 'Orbit Workspace'}\nFrom: ${sourceAgentName}\n\nTask:\n${distilledBrief?.goal || context.currentTask || context.goal}\n\nProgress:\n${selection.includeProgress ? `Implementation is active (~${context.progress}%).` : 'In progress.'}\n${narrativeSection}\nDecisions:\n${context.decisions.map((d: any) => `• ${d.title}`).join('\n')}\n\nKnown Issues / Blockers:\n• ${primaryIssue}\n\nRelevant Files:\n${files.map((f: string) => `• ${f}`).join('\n')}\n============================================================\nContinue from this state without repeating completed work.`;
+    const formattedInstruction = `# ORBIT CONTEXT HANDOFF BRIEF\n**Handoff Source:** ${sourceAgentName}\n**Workspace:** ${context.goal || 'Orbit Workspace'}\n\n${executionGuidance}\n\n## 🎯 Goal & Mission\n${distilledBrief?.goal || context.currentTask || context.goal}\n\n## ⚡ Architectural Decisions & Context\n${selection.includeDecisions && context.decisions.length > 0 ? context.decisions.map((d: any) => `• ${d.title}`).join('\n') : (distilledBrief?.decisions?.length ? distilledBrief.decisions.map((d: string) => `• ${d}`).join('\n') : '• Maintained existing codebase architecture.')}\n${narrativeSection}\n## 📝 Active Touchpoints / Modified Files\n${files.map((f: string) => `• \`${f}\``).join('\n')}\n\n## ⚠️ Known Blockers & Issues\n• ${primaryIssue}\n\n## 👉 Next Recommended Action\n${distilledBrief?.nextSteps || 'Inspect the files listed above and proceed with the proposed plan.'}\n\n---\n*Please acknowledge this brief and follow the protocol above.*`;
 
     return {
       task: distilledBrief?.goal || context.currentTask || `Continue ${context.goal.toLowerCase() || 'active workspace development'}.`,

@@ -33,6 +33,7 @@ export const ShareContextModal: React.FC = () => {
     includeGitState: true,
     includeRelevantConversation: true,
     includeFullConversation: false,
+    requireConfirmation: true, // Default to Safe Briefing & Checkpoint protocol
   });
 
   const [isTransferring, setIsTransferring] = useState(false);
@@ -220,36 +221,106 @@ export const ShareContextModal: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Context Manifest Preview Box */}
+        {/* Live Context Manifest Preview Box (leo-agent style) */}
         {previewData && (
-          <div className="p-4 bg-[#060709] rounded-xl border border-white/[0.08] space-y-2.5 font-mono shadow-inner">
+          <div className="p-4 bg-[#060709] rounded-xl border border-white/[0.08] space-y-3 font-mono shadow-inner">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
               <span className="font-extrabold text-white tracking-wider uppercase text-[10px] flex items-center gap-1.5">
                 <Network size={12} className="text-white/80" />
-                <span>DISTILLED CONTEXT GRAPH</span>
+                <span>STRUCTURED HANDOFF BRIEF (LEO PROTOCOL)</span>
               </span>
               <span className="text-[10px] text-white font-bold px-2.5 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.15]">
                 ~{(estimatedTokens / 1000).toFixed(1)}k tokens
               </span>
             </div>
 
+            {/* Goal */}
             <div>
-              <span className="text-[9.5px] uppercase tracking-wider text-[#8e93a0] font-bold block mb-0.5">Objective / Goal</span>
-              <p className="text-white text-xs font-sans font-semibold">{previewData.task}</p>
+              <span className="text-[9.5px] uppercase tracking-wider text-emerald-400 font-bold block mb-0.5">🎯 Goal & Mission</span>
+              <p className="text-white text-xs font-sans font-semibold bg-white/[0.03] p-2 rounded-lg border border-white/[0.05]">{previewData.task}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-[11px]">
+              {/* Decisions */}
               <div className="p-2.5 bg-[#121318]/80 rounded-lg border border-white/[0.06]">
-                <span className="text-[9.5px] text-[#8e93a0] uppercase tracking-wider font-bold block mb-0.5">Progress</span>
-                <p className="text-[#c0c4d2] font-sans truncate font-medium">{previewData.progress}</p>
+                <span className="text-[9.5px] text-[#8e93a0] uppercase tracking-wider font-bold block mb-0.5">⚡ Decisions & Constraints</span>
+                <p className="text-[#c0c4d2] font-sans text-[11px] line-clamp-2">
+                  {effectiveContext.decisions.length > 0 ? effectiveContext.decisions[0].title : 'Clean architecture preserved'}
+                </p>
               </div>
+
+              {/* Next Steps */}
               <div className="p-2.5 bg-[#121318]/80 rounded-lg border border-white/[0.06]">
-                <span className="text-[9.5px] text-[#8e93a0] uppercase tracking-wider font-bold block mb-0.5">Known Blockers</span>
-                <p className="text-amber-400 font-sans truncate font-medium">{previewData.currentIssue}</p>
+                <span className="text-[9.5px] text-[#8e93a0] uppercase tracking-wider font-bold block mb-0.5">👉 Next Immediate Step</span>
+                <p className="text-cyan-300 font-sans text-[11px] font-medium line-clamp-2">{previewData.nextStep}</p>
               </div>
             </div>
+
+            {/* Files Touched */}
+            {previewData.relevantFiles.length > 0 && (
+              <div className="pt-1">
+                <span className="text-[9.5px] text-[#8e93a0] uppercase tracking-wider font-bold block mb-1">📝 Active Touchpoints ({previewData.relevantFiles.length})</span>
+                <div className="flex flex-wrap gap-1">
+                  {previewData.relevantFiles.map((f: string) => (
+                    <span key={f} className="px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-[10px] text-[#d4d4d8]">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
+
+        {/* Handoff Execution Protocol Selector (Briefing & Checkpoint vs Direct) */}
+        <div>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[#8e93a0] font-bold block mb-2">
+            Target Agent Ingestion Behavior
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+            <button
+              type="button"
+              onClick={() => setSelection(prev => ({ ...prev, requireConfirmation: true }))}
+              className={clsx(
+                "p-3 rounded-lg border text-left transition-all flex flex-col justify-between",
+                selection.requireConfirmation !== false
+                  ? "bg-white/[0.08] border-white text-white shadow-sm"
+                  : "bg-[#121318]/50 border-white/[0.06] text-[#8e93a0] hover:border-white/20"
+              )}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span>Briefing & Checkpoint (Recommended)</span>
+                </span>
+              </div>
+              <p className="text-[10.5px] text-[#a1a1aa] font-sans">
+                Agent ingests memory, summarizes state & proposed plan, and waits for your confirmation before writing code.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelection(prev => ({ ...prev, requireConfirmation: false }))}
+              className={clsx(
+                "p-3 rounded-lg border text-left transition-all flex flex-col justify-between",
+                selection.requireConfirmation === false
+                  ? "bg-white/[0.08] border-white text-white shadow-sm"
+                  : "bg-[#121318]/50 border-white/[0.06] text-[#8e93a0] hover:border-white/20"
+              )}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                  <span>Autonomous Execution</span>
+                </span>
+              </div>
+              <p className="text-[10.5px] text-[#a1a1aa] font-sans">
+                Agent immediately starts implementing the next step without pausing for confirmation.
+              </p>
+            </button>
+          </div>
+        </div>
 
         {/* Inclusions Checklist */}
         <div>

@@ -77,6 +77,7 @@ export class UniversalSessionExtractor {
 
     let currentTurn: ExtractedTurn | null = null;
     let primaryGoal = '';
+    let latestUserRequest = '';
     let lastUnfinishedStep = '';
 
     const finalizeTurn = () => {
@@ -87,10 +88,11 @@ export class UniversalSessionExtractor {
     };
 
     // Regex matchers for CLI prompts & events
-    const USER_PROMPT_REGEX = /^(?:>|\$|❯|>>>|Ask anything\.\.\.|Orbit Handoff from|\?\s+Prompt:)\s*(.*)/i;
+    const USER_PROMPT_REGEX = /^(?:>|\$|❯|>>>|Ask anything\.\.\.|Orbit Handoff from|\?\s+Prompt:|<USER_REQUEST>)\s*(.*)/i;
     const FILE_PATH_REGEX = /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g;
     const ERROR_REGEX = /(?:error|failed|exception|panic|fatal|cannot find|invalid|ENAMETOOLONG|EADDRINUSE|404|500):?\s*(.*)/i;
-    const TOOL_EXEC_REGEX = /(?:running|executing|read_file|edit_file|write_to_file|run_command|grep|bash|cargo|npm)\s+([^\n\r]+)/i;
+    const TOOL_EXEC_REGEX = /(?:running|executing|read_file|edit_file|write_to_file|replace_file_content|run_command|grep|bash|cargo|npm)\s+([^\n\r]+)/i;
+    const DECISION_REGEX = /(?:decided to|refactored|switched from|chosen|agreed upon|standardized|we have fixed|updated|configured|implemented|added)\s+([^\n\r]+)/i;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -99,7 +101,7 @@ export class UniversalSessionExtractor {
       const fileMatches = line.match(FILE_PATH_REGEX);
       if (fileMatches) {
         fileMatches.forEach((f) => {
-          if (!f.startsWith('http') && !f.includes('node_modules') && !f.includes('target/')) {
+          if (!f.startsWith('http') && !f.includes('node_modules') && !f.includes('target/') && !f.includes('.system_generated')) {
             filesTouched.add(f);
           }
         });
@@ -115,10 +117,11 @@ export class UniversalSessionExtractor {
       const userMatch = line.match(USER_PROMPT_REGEX);
       if (userMatch && userMatch[1] && userMatch[1].length > 3) {
         finalizeTurn();
-        const promptText = userMatch[1].trim();
+        const promptText = userMatch[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
         if (!primaryGoal) {
           primaryGoal = promptText;
         }
+        latestUserRequest = promptText;
         currentTurn = {
           id: `turn-${Date.now()}-${turns.length}`,
           role: 'user',
@@ -161,9 +164,10 @@ export class UniversalSessionExtractor {
         };
       }
 
-      // Track potential decisions
-      if (/decided to|refactored|switched from|chosen|agreed upon|standardized/i.test(line)) {
-        decisionsFormulated.add(line.replace(/^[•\-\*]\s*/, ''));
+      // Track architectural decisions & state milestones
+      const decMatch = line.match(DECISION_REGEX);
+      if (decMatch && decMatch[1] && decMatch[1].length > 8) {
+        decisionsFormulated.add(decMatch[0].replace(/^[•\-\*]\s*/, '').trim());
       }
     }
 
@@ -173,7 +177,7 @@ export class UniversalSessionExtractor {
     if (turns.length > 0) {
       const lastTurn = turns[turns.length - 1];
       if (lastTurn.role === 'agent') {
-        const lastLines = lastTurn.content.split('\n').filter(Boolean);
+        const lastLines = lastTurn.content.split('\n').filter(l => l.trim().length > 10);
         lastUnfinishedStep = lastLines.slice(-2).join(' ').trim();
       }
     }
@@ -182,11 +186,11 @@ export class UniversalSessionExtractor {
       agentId,
       sessionId,
       turns,
-      primaryGoal: primaryGoal || 'Active workspace development',
+      primaryGoal: latestUserRequest || primaryGoal || 'Active workspace development',
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound).slice(0, 5),
       decisionsFormulated: Array.from(decisionsFormulated).slice(0, 5),
-      lastUnfinishedStep: lastUnfinishedStep || 'Continue active implementation flow',
+      lastUnfinishedStep: lastUnfinishedStep || 'Continue active implementation flow from previous agent',
     };
   }
 

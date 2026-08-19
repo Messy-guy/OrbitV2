@@ -170,6 +170,7 @@ export interface HandoffSelection {
   includeGitState: boolean;
   includeRelevantConversation: boolean;
   includeFullConversation: boolean;
+  requireConfirmation?: boolean; // When true, the target agent summarizes and waits for user confirmation before executing
 }
 
 export interface ContextPackage {
