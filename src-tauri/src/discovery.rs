@@ -39,7 +39,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         }
     }
 
-    // 3. Check system PATH via 'which' or direct check
+    // 3. Check system PATH and standard executable extensions (.exe, .cmd, .bat)
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             for name in names {
@@ -47,15 +47,31 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
                 if candidate.is_file() {
                     return Some(candidate);
                 }
+                #[cfg(target_os = "windows")]
+                {
+                    let exe_candidate = dir.join(format!("{}.exe", name));
+                    if exe_candidate.is_file() {
+                        return Some(exe_candidate);
+                    }
+                    let cmd_candidate = dir.join(format!("{}.cmd", name));
+                    if cmd_candidate.is_file() {
+                        return Some(cmd_candidate);
+                    }
+                }
             }
         }
     }
 
-    // 4. Try running 'which'
+    // 4. Try running 'where' on Windows or 'which' on Unix
+    #[cfg(target_os = "windows")]
+    let lookup_cmd = "where";
+    #[cfg(not(target_os = "windows"))]
+    let lookup_cmd = "which";
+
     for name in names {
-        if let Ok(output) = Command::new("which").arg(name).output() {
+        if let Ok(output) = Command::new(lookup_cmd).arg(name).output() {
             if output.status.success() {
-                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let path_str = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").trim().to_string();
                 if !path_str.is_empty() && Path::new(&path_str).is_file() {
                     return Some(PathBuf::from(path_str));
                 }
