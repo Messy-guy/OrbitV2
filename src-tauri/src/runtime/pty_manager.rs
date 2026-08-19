@@ -9,7 +9,8 @@ use tauri::{AppHandle, Emitter};
 
 macro_rules! dbg_log {
     ($($arg:tt)*) => {{
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("/tmp/orbit-debug.log") {
+        let log_path = std::env::temp_dir().join("orbit-debug.log");
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path) {
             let _ = writeln!(f, "[ORBIT] {}", format!($($arg)*));
         }
     }};
