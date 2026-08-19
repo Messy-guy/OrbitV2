@@ -144,8 +144,16 @@ impl PtyManager {
             "codex" => {
                 let bin = find_executable(&["codex", "openai-codex"], &[])
                     .unwrap_or_else(|| {
-                        find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                            .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
                     });
                 let mut cmd = CommandBuilder::new(&bin);
                 if bin.to_string_lossy().contains("bash") || bin.to_string_lossy().contains("sh") {
@@ -164,17 +172,38 @@ impl PtyManager {
                 ];
                 let bin = find_executable(&["opencode"], &opencode_extra)
                     .unwrap_or_else(|| {
-                        find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                            .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
                     });
                 let cmd = CommandBuilder::new(bin);
                 cmd
             }
             "terminal" | "shell" | _ => {
-                let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                    .unwrap_or_else(|| Path::new("bash").to_path_buf());
+                #[cfg(target_os = "windows")]
+                let (bin, is_bash) = (
+                    find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf()),
+                    false,
+                );
+                #[cfg(not(target_os = "windows"))]
+                let (bin, is_bash) = (
+                    find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf()),
+                    true,
+                );
+
                 let mut cmd = CommandBuilder::new(bin);
-                cmd.arg("-i");
+                if is_bash {
+                    cmd.arg("-i");
+                }
                 cmd
             }
         };
