@@ -45,6 +45,8 @@ jobs:
         run: npm run build
 
       - name: Build Tauri Desktop App
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npx tauri build
 
       - name: Upload Build Artifacts (Linux)

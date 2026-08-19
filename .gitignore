@@ -12,6 +12,10 @@ dist-ssr/
 
 # Tauri / Rust build outputs
 src-tauri/target/
+*.key
+*.key.pub
+src-tauri/updater.key
+src-tauri/updater.key.pub
 
 # Editor directories
 .vscode/*

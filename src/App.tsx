@@ -4,6 +4,7 @@ import { AppHeader } from './components/layout/AppHeader';
 import { Home } from './pages/Home';
 import { WorkspaceView } from './pages/WorkspaceView';
 import { CreateWorkspaceModal } from './components/workspace/CreateWorkspaceModal';
+import { UpdateNotifier } from './components/layout/UpdateNotifier';
 
 export const App: React.FC = () => {
   const { activeWorkspaceId, loadWorkspaces } = useWorkspaceStore();
@@ -22,8 +23,9 @@ export const App: React.FC = () => {
         {activeWorkspaceId ? <WorkspaceView /> : <Home />}
       </div>
 
-      {/* Global Modals */}
+      {/* Global Modals & Update Notifier */}
       <CreateWorkspaceModal />
+      <UpdateNotifier />
     </div>
   );
 };
