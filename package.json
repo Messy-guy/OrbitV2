@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:desktop": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo run'",
+    "dev:desktop": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri dev'",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "release": "node scripts/release.js",
     "tauri": "tauri",
-    "tauri:host": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo run'",
-    "tauri:build": "flatpak-spawn --host bash -l -c 'cd /home/leo/Desktop/personal_projects/OrbitV2/src-tauri && cargo build --release'"
+    "tauri:host": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri dev'",
+    "tauri:build": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri build'"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
