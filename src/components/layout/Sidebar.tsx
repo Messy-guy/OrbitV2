@@ -3,6 +3,7 @@ import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2 } fro
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
+import { tauriService } from '../../services';
 import { clsx } from 'clsx';
 
 export const Sidebar: React.FC = () => {
@@ -12,11 +13,29 @@ export const Sidebar: React.FC = () => {
     activeSpaceIdByProject,
     collapsedProjects,
     setActiveWorkspace,
+    createWorkspace,
     toggleProjectCollapsed,
   } = useWorkspaceStore();
 
   const { agents } = useAgentStore();
   const { setCreateWorkspaceOpen, setAddAgentOpen, setMaximizedAgentId } = useUIStore();
+
+  const handlePickAndCreateProject = async () => {
+    try {
+      const selectedPath = await tauriService.openFolderDialog();
+      if (selectedPath) {
+        // Extract project name from folder path (e.g. /home/leo/Desktop/my-app -> my-app)
+        const parts = selectedPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        const folderName = parts[parts.length - 1] || 'New Project';
+        await createWorkspace(folderName, selectedPath);
+        return;
+      }
+    } catch (e) {
+      console.warn('Native folder picker failed or was cancelled, opening modal fallback:', e);
+    }
+    // Fallback to modal if native dialog is skipped or unavailable
+    setCreateWorkspaceOpen(true);
+  };
 
   const getProviderIcon = (provider: string) => {
     switch (provider) {
@@ -40,9 +59,9 @@ export const Sidebar: React.FC = () => {
             PROJECTS
           </span>
           <button
-            onClick={() => setCreateWorkspaceOpen(true)}
-            className="text-[#7A7E8F] hover:text-white p-1 rounded hover:bg-white/[0.06] transition-colors"
-            title="Add New Project"
+            onClick={handlePickAndCreateProject}
+            className="text-[#7A7E8F] hover:text-white p-1 rounded hover:bg-white/[0.06] transition-colors cursor-pointer"
+            title="Open Local Folder / Project (+)"
           >
             <Plus size={13} strokeWidth={2.5} />
           </button>

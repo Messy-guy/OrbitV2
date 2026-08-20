@@ -1,45 +1,48 @@
 import React, { useEffect } from 'react';
-import { Plus, Orbit, FolderPlus } from 'lucide-react';
+import { Orbit, FolderPlus } from 'lucide-react';
 import { useWorkspaceStore } from '../stores/workspace.store';
 import { useUIStore } from '../stores/ui.store';
 import { WorkspaceCard } from '../components/workspace/WorkspaceCard';
-import { Button } from '../components/ui/Button';
+import { tauriService } from '../services';
 
 export const Home: React.FC = () => {
-  const { workspaces, loadWorkspaces, setActiveWorkspace } = useWorkspaceStore();
+  const { workspaces, loadWorkspaces, setActiveWorkspace, createWorkspace } = useWorkspaceStore();
   const { setCreateWorkspaceOpen } = useUIStore();
 
   useEffect(() => {
     loadWorkspaces();
   }, [loadWorkspaces]);
 
+  const handlePickAndCreateProject = async () => {
+    try {
+      const selectedPath = await tauriService.openFolderDialog();
+      if (selectedPath) {
+        const parts = selectedPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        const folderName = parts[parts.length - 1] || 'New Project';
+        await createWorkspace(folderName, selectedPath);
+        return;
+      }
+    } catch (e) {
+      console.warn('Native folder picker failed or was cancelled:', e);
+    }
+    setCreateWorkspaceOpen(true);
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto bg-canvas p-6 md:p-8 select-none font-sans">
       <div className="max-w-4xl w-full mx-auto space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1 text-text-muted font-mono text-[10.5px] uppercase tracking-widest font-bold">
-              <Orbit size={13} />
-              <span>Multi-Agent Desktop Workspace</span>
-            </div>
-            <h1 className="text-xl font-bold text-text-primary tracking-tight font-mono uppercase">
-              Projects & Workspaces
-            </h1>
-            <p className="text-xs text-text-muted mt-1 font-sans">
-              Select a project directory or spawn an isolated workspace to collaborate with coding agents.
-            </p>
+        <div className="pb-5 border-b border-border">
+          <div className="flex items-center gap-1.5 mb-1 text-text-muted font-mono text-[10.5px] uppercase tracking-widest font-bold">
+            <Orbit size={13} />
+            <span>Multi-Agent Desktop Workspace</span>
           </div>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setCreateWorkspaceOpen(true)}
-            className="gap-1.5 self-start sm:self-auto font-mono text-xs font-bold tracking-wider"
-          >
-            <Plus size={13} strokeWidth={2.5} />
-            <span>New Workspace</span>
-          </Button>
+          <h1 className="text-xl font-bold text-text-primary tracking-tight font-mono uppercase">
+            Projects & Workspaces
+          </h1>
+          <p className="text-xs text-text-muted mt-1 font-sans">
+            Select a project directory or open a folder to start multi-agent collaboration.
+          </p>
         </div>
 
         {/* Workspaces Grid */}
@@ -52,15 +55,15 @@ export const Home: React.FC = () => {
             />
           ))}
 
-          {/* New Workspace Dashed Card */}
+          {/* Open Local Folder / Project Card */}
           <button
-            onClick={() => setCreateWorkspaceOpen(true)}
-            className="h-36 rounded-panel border border-dashed border-border hover:border-border-hover bg-panel-subtle hover:bg-panel p-4 flex flex-col items-center justify-center gap-2 text-text-muted hover:text-text-primary transition-colors group"
+            onClick={handlePickAndCreateProject}
+            className="h-36 rounded-panel border border-dashed border-border hover:border-border-hover bg-panel-subtle hover:bg-panel p-4 flex flex-col items-center justify-center gap-2 text-text-muted hover:text-text-primary transition-all group cursor-pointer"
           >
             <div className="w-8 h-8 rounded-btn btn-base flex items-center justify-center text-text-dim group-hover:text-text-primary transition-colors">
               <FolderPlus size={15} />
             </div>
-            <span className="text-xs font-mono font-bold uppercase tracking-wider">Create New Workspace</span>
+            <span className="text-xs font-mono font-bold uppercase tracking-wider">Open Local Project Folder</span>
           </button>
         </div>
       </div>

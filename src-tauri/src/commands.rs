@@ -32,6 +32,50 @@ pub fn create_workspace(state: State<'_, AppState>, name: String, project_path: 
 }
 
 #[tauri::command]
+pub fn open_folder_dialog() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        // PowerShell folder browser dialog on Windows
+        let ps_script = "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = 'Select Project Folder for Orbit Workspace'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Host $f.SelectedPath }";
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_script])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_dir() {
+                return Some(path_str);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Zenity / KDialog / Python Tkinter folder dialog on Linux
+        if let Ok(output) = std::process::Command::new("zenity")
+            .args(["--file-selection", "--directory", "--title=Select Project Folder for Orbit Workspace"])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_dir() {
+                return Some(path_str);
+            }
+        }
+
+        if let Ok(output) = std::process::Command::new("kdialog")
+            .args(["--getexistingdirectory", "--title", "Select Project Folder for Orbit Workspace"])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_dir() {
+                return Some(path_str);
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
 pub fn delete_workspace(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state.storage.delete_workspace(&id);
     Ok(())

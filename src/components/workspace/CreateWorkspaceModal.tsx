@@ -5,6 +5,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
+import { tauriService } from '../../services';
 
 export const CreateWorkspaceModal: React.FC = () => {
   const { isCreateWorkspaceOpen, setCreateWorkspaceOpen } = useUIStore();
@@ -63,18 +64,38 @@ export const CreateWorkspaceModal: React.FC = () => {
         </div>
 
         <div>
-          <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider mb-1.5 block">
-            Project Folder Path
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[11px] font-bold text-text-dim uppercase tracking-wider block">
+              Project Folder Path
+            </label>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const selectedPath = await tauriService.openFolderDialog();
+                  if (selectedPath) {
+                    setProjectPath(selectedPath);
+                    if (!name.trim()) {
+                      const parts = selectedPath.replace(/\\/g, '/').split('/').filter(Boolean);
+                      setName(parts[parts.length - 1] || '');
+                    }
+                  }
+                } catch (err) {
+                  console.warn('Folder selection error:', err);
+                }
+              }}
+              className="text-[10.5px] text-white/80 hover:text-white underline font-mono flex items-center gap-1 cursor-pointer"
+            >
+              <Folder size={11} />
+              <span>Browse Device...</span>
+            </button>
+          </div>
           <Input
             value={projectPath}
             onChange={(e) => setProjectPath(e.target.value)}
             placeholder={name ? `/home/leo/projects/${name.toLowerCase().replace(/\s+/g, '-')}` : '/home/leo/projects/my-app'}
             icon={<Folder size={14} />}
           />
-          <span className="text-[10.5px] text-text-dim mt-1 block font-mono">
-            Phase 1 mock path — no local filesystem modification.
-          </span>
         </div>
 
         <div className="flex items-center justify-end gap-2 mt-2 pt-4 border-t border-border">
