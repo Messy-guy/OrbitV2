@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Sparkles, Terminal, Cpu, Code2, ShieldCheck, Check } from 'lucide-react';
+import { ArrowRight, Terminal, Cpu, Code2, ShieldCheck, Zap } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { useAgentStore } from '../../stores/agent.store';
 import { useContextStore } from '../../stores/context.store';
@@ -9,7 +9,6 @@ import { handoffService } from '../../services';
 import { UniversalSessionExtractor } from '../../services/extractor.service';
 import { SessionDistillerService } from '../../services/distiller.service';
 import { isTauriAvailable, tauriService } from '../../services/tauri.service';
-import { clsx } from 'clsx';
 
 export const ShareContextModal: React.FC = () => {
   const { isShareContextOpen, setShareContextOpen, selectedAgentForModal } = useUIStore();
@@ -143,112 +142,68 @@ export const ShareContextModal: React.FC = () => {
   const getProviderIcon = (provider: string) => {
     switch (provider) {
       case 'antigravity':
-        return <span className="font-mono font-bold text-[11px] text-white">▲</span>;
+        return <span className="font-mono font-bold text-[10px] text-white">▲</span>;
       case 'claude':
-        return <Cpu size={12} className="text-amber-300" />;
+        return <Cpu size={12} className="text-[#EDEDED]" />;
       case 'opencode':
-        return <Code2 size={12} className="text-cyan-300" />;
+        return <Code2 size={12} className="text-[#EDEDED]" />;
       default:
-        return <Terminal size={12} className="text-zinc-300" />;
+        return <Terminal size={12} className="text-[#7A7E8F]" />;
     }
   };
 
   if (!isShareContextOpen || !sourceAgent) return null;
-
-  const goalSummary = distilledBrief?.goal || effectiveContext.currentTask || effectiveContext.goal;
-  const filesCount = distilledBrief?.filesTouched?.length || gitState?.modifiedFiles.length || effectiveContext.relevantFiles.length || 0;
-  const decisionsCount = distilledBrief?.decisions?.length || effectiveContext.decisions.length || 0;
 
   return (
     <Modal
       isOpen={isShareContextOpen}
       onClose={() => setShareContextOpen(false)}
       title="Handoff Context"
-      subtitle={`Relay conversation memory & project state to another agent`}
-      maxWidth="md"
+      subtitle="Relay conversation memory & project state"
+      maxWidth="sm"
     >
-      <div className="flex flex-col gap-4 font-sans text-xs">
-        {/* Source -> Target Relay Header */}
-        <div className="grid grid-cols-[1fr,auto,1fr] items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+      <div className="flex flex-col gap-3 font-sans text-xs pt-1">
+        {/* Source -> Target Relay Row */}
+        <div className="grid grid-cols-[1fr,auto,1fr] items-center gap-2 p-2 rounded-lg bg-[#060709] border border-white/[0.08]">
           {/* Source Agent */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[#71717a] font-bold">
-              From
-            </span>
-            <div className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.04] border border-white/[0.06] truncate">
-              <div className="w-5 h-5 rounded bg-white/[0.08] flex items-center justify-center shrink-0">
-                {getProviderIcon(sourceAgent.provider)}
-              </div>
-              <span className="font-mono font-bold text-white text-xs truncate">
-                {sourceAgent.name}
-              </span>
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-[#121318] border border-white/[0.06] truncate">
+            <div className="w-4 h-4 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
+              {getProviderIcon(sourceAgent.provider)}
             </div>
+            <span className="font-mono font-semibold text-[#EDEDED] text-[11.5px] truncate">
+              {sourceAgent.name}
+            </span>
           </div>
 
           {/* Arrow */}
-          <div className="flex items-center justify-center pt-3 text-[#71717a]">
-            <ArrowRight size={16} strokeWidth={2} />
+          <div className="text-[#4E5262] flex items-center justify-center">
+            <ArrowRight size={13} strokeWidth={2} />
           </div>
 
           {/* Target Agent Selector */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[#71717a] font-bold">
-              To (Target)
-            </span>
-            {targetAgents.length === 0 ? (
-              <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 font-mono text-[11px]">
-                No other agents active
-              </div>
-            ) : (
-              <select
-                value={validTarget?.id}
-                onChange={(e) => setTargetAgentId(e.target.value)}
-                className="w-full p-2 rounded-lg bg-[#14151a] border border-white/[0.12] hover:border-white/30 text-white font-mono text-xs focus:outline-none focus:border-white transition-colors cursor-pointer"
-              >
-                {targetAgents.map(a => (
-                  <option key={a.id} value={a.id} className="bg-[#121318] text-white">
-                    {a.name} ({a.provider.toUpperCase()})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-
-        {/* Auto-Distilled Memory Summary */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[#71717a] font-bold flex items-center gap-1.5">
-              <Sparkles size={11} className="text-emerald-400" />
-              <span>Extracted Memory Summary</span>
-            </span>
-            <div className="flex items-center gap-2 text-[10.5px] font-mono text-[#a1a1aa]">
-              <span>{filesCount} files</span>
-              <span>•</span>
-              <span>{decisionsCount} decisions</span>
+          {targetAgents.length === 0 ? (
+            <div className="px-2 py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-300 font-mono text-[10.5px] truncate">
+              No target agent
             </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-[#090a0f] border border-white/[0.08] text-[#d4d4d8] font-sans leading-relaxed text-[12px]">
-            <p className="font-medium text-white mb-1.5">
-              {goalSummary}
-            </p>
-            {distilledBrief?.summaryNarrative ? (
-              <p className="text-[11.5px] text-[#a1a1aa] line-clamp-3">
-                {distilledBrief.summaryNarrative}
-              </p>
-            ) : (
-              <p className="text-[11px] text-[#71717a] italic">
-                Active session context prepared. Ready for handoff delivery.
-              </p>
-            )}
-          </div>
+          ) : (
+            <select
+              value={validTarget?.id}
+              onChange={(e) => setTargetAgentId(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-md bg-[#121318] border border-white/[0.08] hover:border-white/20 text-[#EDEDED] font-mono text-[11.5px] focus:outline-none focus:border-white/40 transition-colors cursor-pointer"
+            >
+              {targetAgents.map(a => (
+                <option key={a.id} value={a.id} className="bg-[#101114] text-[#EDEDED]">
+                  {a.name} ({a.provider.toUpperCase()})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {/* Optional Directive / Note */}
+        {/* Single Line Directive Input */}
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-mono uppercase tracking-widest text-[#71717a] font-bold">
-            Note for {validTarget?.name || 'Target Agent'} (Optional)
+          <label className="text-[10px] font-mono uppercase tracking-widest text-[#7A7E8F] font-bold">
+            Directive / Note (Optional)
           </label>
           <input
             type="text"
@@ -260,39 +215,40 @@ export const ShareContextModal: React.FC = () => {
                 handleExecuteHandoff();
               }
             }}
-            placeholder="e.g. Focus on testing the build and verifying responsive layouts..."
-            className="w-full px-3 py-2 rounded-lg bg-[#090a0f] border border-white/[0.1] text-white font-sans text-xs placeholder:text-[#52525b] focus:outline-none focus:border-white/40 transition-colors"
+            placeholder="e.g. Focus on testing and build verification..."
+            autoFocus
+            className="w-full px-3 py-2 rounded-lg bg-[#060709] border border-white/[0.08] hover:border-white/15 text-[#EDEDED] font-sans text-xs placeholder:text-[#4E5262] focus:outline-none focus:border-white/30 transition-all"
           />
         </div>
 
-        {/* Safe Checkpoint Protocol Badge */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15 text-emerald-300 text-[11px] font-mono">
-          <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
+        {/* Minimal Safe Checkpoint Badge */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.06] text-[#7A7E8F] text-[10.5px] font-mono">
+          <ShieldCheck size={13} className="text-emerald-400 shrink-0" />
           <span className="truncate">
-            Safe Mode: {validTarget?.name || 'Agent'} will recap ingested memory & wait for your confirmation.
+            Safe Mode: {validTarget?.name || 'Agent'} will recap & wait for your confirmation.
           </span>
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] mt-1">
-          <span className="text-[10.5px] font-mono text-[#71717a]">
-            Press <kbd className="px-1 py-0.5 rounded bg-white/[0.08] text-white text-[9.5px]">Enter</kbd> to relay
+        <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] mt-0.5">
+          <span className="text-[10px] font-mono text-[#4E5262]">
+            Press <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-[#B4B7C4] text-[9px]">Enter</kbd> to relay
           </span>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShareContextOpen(false)}
-              className="px-3 py-1.5 rounded-lg text-xs font-mono text-[#a1a1aa] hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+              className="px-2.5 py-1.5 rounded-md text-xs font-mono text-[#7A7E8F] hover:text-[#EDEDED] hover:bg-white/[0.04] transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               onClick={handleExecuteHandoff}
               disabled={!validTarget || isTransferring || targetAgents.length === 0}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-white hover:bg-white/90 text-black font-mono font-bold text-xs transition-all shadow cursor-pointer disabled:opacity-40"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[#EDEDED] hover:bg-white text-[#0B0C0E] font-mono font-bold text-xs transition-all shadow-sm cursor-pointer disabled:opacity-40"
             >
-              <span>{isTransferring ? 'Relaying...' : 'Handoff Context'}</span>
-              <ArrowRight size={12} strokeWidth={2.5} />
+              <span>{isTransferring ? 'Relaying...' : 'Handoff'}</span>
+              <ArrowRight size={11} strokeWidth={2.5} />
             </button>
           </div>
         </div>
