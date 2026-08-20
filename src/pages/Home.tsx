@@ -54,17 +54,6 @@ export const Home: React.FC = () => {
               onSelect={(id) => setActiveWorkspace(id)}
             />
           ))}
-
-          {/* Open Local Folder / Project Card */}
-          <button
-            onClick={handlePickAndCreateProject}
-            className="h-36 rounded-panel border border-dashed border-border hover:border-border-hover bg-panel-subtle hover:bg-panel p-4 flex flex-col items-center justify-center gap-2 text-text-muted hover:text-text-primary transition-all group cursor-pointer"
-          >
-            <div className="w-8 h-8 rounded-btn btn-base flex items-center justify-center text-text-dim group-hover:text-text-primary transition-colors">
-              <FolderPlus size={15} />
-            </div>
-            <span className="text-xs font-mono font-bold uppercase tracking-wider">Open Local Project Folder</span>
-          </button>
         </div>
       </div>
     </div>
