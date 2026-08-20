@@ -78,14 +78,19 @@ export const GitPanel: React.FC = () => {
               gitState.modifiedFiles.map((m, i) => (
                 <div
                   key={i}
-                  className="p-2 rounded-btn bg-panel border border-border flex items-center justify-between"
+                  onClick={() => useUIStore.getState().setActiveDiffFile(m.path)}
+                  className="p-2 rounded-btn bg-panel border border-border hover:border-white/20 text-text-secondary hover:text-white flex items-center justify-between transition-colors cursor-pointer group"
+                  title="Click to view file diff"
                 >
                   <div className="flex items-center gap-2 truncate">
                     <span className="text-status-warning font-bold text-[9px] uppercase px-1 rounded bg-panel">
                       {m.status}
                     </span>
-                    <span className="text-text-primary truncate">{m.path}</span>
+                    <span className="text-text-primary group-hover:text-white truncate">{m.path}</span>
                   </div>
+                  <span className="text-[10px] text-[#71717a] group-hover:text-white/80 font-mono">
+                    View Diff ➜
+                  </span>
                 </div>
               ))
             ) : (

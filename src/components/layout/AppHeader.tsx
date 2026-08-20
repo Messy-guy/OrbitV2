@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Orbit, X, LayoutGrid } from 'lucide-react';
+import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -18,7 +18,7 @@ export const AppHeader: React.FC = () => {
   } = useWorkspaceStore();
 
   const { agents } = useAgentStore();
-  const { setAddAgentOpen } = useUIStore();
+  const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen } = useUIStore();
   const activeWorkspace = getActiveWorkspace();
 
   const activeSpaceId =
@@ -27,28 +27,34 @@ export const AppHeader: React.FC = () => {
     `space-${activeWorkspace?.id}-1`;
 
   return (
-    <header className="h-10 bg-[#0c0d10] border-b border-white/[0.06] px-3 flex items-center justify-between select-none z-30 font-sans">
+    <header 
+      className="h-10 border-b px-3 flex items-center justify-between select-none z-30 font-sans transition-colors duration-200"
+      style={{
+        backgroundColor: 'var(--bg-chrome, #0c0d10)',
+        borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))',
+      }}
+    >
       {/* Left-Aligned Strip: Brand Logo + Project Name + Flat Space Tabs */}
       <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto">
         {/* Brand Icon */}
         <button
           onClick={() => setActiveWorkspace(null)}
-          className="flex items-center gap-1.5 text-[#8E92A4] hover:text-white transition-colors shrink-0 group"
+          className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary transition-colors shrink-0 group"
           title="Orbit Home"
         >
-          <div className="w-5 h-5 rounded bg-white/[0.06] border border-white/[0.1] flex items-center justify-center text-white group-hover:border-white/30 transition-all">
+          <div className="w-5 h-5 rounded bg-panel border border-border flex items-center justify-center text-text-primary group-hover:border-border-hover transition-all">
             <Orbit size={11} strokeWidth={2.5} />
           </div>
-          <span className="font-mono font-bold text-[11px] tracking-wider text-white">ORBIT</span>
+          <span className="font-mono font-bold text-[11px] tracking-wider text-text-primary">ORBIT</span>
         </button>
 
         {activeWorkspace && (
           <>
-            <span className="text-white/20 font-mono text-xs shrink-0">/</span>
-            <span className="text-xs font-semibold text-[#8E92A4] font-mono tracking-tight shrink-0 max-w-[140px] truncate">
+            <span className="text-text-dim font-mono text-xs shrink-0">/</span>
+            <span className="text-xs font-semibold text-text-secondary font-mono tracking-tight shrink-0 max-w-[140px] truncate">
               {activeWorkspace.name}
             </span>
-            <span className="text-white/20 font-mono text-xs shrink-0">/</span>
+            <span className="text-text-dim font-mono text-xs shrink-0">/</span>
 
             {/* Left-Aligned Flat Space Tabs Strip */}
             <div className="flex items-center gap-1 min-w-0 overflow-x-auto py-0.5">
@@ -65,16 +71,16 @@ export const AppHeader: React.FC = () => {
                     className={clsx(
                       'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono transition-all group cursor-pointer select-none whitespace-nowrap',
                       isSelected
-                        ? 'bg-white/[0.12] text-white font-medium shadow-sm'
-                        : 'text-[#6B7082] hover:text-[#B4B8C8] hover:bg-white/[0.04]'
+                        ? 'bg-panel-elevated text-text-primary font-bold shadow-sm border border-border'
+                        : 'text-text-muted hover:text-text-primary hover:bg-panel'
                     )}
                   >
-                    <LayoutGrid size={11} className={isSelected ? 'text-white' : 'text-[#525666]'} />
+                    <LayoutGrid size={11} className={isSelected ? 'text-text-primary' : 'text-text-dim'} />
                     <span className="truncate max-w-[120px] text-[11.5px]">{space.name}</span>
                     <span
                       className={clsx(
                         'text-[9px] px-1 rounded font-mono',
-                        isSelected ? 'bg-white/15 text-white' : 'text-[#525666]'
+                        isSelected ? 'bg-panel text-text-primary' : 'text-text-dim'
                       )}
                     >
                       {spaceAgentCount}
@@ -110,7 +116,25 @@ export const AppHeader: React.FC = () => {
       </div>
 
       {/* Right-Aligned Quick Actions */}
-      <div className="flex items-center gap-2 shrink-0 pl-3">
+      <div className="flex items-center gap-1.5 shrink-0 pl-3">
+        {/* Minimal Icon-Only Shortcuts Trigger */}
+        <button
+          onClick={() => setShortcutsOpen(true)}
+          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel border border-transparent hover:border-border transition-colors cursor-pointer"
+          title="Keyboard Shortcuts & Instructions (?)"
+        >
+          <Keyboard size={13} strokeWidth={2.2} />
+        </button>
+
+        {/* Settings Button */}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel border border-transparent hover:border-border transition-colors cursor-pointer"
+          title="Settings & Preferences (Ctrl+,)"
+        >
+          <Settings size={13} strokeWidth={2.2} />
+        </button>
+
         {activeWorkspace ? (
           <Button
             variant="primary"

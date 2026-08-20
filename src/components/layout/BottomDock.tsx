@@ -54,7 +54,13 @@ export const BottomDock: React.FC = () => {
   ];
 
   return (
-    <footer className="h-8 bg-[#121318]/90 backdrop-blur-md border-t border-white/[0.08] px-3 flex items-center justify-between select-none z-20 font-mono text-[11px] shadow-sm">
+    <footer 
+      className="h-8 border-t px-3 flex items-center justify-between select-none z-20 font-mono text-[11px] shadow-sm transition-colors duration-200"
+      style={{
+        backgroundColor: 'var(--bg-chrome, #121318)',
+        borderColor: 'var(--border-subtle, rgba(255,255,255,0.08))',
+      }}
+    >
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
         {navItems.map(item => {
           const isActive = activeBottomPanel === item.id;
@@ -88,9 +94,22 @@ export const BottomDock: React.FC = () => {
         })}
       </div>
 
-      <div className="flex items-center gap-3 text-[10px] text-text-muted shrink-0">
+      <div className="flex items-center gap-3 text-[10px] text-text-muted shrink-0 font-mono">
+        {/* Minimal Persistent Keyboard Hints */}
+        <div 
+          onClick={() => useUIStore.getState().setShortcutsOpen(true)}
+          className="hidden md:flex items-center gap-2 text-[#7A7E8F] hover:text-white cursor-pointer transition-colors px-2 py-0.5 rounded hover:bg-white/[0.04]"
+          title="Click to view all keyboard shortcuts (?)"
+        >
+          <span><kbd className="px-1 py-0.2 rounded bg-white/[0.06] text-[#B4B7C4] text-[9px]">^H</kbd> Handoff</span>
+          <span className="text-white/10">•</span>
+          <span><kbd className="px-1 py-0.2 rounded bg-white/[0.06] text-[#B4B7C4] text-[9px]">^1-9</kbd> Focus</span>
+          <span className="text-white/10">•</span>
+          <span><kbd className="px-1 py-0.2 rounded bg-white/[0.06] text-[#B4B7C4] text-[9px]">?</kbd> Help</span>
+        </div>
+
         {currentContext?.lastCheckpointTime && (
-          <span className="hidden sm:inline font-mono text-text-dim">chk: <strong className="text-text-secondary">{currentContext.lastCheckpointTime}</strong></span>
+          <span className="hidden lg:inline font-mono text-text-dim">chk: <strong className="text-text-secondary">{currentContext.lastCheckpointTime}</strong></span>
         )}
         <button
           onClick={() => toggleBottomPanel(activeBottomPanel || 'context')}

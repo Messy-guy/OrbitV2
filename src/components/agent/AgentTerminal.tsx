@@ -8,6 +8,7 @@ import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useContextStore } from '../../stores/context.store';
 import { useUIStore } from '../../stores/ui.store';
+import { useSettingsStore } from '../../stores/settings.store';
 import { tauriService, isTauriAvailable } from '../../services';
 
 interface AgentTerminalProps {
@@ -68,17 +69,18 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     }
 
     const host = hostRef.current;
+    const settings = useSettingsStore.getState();
 
-    // 1. Create standard xterm instance with clean dark theme
+    // 1. Create standard xterm instance dynamically styled from Settings
     const term = new Terminal({
-      cursorBlink: true,
-      cursorStyle: 'block',
-      fontSize: 12,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace, "JetBrains Mono"',
-      lineHeight: 1.15,
+      cursorBlink: settings.terminalCursorBlink,
+      cursorStyle: settings.terminalCursorStyle || 'block',
+      fontSize: settings.terminalFontSize || 12.5,
+      fontFamily: settings.terminalFontFamily || 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+      lineHeight: settings.terminalLineHeight || 1.25,
       letterSpacing: 0,
       convertEol: false, // Critical: true breaks Ink/readline cursor movements & TUI logos
-      scrollback: 10000,
+      scrollback: settings.terminalScrollback || 10000,
       allowTransparency: false,
       theme: {
         background: '#090a0f',
@@ -143,7 +145,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
           uiState.isShareContextOpen ||
           uiState.isCreateWorkspaceOpen ||
           uiState.isAddAgentOpen ||
-          uiState.isCreateCheckpointOpen;
+          uiState.isCreateCheckpointOpen ||
+          uiState.isShortcutsOpen ||
+          uiState.isSettingsOpen ||
+          !!uiState.activeDiffFile;
 
         if (isAnyModalOpen) {
           return; // Ignore background terminal inputs while modal is active

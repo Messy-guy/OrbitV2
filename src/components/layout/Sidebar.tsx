@@ -51,7 +51,13 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-56 bg-[#090a0d] border-r border-white/[0.06] flex flex-col justify-between select-none relative z-20 font-sans">
+    <aside 
+      className="w-56 border-r flex flex-col justify-between select-none relative z-20 font-sans transition-colors duration-200"
+      style={{
+        backgroundColor: 'var(--bg-chrome, #090a0d)',
+        borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))',
+      }}
+    >
       {/* Top section: Projects & Agents */}
       <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
         <div className="flex items-center justify-between px-1 pt-0.5">
@@ -68,7 +74,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* Clean Line-Separated Project & Agent Tree */}
-        <div className="flex flex-col divide-y divide-white/[0.06]">
+        <div className="flex flex-col divide-y divide-border">
           {workspaces.map((project) => {
             const isProjectActive = project.id === activeWorkspaceId;
             const isCollapsed = !!collapsedProjects[project.id];
@@ -90,8 +96,8 @@ export const Sidebar: React.FC = () => {
                   className={clsx(
                     'flex items-center justify-between px-1.5 py-1.5 rounded-md cursor-pointer transition-all group select-none',
                     isProjectActive
-                      ? 'text-white font-semibold'
-                      : 'text-[#8E92A4] hover:text-white hover:bg-white/[0.03]'
+                      ? 'text-text-primary font-bold'
+                      : 'text-text-muted hover:text-text-primary hover:bg-panel'
                   )}
                 >
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -101,7 +107,7 @@ export const Sidebar: React.FC = () => {
                         e.stopPropagation();
                         toggleProjectCollapsed(project.id);
                       }}
-                      className="p-0.5 text-[#5C6070] hover:text-white rounded transition-colors"
+                      className="p-0.5 text-text-dim hover:text-text-primary rounded transition-colors"
                     >
                       {isCollapsed ? (
                         <ChevronRight size={11} strokeWidth={2.5} />
@@ -165,16 +171,6 @@ export const Sidebar: React.FC = () => {
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Bottom section: Environment Info */}
-      <div className="p-3 border-t border-white/[0.06] bg-[#07080a]">
-        <div className="flex items-center justify-between text-[9.5px] text-[#7A7E8F] font-mono tracking-wider">
-          <span>ORBIT RUNTIME</span>
-          <span className="text-white font-bold px-1.5 py-0.2 rounded bg-white/[0.08] border border-white/[0.1]">
-            ● LOCAL
-          </span>
         </div>
       </div>
     </aside>

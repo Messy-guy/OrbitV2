@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, LayoutGrid, RotateCcw, Terminal, ZoomIn, ZoomOut, Maximize, Sparkles, Code2, Bookmark, Activity, GitBranch, FolderTree, X } from 'lucide-react';
+import { Plus, LayoutGrid, RotateCcw, Terminal, ZoomIn, ZoomOut, Maximize, Sparkles, Code2, Bookmark, Activity, GitBranch, FolderTree, X, Columns2, Columns3, Keyboard } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
 import { useContextStore } from '../../stores/context.store';
+import { useSettingsStore } from '../../stores/settings.store';
 import { AgentFloatingWindow } from './AgentFloatingWindow';
 import { CanvasMinimap } from './CanvasMinimap';
 import { AgentProvider } from '../../types/orbit';
@@ -295,6 +296,26 @@ export const AgentCanvas: React.FC = () => {
     bringToFront(agent.id);
   };
 
+  const { canvasGridStyle } = useSettingsStore();
+
+  const getCanvasBackground = () => {
+    if (canvasGridStyle === 'grid') {
+      return {
+        backgroundImage: `linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px)`,
+        backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
+        backgroundPosition: `${pan.x}px ${pan.y}px`,
+      };
+    } else if (canvasGridStyle === 'solid') {
+      return {};
+    }
+    // Default: Dots
+    return {
+      backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)',
+      backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
+      backgroundPosition: `${pan.x}px ${pan.y}px`,
+    };
+  };
+
   return (
     <div
       ref={containerRef}
@@ -302,26 +323,14 @@ export const AgentCanvas: React.FC = () => {
       onMouseMove={handleCanvasMouseMove}
       onMouseUp={handleCanvasMouseUp}
       onWheel={handleCanvasWheel}
-      className={`relative flex-1 w-full h-full overflow-hidden bg-[#07080a] select-none ${
+      className={`relative flex-1 w-full h-full overflow-hidden select-none transition-colors duration-200 ${
         isPanning ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       style={{
-        backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)',
-        backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-        backgroundPosition: `${pan.x}px ${pan.y}px`,
+        backgroundColor: 'var(--bg-canvas, #07080a)',
+        ...getCanvasBackground(),
       }}
     >
-      {/* Top Right: Clean Auto-Tile Action Only */}
-      <div className="absolute top-4 right-4 z-40 flex items-center gap-1.5 p-1 bg-[#121318]/90 backdrop-blur-md border border-white/[0.08] rounded-xl shadow-2xl pointer-events-auto">
-        <button
-          onClick={handleAutoArrange}
-          className="p-1.5 text-[#8e93a0] hover:text-white hover:bg-white/[0.06] rounded-md transition-colors"
-          title="Auto-Tile Windows"
-        >
-          <LayoutGrid size={14} />
-        </button>
-      </div>
-
       {/* Bottom-Left Canvas Zoom & Navigation Floating Bar */}
       <div className="absolute bottom-4 left-4 z-40 flex items-center gap-1 bg-[#14151b]/95 backdrop-blur-md border border-[#272935] rounded-lg p-1 shadow-2xl text-xs font-mono text-[#8e93a0]">
         <button
@@ -353,6 +362,81 @@ export const AgentCanvas: React.FC = () => {
         >
           <Maximize size={11} />
           <span>Fit View</span>
+        </button>
+        <div className="h-3.5 w-px bg-[#272935] mx-0.5" />
+        {/* Layout Presets */}
+        <button
+          onClick={() => {
+            if (!containerRef.current || visibleAgents.length === 0) return;
+            const pad = 20, gap = 14;
+            const availW = containerRef.current.clientWidth - pad * 2;
+            const availH = containerRef.current.clientHeight - pad * 2;
+            const halfW = Math.floor((availW - gap) / 2);
+            const layout: Record<string, WindowBounds> = {};
+            visibleAgents.forEach((a, i) => {
+              if (i === 0) layout[a.id] = { x: pad, y: pad, width: halfW, height: availH, zIndex: 10 };
+              else if (i === 1) layout[a.id] = { x: pad + halfW + gap, y: pad, width: halfW, height: availH, zIndex: 11 };
+              else layout[a.id] = { x: pad + 40 * i, y: pad + 40 * i, width: halfW, height: availH, zIndex: 10 + i };
+            });
+            setWindowBounds(layout);
+          }}
+          className="p-1.5 hover:text-white hover:bg-[#1f212c] rounded-md transition-colors"
+          title="Side-by-Side (50/50 Split)"
+        >
+          <Columns2 size={13} />
+        </button>
+        <button
+          onClick={() => {
+            if (!containerRef.current || visibleAgents.length === 0) return;
+            const pad = 20, gap = 14;
+            const availW = containerRef.current.clientWidth - pad * 2;
+            const availH = containerRef.current.clientHeight - pad * 2;
+            const halfW = Math.floor((availW - gap) / 2);
+            const halfH = Math.floor((availH - gap) / 2);
+            const layout: Record<string, WindowBounds> = {};
+            visibleAgents.forEach((a, i) => {
+              const c = i % 2;
+              const r = Math.floor(i / 2);
+              layout[a.id] = {
+                x: pad + c * (halfW + gap),
+                y: pad + r * (halfH + gap),
+                width: halfW,
+                height: halfH,
+                zIndex: 10 + i,
+              };
+            });
+            setWindowBounds(layout);
+          }}
+          className="p-1.5 hover:text-white hover:bg-[#1f212c] rounded-md transition-colors"
+          title="2x2 Quad Grid"
+        >
+          <LayoutGrid size={13} />
+        </button>
+        <button
+          onClick={() => {
+            if (!containerRef.current || visibleAgents.length === 0) return;
+            const pad = 20, gap = 14;
+            const availW = containerRef.current.clientWidth - pad * 2;
+            const availH = containerRef.current.clientHeight - pad * 2;
+            const cols = 3;
+            const cellW = Math.floor((availW - (cols - 1) * gap) / cols);
+            const layout: Record<string, WindowBounds> = {};
+            visibleAgents.forEach((a, i) => {
+              const c = i % cols;
+              layout[a.id] = {
+                x: pad + c * (cellW + gap),
+                y: pad,
+                width: cellW,
+                height: availH,
+                zIndex: 10 + i,
+              };
+            });
+            setWindowBounds(layout);
+          }}
+          className="p-1.5 hover:text-white hover:bg-[#1f212c] rounded-md transition-colors"
+          title="3-Column Panoramic Split"
+        >
+          <Columns3 size={13} />
         </button>
       </div>
 
@@ -415,18 +499,18 @@ export const AgentCanvas: React.FC = () => {
         <div className="relative w-full h-full pointer-events-auto">
           {visibleAgents.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 select-none">
-              <div className="w-12 h-12 rounded-xl bg-[#111217] border border-[#22242d] flex items-center justify-center text-[#3f3f46]">
+              <div className="w-12 h-12 rounded-2xl bg-panel border border-border flex items-center justify-center text-text-muted shadow-sm">
                 <Terminal size={22} />
               </div>
               <div className="text-center">
-                <p className="text-sm font-mono text-[#71717a]">No agent terminals active in this space</p>
-                <p className="text-xs font-mono text-[#4b4e59] mt-0.5">Click + Add Agent to launch an interactive session</p>
+                <p className="text-sm font-mono text-text-primary font-semibold">No agent terminals active in this space</p>
+                <p className="text-xs font-mono text-text-muted mt-0.5">Click + Add Agent to launch an interactive session</p>
               </div>
               <button
                 onClick={() => setAddAgentOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-white/90 text-black rounded-lg text-xs font-mono font-bold transition-all shadow-md"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-text-primary text-background rounded-lg text-xs font-mono font-bold transition-all shadow-md hover:opacity-90 cursor-pointer"
               >
-                <Plus size={13} />
+                <Plus size={13} strokeWidth={3} />
                 <span>+ Add Agent</span>
               </button>
             </div>

@@ -76,6 +76,53 @@ pub fn open_folder_dialog() -> Option<String> {
 }
 
 #[tauri::command]
+pub fn open_file_dialog(title: Option<String>) -> Option<String> {
+    let dialog_title = title.unwrap_or_else(|| "Select Executable Binary".to_string());
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_script = format!(
+            "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = '{}'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Host $f.FileName }}",
+            dialog_title
+        );
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_script])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_file() {
+                return Some(path_str);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("zenity")
+            .args(["--file-selection", &format!("--title={}", dialog_title)])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_file() {
+                return Some(path_str);
+            }
+        }
+
+        if let Ok(output) = std::process::Command::new("kdialog")
+            .args(["--getopenfilename", &format!("--title={}", dialog_title)])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() && std::path::Path::new(&path_str).is_file() {
+                return Some(path_str);
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
 pub fn delete_workspace(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state.storage.delete_workspace(&id);
     Ok(())

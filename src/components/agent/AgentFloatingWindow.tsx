@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Rnd } from 'react-rnd';
-import { Maximize2, Minimize2, X, Terminal as TerminalIcon, Cpu, Code2, Bot, Bookmark, ArrowLeftRight, Activity } from 'lucide-react';
+import { Maximize2, Minimize2, X, Terminal as TerminalIcon, Cpu, Code2, Bot, Bookmark, ArrowLeftRight, Activity, Copy, Trash2 } from 'lucide-react';
 import { Agent, AgentUsageStats } from '../../types/orbit';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentChat } from './AgentChat';
@@ -141,28 +141,34 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
       scale={isMaximized ? 1 : scale}
       dragHandleClassName="floating-window-header"
       cancel=".no-drag, input, textarea, button, select"
+      disableDragging={isMaximized}
+      enableResizing={!isMaximized}
+      bounds="parent"
+      className={`rounded-xl flex flex-col overflow-hidden transition-colors duration-200 ${
+        isActive
+          ? 'shadow-[0_14px_44px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.08)] ring-1 ring-white/10'
+          : 'shadow-xl opacity-95'
+      }`}
       style={{
         zIndex: isMaximized ? 9999 : zIndex,
         position: 'absolute',
         display: 'flex',
         flexDirection: 'column',
         willChange: isDragging ? 'transform' : 'auto',
+        backgroundColor: 'var(--bg-panel, #090a0f)',
+        borderColor: isActive ? 'var(--border-hover, rgba(255,255,255,0.25))' : 'var(--border-base, rgba(255,255,255,0.1))',
+        borderWidth: 1,
+        borderStyle: 'solid',
       }}
-      disableDragging={isMaximized}
-      enableResizing={!isMaximized}
-      bounds="parent"
-      className={`rounded-xl flex flex-col overflow-hidden bg-[#090a0f] ${
-        isActive
-          ? 'border border-[#424656] shadow-[0_14px_44px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.08)] ring-1 ring-white/10'
-          : 'border border-[#20222a] hover:border-[#2f323e] shadow-xl opacity-95'
-      }`}
       onMouseDown={onFocus}
     >
       {/* Top Titlebar */}
       <div
-        className={`floating-window-header h-8 px-3 border-b flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 ${
-          isActive ? 'bg-[#181920] border-[#292b35]' : 'bg-[#121317] border-[#1c1d24]'
-        }`}
+        className="floating-window-header h-8 px-3 border-b flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 transition-colors duration-200"
+        style={{
+          backgroundColor: isActive ? 'var(--bg-panel-elevated, #181920)' : 'var(--bg-chrome, #121317)',
+          borderColor: 'var(--border-subtle, rgba(255,255,255,0.08))',
+        }}
         onDoubleClick={handleToggleMaximize}
       >
         {/* Left: Provider Icon + Agent Name + Live Usage Cap Badge */}
@@ -191,8 +197,41 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
           )}
         </div>
 
-        {/* Right: Quick Actions (Checkpoint, Handoff) + Window Controls */}
+        {/* Right: Quick Actions (Copy, Checkpoint, Handoff) + Window Controls */}
         <div className="flex items-center gap-1 no-drag">
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                const history = await tauriService.getAgentTerminalHistory(agent.id);
+                if (history) {
+                  await navigator.clipboard.writeText(history);
+                }
+              } catch (err) {
+                console.warn('Copy terminal history failed:', err);
+              }
+            }}
+            className="p-1 text-[#8e93a0] hover:text-[#f3f4f8] hover:bg-[#252834] rounded transition-colors"
+            title="Copy all terminal output to clipboard"
+          >
+            <Copy size={11} />
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              // Send clear command (\x0c or clear)
+              const sessId = activeSessionIdByAgent[agent.id] || 'default';
+              tauriService.sendAgentInput(agent.id, sessId, 'clear\n').catch(() => {});
+            }}
+            className="p-1 text-[#8e93a0] hover:text-[#f3f4f8] hover:bg-[#252834] rounded transition-colors"
+            title="Clear Terminal Buffer"
+          >
+            <Trash2 size={11} />
+          </button>
+
+          <div className="h-3 w-px bg-[#292b35] mx-0.5" />
+
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -222,7 +261,7 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
           <button
             onClick={handleToggleMaximize}
             className="p-1 text-[#71717a] hover:text-[#e4e4e7] hover:bg-[#1c1e24] rounded transition-colors"
-            title={isMaximized ? "Restore Window" : "Maximize Window"}
+            title={isMaximized ? "Restore Window (Ctrl+Shift+F)" : "Maximize Window (Ctrl+Shift+F)"}
           >
             {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
           </button>

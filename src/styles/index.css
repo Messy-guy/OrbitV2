@@ -4,10 +4,10 @@
 
 @layer base {
   :root {
-    /* Cohesive Obsidian-Graphite Dark Material System */
+    /* Cohesive Obsidian-Graphite Dark Material System (Default) */
     --bg-canvas: #0b0c0e;
     --bg-chrome: #101114;
-    --bg-panel: rgba(18, 19, 23, 0.85);
+    --bg-panel: rgba(18, 19, 23, 0.88);
     --bg-panel-elevated: rgba(24, 25, 30, 0.95);
     --bg-panel-hover: rgba(34, 36, 44, 0.7);
     --bg-well: #060709;
@@ -23,11 +23,12 @@
     --text-secondary: #B4B7C4;
     --text-muted: #7A7E8F;
     --text-dim: #4E5262;
+    --accent-primary: #10b981;
   }
 
   body {
-    background-color: #0b0c0e;
-    color: #EDEDED;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     margin: 0;
     padding: 0;
@@ -35,6 +36,7 @@
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
     overflow: hidden;
+    transition: background-color 200ms ease, color 200ms ease;
   }
 
   ::selection {
@@ -43,173 +45,83 @@
   }
 }
 
-/* Precision Surface System */
+/* Precision Dynamic Surface System */
 @layer utilities {
   /* Main Agent Tile / Container Surface */
   .surface-panel {
-    background-color: rgba(18, 19, 24, 0.88);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 8px 24px -4px rgba(0, 0, 0, 0.55);
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-base);
+    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.25);
   }
 
   /* Elevated Surface (Modals, Popovers, Active Cards) */
   .surface-elevated {
-    background-color: rgba(22, 23, 29, 0.96);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 20px 48px -8px rgba(0, 0, 0, 0.8),
-      0 4px 12px rgba(0, 0, 0, 0.5);
+    background-color: var(--bg-panel-elevated);
+    border: 1px solid var(--border-hover);
+    box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.35);
   }
 
   /* Recessed Well (Conversation Canvas, Inputs, Code Blocks, Tool Logs) */
   .surface-well {
-    background-color: #060709;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 
-      inset 0 2px 5px rgba(0, 0, 0, 0.6),
-      0 1px 0 rgba(255, 255, 255, 0.02);
+    background-color: var(--bg-well);
+    border: 1px solid var(--border-subtle);
   }
 
   .surface-well-subtle {
-    background-color: rgba(11, 12, 15, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    background-color: var(--bg-well-secondary);
+    border: 1px solid var(--border-subtle);
   }
 
   /* Standard Tactile Button */
   .btn-base {
-    background: linear-gradient(180deg, rgba(38, 40, 48, 0.8) 0%, rgba(24, 25, 31, 0.95) 100%);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #EDEDED;
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 1px 3px rgba(0, 0, 0, 0.4);
+    background: var(--bg-panel-elevated);
+    border: 1px solid var(--border-base);
+    color: var(--text-primary);
     transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .btn-base:hover {
-    background: linear-gradient(180deg, rgba(50, 53, 64, 0.9) 0%, rgba(30, 32, 40, 1) 100%);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: #FFFFFF;
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 0.15),
-      0 2px 8px rgba(0, 0, 0, 0.5);
+    background: var(--bg-panel-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
   }
 
   .btn-base:active {
-    background: rgba(16, 17, 21, 1);
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+    background: var(--bg-well);
     transform: translateY(0.5px);
   }
 
-  /* Primary High-Contrast Solid White Button */
+  /* Primary Accent Button */
   .btn-primary {
-    background: linear-gradient(180deg, #FFFFFF 0%, #E2E4EB 100%);
-    color: #0B0C0E;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 1),
-      0 2px 10px rgba(255, 255, 255, 0.15),
-      0 2px 4px rgba(0, 0, 0, 0.4);
-    transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
+    background-color: var(--text-primary);
+    color: var(--bg-canvas);
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   }
 
   .btn-primary:hover {
-    background: #FFFFFF;
-    box-shadow: 
-      inset 0 1px 0 rgba(255, 255, 255, 1),
-      0 0 18px rgba(255, 255, 255, 0.35),
-      0 2px 6px rgba(0, 0, 0, 0.4);
+    opacity: 0.92;
     transform: translateY(-0.5px);
   }
 
   .btn-primary:active {
-    background: #D0D3DE;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
     transform: translateY(0.5px);
+    opacity: 1;
   }
 }
 
-/* Minimalist Developer Scrollbars */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-
-::-webkit-scrollbar-track {
+.custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-
-::-webkit-scrollbar-thumb {
-  background: #2D303B;
-  border-radius: 2px;
-  border: 1px solid #1B1C22;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 3px;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: #3E4252;
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
-
-/* Grid Layout Technical Overrides */
-.react-grid-item {
-  transition: all 160ms cubic-bezier(0.2, 0, 0, 1);
-  transition-property: left, top, width, height;
-}
-
-.react-grid-item.react-grid-placeholder {
-  background: rgba(255, 255, 255, 0.03) !important;
-  border: 1px dashed #404454 !important;
-  border-radius: 8px !important;
-  opacity: 0.95 !important;
-  z-index: 2 !important;
-}
-
-.react-grid-item > .react-resizable-handle {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  bottom: 2px;
-  right: 2px;
-  cursor: se-resize;
-  z-index: 10;
-}
-
-.react-grid-item > .react-resizable-handle::after {
-  content: "";
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 5px;
-  height: 5px;
-  border-right: 1.5px solid #5A5E6E;
-  border-bottom: 1.5px solid #5A5E6E;
-}
-
-/* ── xterm.js terminal styling ─────────────────────────────────────────── */
-.xterm {
-  height: 100% !important;
-  width: 100% !important;
-  padding: 0 !important;
-  background-color: #090a0f !important;
-}
-
-.xterm .xterm-viewport {
-  background-color: #090a0f !important;
-  overflow-y: auto !important;
-}
-
-.xterm .xterm-screen {
-  background-color: #090a0f !important;
-}
-
-.xterm .xterm-screen canvas {
-  display: block !important;
-}
-

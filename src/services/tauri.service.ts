@@ -69,6 +69,11 @@ export const tauriService = {
     return invoke<string | null>('open_folder_dialog');
   },
 
+  async openFileDialog(title?: string): Promise<string | null> {
+    if (!isTauriAvailable()) return null;
+    return invoke<string | null>('open_file_dialog', { title });
+  },
+
   async deleteWorkspace(id: string): Promise<void> {
     if (!isTauriAvailable()) return;
     return invoke<void>('delete_workspace', { id });
