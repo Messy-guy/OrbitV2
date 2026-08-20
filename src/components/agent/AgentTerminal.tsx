@@ -7,6 +7,7 @@ import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useContextStore } from '../../stores/context.store';
+import { useUIStore } from '../../stores/ui.store';
 import { tauriService, isTauriAvailable } from '../../services';
 
 interface AgentTerminalProps {
@@ -135,8 +136,19 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         }
       });
 
-      // 3. Forward user input to PTY
+      // 3. Forward user input to PTY (only when no modal is open)
       term.onData((data) => {
+        const uiState = useUIStore.getState();
+        const isAnyModalOpen =
+          uiState.isShareContextOpen ||
+          uiState.isCreateWorkspaceOpen ||
+          uiState.isAddAgentOpen ||
+          uiState.isCreateCheckpointOpen;
+
+        if (isAnyModalOpen) {
+          return; // Ignore background terminal inputs while modal is active
+        }
+
         if (isTauriAvailable()) {
           const sessId = agentRef.current.currentSessionId || 'default';
           tauriService.sendAgentInput(agentRef.current.id, sessId, data).catch(() => {});

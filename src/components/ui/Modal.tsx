@@ -42,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -50,7 +50,7 @@ export const Modal: React.FC<ModalProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/70 backdrop-blur-[3px]"
+            className="absolute inset-0 bg-black/80 backdrop-blur-[4px] pointer-events-auto"
           />
 
           {/* Dialog Container */}
