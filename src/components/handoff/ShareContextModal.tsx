@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Terminal, Cpu, Code2, ShieldCheck, Zap } from 'lucide-react';
+import { ArrowRight, Terminal, Cpu, Code2, ShieldCheck, Zap, ChevronDown } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { useAgentStore } from '../../stores/agent.store';
 import { useContextStore } from '../../stores/context.store';
@@ -182,21 +182,26 @@ export const ShareContextModal: React.FC = () => {
 
           {/* Target Agent Selector */}
           {targetAgents.length === 0 ? (
-            <div className="px-2 py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-300 font-mono text-[10.5px] truncate">
+            <div className="px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-red-300 font-mono text-[10.5px] truncate">
               No target agent
             </div>
           ) : (
-            <select
-              value={validTarget?.id}
-              onChange={(e) => setTargetAgentId(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-md bg-[#121318] border border-white/[0.08] hover:border-white/20 text-[#EDEDED] font-mono text-[11.5px] focus:outline-none focus:border-white/40 transition-colors cursor-pointer"
-            >
-              {targetAgents.map(a => (
-                <option key={a.id} value={a.id} className="bg-[#101114] text-[#EDEDED]">
-                  {a.name} ({a.provider.toUpperCase()})
-                </option>
-              ))}
-            </select>
+            <div className="relative flex items-center min-w-0">
+              <select
+                value={validTarget?.id}
+                onChange={(e) => setTargetAgentId(e.target.value)}
+                className="w-full appearance-none pl-2.5 pr-7 py-1.5 rounded-md bg-[#121318] border border-white/[0.08] hover:border-white/20 text-white font-mono font-semibold text-[11.5px] focus:outline-none focus:border-white/40 transition-colors cursor-pointer truncate"
+              >
+                {targetAgents.map(a => (
+                  <option key={a.id} value={a.id} className="bg-[#121318] text-white">
+                    {a.name} ({a.provider.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-2 pointer-events-none text-[#71717a] flex items-center">
+                <ChevronDown size={12} strokeWidth={2.5} />
+              </div>
+            </div>
           )}
         </div>
 
