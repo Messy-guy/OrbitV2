@@ -14,6 +14,8 @@
     "tauri:build": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri build'"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-select": "^2.3.7",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.0.0",
