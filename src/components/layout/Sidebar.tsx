@@ -166,15 +166,6 @@ export const Sidebar: React.FC = () => {
             );
           })}
         </div>
-
-        {/* Clean Ghost New Project Button */}
-        <button
-          onClick={() => setCreateWorkspaceOpen(true)}
-          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-mono text-[#7A7E8F] hover:text-white hover:bg-white/[0.04] transition-all text-left mt-2"
-        >
-          <Plus size={12} strokeWidth={2.5} />
-          <span>New Project</span>
-        </button>
       </div>
 
       {/* Bottom section: Environment Info */}
