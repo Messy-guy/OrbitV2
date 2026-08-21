@@ -219,7 +219,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         undefined,
         ws?.id || 'ws-orbit',
         rows,
-        cols
+        cols,
+        agentRef.current.profileId
       );
 
       setPhase('active');
