@@ -22,7 +22,7 @@ interface WindowBounds {
 export const AgentCanvas: React.FC = () => {
   const { agents, addAgent } = useAgentStore();
   const { getActiveWorkspace, activeSpaceIdByProject, setActiveSpace, createSpace, deleteSpace } = useWorkspaceStore();
-  const { toggleBottomPanel, activeBottomPanel, setShareContextOpen, setAddAgentOpen, maximizedAgentId } = useUIStore();
+  const { toggleBottomPanel, activeBottomPanel, setShareContextOpen, setAddAgentOpen, maximizedAgentId, isMinimapVisible } = useUIStore();
   const { checkpoints, currentContext } = useContextStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -442,14 +442,16 @@ export const AgentCanvas: React.FC = () => {
       </div>
 
       {/* Interactive Live Minimap in Bottom-Right */}
-      <CanvasMinimap
-        agents={visibleAgents}
-        windowBounds={windowBounds}
-        pan={pan}
-        zoom={zoom}
-        containerSize={containerSize}
-        onNavigate={targetPan => setPan(targetPan)}
-      />
+      {isMinimapVisible && (
+        <CanvasMinimap
+          agents={visibleAgents}
+          windowBounds={windowBounds}
+          pan={pan}
+          zoom={zoom}
+          containerSize={containerSize}
+          onNavigate={targetPan => setPan(targetPan)}
+        />
+      )}
 
       {/* Maximized Agent Fullscreen Overlay (Bypasses Pan & Zoom Scale for true 100% Viewport) */}
       {maximizedAgentId && (

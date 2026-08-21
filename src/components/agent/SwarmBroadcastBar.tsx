@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Users, Check, ChevronRight } from 'lucide-react';
+import { Users, Check, ChevronRight, Radio, Minimize2, Maximize2, Terminal } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -8,7 +8,7 @@ import { clsx } from 'clsx';
 export const SwarmBroadcastBar: React.FC = () => {
   const { agents, broadcastCommand, sendTerminalCommand } = useAgentStore();
   const { getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
-  const { maximizedAgentId } = useUIStore();
+  const { maximizedAgentId, isBroadcastCollapsed, toggleBroadcastCollapsed } = useUIStore();
 
   const [input, setInput] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
@@ -107,6 +107,24 @@ export const SwarmBroadcastBar: React.FC = () => {
     return `${selectedAgentIds.length} Agents`;
   };
 
+  // Collapsed View (Ultra-Minimal Floating Launcher Pill)
+  if (isBroadcastCollapsed) {
+    return (
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 select-none no-drag pointer-events-auto">
+        <button
+          onClick={toggleBroadcastCollapsed}
+          className="h-8 px-3 rounded-full bg-panel-elevated/90 hover:bg-panel-elevated backdrop-blur-2xl border border-border hover:border-border-hover text-text-secondary hover:text-text-primary text-xs font-mono font-medium flex items-center gap-2 shadow-lg transition-all cursor-pointer group active:scale-95"
+          title="Open Swarm Broadcast Bar (Ctrl+K)"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Broadcast ({spaceAgents.length})</span>
+          <Terminal size={11} className="text-text-muted group-hover:text-text-primary transition-colors" />
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded View (Full Monolithic Pill)
   return (
     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 w-full max-w-lg px-4 select-none no-drag pointer-events-auto">
       
@@ -195,8 +213,16 @@ export const SwarmBroadcastBar: React.FC = () => {
           className="flex-1 bg-transparent border-none outline-none font-mono text-xs text-text-primary placeholder:text-text-dim selection:bg-border min-w-0"
         />
 
-        {/* Discrete Return Key Shortcut Badge */}
+        {/* Right Actions: Minimize Pill + Send Button */}
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={toggleBroadcastCollapsed}
+            className="p-1 rounded-full text-text-dim hover:text-text-muted transition-colors cursor-pointer"
+            title="Minimize Broadcast Bar"
+          >
+            <Minimize2 size={11} />
+          </button>
+
           <button
             onClick={handleSend}
             disabled={!input.trim() || isExecuting}

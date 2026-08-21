@@ -10,6 +10,9 @@ interface UIState {
   isShortcutsOpen: boolean;
   isSettingsOpen: boolean;
   isProUpgradeModalOpen: boolean;
+  isSidebarCollapsed: boolean;
+  isBroadcastCollapsed: boolean;
+  isMinimapVisible: boolean;
   activeDiffFile: string | null;
   canvasLayoutPreset: 'auto' | 'split' | 'grid' | 'columns' | 'stack';
   selectedAgentForModal: string | null; // agentId
@@ -21,6 +24,12 @@ interface UIState {
   setCreateWorkspaceOpen: (open: boolean) => void;
   setAddAgentOpen: (open: boolean) => void;
   setProUpgradeModalOpen: (open: boolean) => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleBroadcastCollapsed: () => void;
+  setBroadcastCollapsed: (collapsed: boolean) => void;
+  toggleMinimap: () => void;
+  setMinimapVisible: (visible: boolean) => void;
   setShareContextOpen: (open: boolean, agentId?: string) => void;
   setCreateCheckpointOpen: (open: boolean, agentId?: string) => void;
   setShortcutsOpen: (open: boolean) => void;
@@ -37,6 +46,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   isCreateWorkspaceOpen: false,
   isAddAgentOpen: false,
   isProUpgradeModalOpen: false,
+  isSidebarCollapsed: false,
+  isBroadcastCollapsed: false,
+  isMinimapVisible: true,
   isShareContextOpen: false,
   isCreateCheckpointOpen: false,
   isShortcutsOpen: false,
@@ -86,6 +98,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   setCreateWorkspaceOpen: (open: boolean) => set({ isCreateWorkspaceOpen: open }),
   setAddAgentOpen: (open: boolean) => set({ isAddAgentOpen: open }),
   setProUpgradeModalOpen: (open: boolean) => set({ isProUpgradeModalOpen: open }),
+  toggleSidebar: () => set(state => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
+  setSidebarCollapsed: (collapsed: boolean) => set({ isSidebarCollapsed: collapsed }),
+  toggleBroadcastCollapsed: () => set(state => ({ isBroadcastCollapsed: !state.isBroadcastCollapsed })),
+  setBroadcastCollapsed: (collapsed: boolean) => set({ isBroadcastCollapsed: collapsed }),
+  toggleMinimap: () => set(state => ({ isMinimapVisible: !state.isMinimapVisible })),
+  setMinimapVisible: (visible: boolean) => set({ isMinimapVisible: visible }),
   setShareContextOpen: (open: boolean, agentId?: string) => {
     set({ isShareContextOpen: open, selectedAgentForModal: agentId || null });
   },

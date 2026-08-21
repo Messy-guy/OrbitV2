@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2 } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -10,7 +10,6 @@ export const Sidebar: React.FC = () => {
   const {
     workspaces,
     activeWorkspaceId,
-    activeSpaceIdByProject,
     collapsedProjects,
     setActiveWorkspace,
     createWorkspace,
@@ -18,22 +17,20 @@ export const Sidebar: React.FC = () => {
   } = useWorkspaceStore();
 
   const { agents } = useAgentStore();
-  const { setCreateWorkspaceOpen, setAddAgentOpen, setMaximizedAgentId } = useUIStore();
+  const { isSidebarCollapsed, toggleSidebar, setCreateWorkspaceOpen, setAddAgentOpen, setMaximizedAgentId } = useUIStore();
 
   const handlePickAndCreateProject = async () => {
     try {
       const selectedPath = await tauriService.openFolderDialog();
       if (selectedPath) {
-        // Extract project name from folder path (e.g. /home/leo/Desktop/my-app -> my-app)
         const parts = selectedPath.replace(/\\/g, '/').split('/').filter(Boolean);
         const folderName = parts[parts.length - 1] || 'New Project';
         await createWorkspace(folderName, selectedPath);
         return;
       }
     } catch (e) {
-      console.warn('Native folder picker failed or was cancelled, opening modal fallback:', e);
+      console.warn('Native folder picker fallback:', e);
     }
-    // Fallback to modal if native dialog is skipped or unavailable
     setCreateWorkspaceOpen(true);
   };
 
@@ -50,9 +47,58 @@ export const Sidebar: React.FC = () => {
     }
   };
 
+  // Collapsed Sidebar View (Thin Icon Strip)
+  if (isSidebarCollapsed) {
+    return (
+      <aside className="w-12 border-r border-border flex flex-col items-center justify-between py-3 select-none z-20 font-sans transition-all duration-200 bg-chrome">
+        <div className="flex flex-col items-center gap-3">
+          {/* Expand Sidebar Trigger Button */}
+          <button
+            onClick={toggleSidebar}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-panel transition-colors cursor-pointer"
+            title="Expand Sidebar"
+          >
+            <PanelLeft size={15} />
+          </button>
+
+          <div className="w-6 h-[1px] bg-border my-1" />
+
+          {/* Quick Project Icons */}
+          {workspaces.map((project) => {
+            const isProjectActive = project.id === activeWorkspaceId;
+            return (
+              <button
+                key={project.id}
+                onClick={() => setActiveWorkspace(project.id)}
+                className={clsx(
+                  "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-mono font-bold transition-all cursor-pointer",
+                  isProjectActive
+                    ? "bg-text-primary text-background shadow-sm"
+                    : "text-text-muted hover:text-text-primary hover:bg-panel"
+                )}
+                title={project.name}
+              >
+                {project.name.charAt(0).toUpperCase()}
+              </button>
+            );
+          })}
+
+          <button
+            onClick={handlePickAndCreateProject}
+            className="w-8 h-8 rounded-lg border border-dashed border-border flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-panel transition-colors cursor-pointer"
+            title="Add Project (+)"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
+  // Expanded Sidebar View (Full Tree)
   return (
     <aside 
-      className="w-56 border-r border-border flex flex-col justify-between select-none relative z-20 font-sans transition-colors duration-200 bg-chrome"
+      className="w-56 border-r border-border flex flex-col justify-between select-none relative z-20 font-sans transition-all duration-200 bg-chrome"
     >
       {/* Top section: Projects & Agents */}
       <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
@@ -60,83 +106,83 @@ export const Sidebar: React.FC = () => {
           <span className="text-[10px] font-mono uppercase tracking-widest text-text-muted font-bold">
             PROJECTS
           </span>
-          <button
-            onClick={handlePickAndCreateProject}
-            className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-panel transition-colors cursor-pointer"
-            title="Open Local Folder / Project (+)"
-          >
-            <Plus size={13} strokeWidth={2.5} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePickAndCreateProject}
+              className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-panel transition-colors cursor-pointer"
+              title="Open Local Folder / Project (+)"
+            >
+              <Plus size={13} strokeWidth={2.5} />
+            </button>
+            <button
+              onClick={toggleSidebar}
+              className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-panel transition-colors cursor-pointer"
+              title="Collapse Sidebar"
+            >
+              <PanelLeftClose size={13} />
+            </button>
+          </div>
         </div>
 
         {/* Clean Line-Separated Project & Agent Tree */}
         <div className="flex flex-col divide-y divide-border">
           {workspaces.map((project) => {
             const isProjectActive = project.id === activeWorkspaceId;
-            const isCollapsed = !!collapsedProjects[project.id];
-            const activeSpaceId =
-              activeSpaceIdByProject[project.id] || project.spaces?.[0]?.id || `space-${project.id}-1`;
-
-            // Agents belonging to this project
+            const isCollapsed = collapsedProjects[project.id] ?? false;
             const projectAgents = agents.filter((a) => a.workspaceId === project.id);
-            // Agents in the active space tab
-            const spaceAgents = projectAgents.filter(
-              (a) => (a.spaceId || project.spaces?.[0]?.id || 'default') === activeSpaceId
-            );
 
             return (
-              <div key={project.id} className="py-2 first:pt-0 last:pb-0 flex flex-col gap-0.5">
-                {/* Clean Project Header Row */}
+              <div key={project.id} className="py-2.5 first:pt-1 last:pb-1 flex flex-col gap-1.5">
+                {/* Workspace / Project Title Bar */}
                 <div
                   onClick={() => setActiveWorkspace(project.id)}
                   className={clsx(
-                    'flex items-center justify-between px-1.5 py-1.5 rounded-lg cursor-pointer transition-all group select-none',
+                    'w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-mono font-medium transition-all group cursor-pointer select-none',
                     isProjectActive
-                      ? 'bg-panel text-text-primary font-bold shadow-sm border border-border'
-                      : 'text-text-muted hover:text-text-primary hover:bg-panel/60'
+                      ? 'bg-panel-elevated text-text-primary shadow-sm border border-border-hover/60 font-bold'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-panel'
                   )}
                 >
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    {/* Collapsible toggle */}
+                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleProjectCollapsed(project.id);
                       }}
-                      className="p-0.5 text-text-dim hover:text-text-primary rounded transition-colors cursor-pointer"
+                      className="text-text-dim group-hover:text-text-primary p-0.5 rounded hover:bg-well transition-colors cursor-pointer shrink-0"
                     >
-                      {isCollapsed ? (
-                        <ChevronRight size={11} strokeWidth={2.5} />
-                      ) : (
-                        <ChevronDown size={11} strokeWidth={2.5} />
-                      )}
+                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     </button>
 
-                    <FolderGit2
-                      size={13}
-                      className={clsx(isProjectActive ? 'text-text-primary' : 'text-text-dim')}
-                    />
-                    <span className="font-mono text-xs truncate tracking-tight font-bold">{project.name}</span>
+                    <FolderGit2 size={13} className={isProjectActive ? "text-emerald-500 shrink-0" : "text-text-muted shrink-0"} />
+                    <span className="truncate text-xs font-semibold">{project.name}</span>
                   </div>
+
+                  <span className="text-[10px] font-mono text-text-muted px-1.5 py-0.2 rounded bg-well border border-border shrink-0 ml-1">
+                    {projectAgents.length}
+                  </span>
                 </div>
 
-                {/* Indented Child Agents Tree */}
+                {/* Sub-Agents under this Project */}
                 {!isCollapsed && (
-                  <div className="flex flex-col pl-5 pr-1 gap-0.5 mt-0.5">
-                    {spaceAgents.length === 0 ? (
-                      <div className="px-1.5 py-1 text-[10.5px] font-mono text-text-dim italic flex items-center justify-between">
+                  <div className="pl-4 pr-1 flex flex-col gap-0.5 border-l border-border ml-3 mt-1">
+                    {projectAgents.length === 0 ? (
+                      <div className="px-2 py-1 text-[11px] font-mono text-text-dim flex items-center justify-between">
                         <span>No agents active</span>
                         {isProjectActive && (
                           <button
-                            onClick={() => setAddAgentOpen(true)}
-                            className="text-text-muted hover:text-text-primary underline text-[10px] not-italic cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAddAgentOpen(true);
+                            }}
+                            className="text-[10px] font-mono text-text-primary hover:underline cursor-pointer"
                           >
                             + Spawn
                           </button>
                         )}
                       </div>
                     ) : (
-                      spaceAgents.map((agent) => (
+                      projectAgents.map((agent) => (
                         <div
                           key={agent.id}
                           onClick={() => {

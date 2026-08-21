@@ -136,16 +136,20 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
       enableResizing={!isMaximized}
       bounds="parent"
       className={clsx(
-        "rounded-2xl flex flex-col overflow-hidden transition-all shadow-panel border",
+        "rounded-2xl flex flex-col overflow-hidden shadow-panel border",
+        !isDragging && "transition-[border-color,box-shadow,opacity] duration-150",
         isActive 
           ? "border-border-hover shadow-2xl ring-1 ring-border" 
-          : "border-border opacity-95"
+          : "border-border opacity-95",
+        isDragging && "shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-border-hover cursor-grabbing ring-2 ring-emerald-500/30"
       )}
       style={{
         zIndex: isMaximized ? 9999 : zIndex,
         position: 'absolute',
         display: 'flex',
         flexDirection: 'column',
+        transform: 'translate3d(0,0,0)',
+        backfaceVisibility: 'hidden',
         willChange: isDragging ? 'transform' : 'auto',
         backgroundColor: 'var(--bg-panel, #090a0f)',
       }}

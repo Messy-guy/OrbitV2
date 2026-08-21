@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings, User as UserIcon } from 'lucide-react';
+import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings, User as UserIcon, PanelLeft, Map } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -19,7 +19,7 @@ export const AppHeader: React.FC = () => {
   } = useWorkspaceStore();
 
   const { agents } = useAgentStore();
-  const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen } = useUIStore();
+  const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen, isSidebarCollapsed, toggleSidebar, isMinimapVisible, toggleMinimap } = useUIStore();
   const { user, isAuthenticated, setAuthModalOpen } = useAuthStore();
   const activeWorkspace = getActiveWorkspace();
 
@@ -36,8 +36,25 @@ export const AppHeader: React.FC = () => {
         borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))',
       }}
     >
-      {/* Left-Aligned Strip: Brand Logo + Project Name + Flat Space Tabs */}
-      <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto">
+      {/* Left-Aligned Strip: Sidebar Toggle + Brand Logo + Project Name + Flat Space Tabs */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-x-auto">
+        
+        {/* Toggle Sidebar Button */}
+        {activeWorkspace && (
+          <button
+            onClick={toggleSidebar}
+            className={clsx(
+              "w-6 h-6 rounded flex items-center justify-center transition-colors cursor-pointer shrink-0",
+              isSidebarCollapsed
+                ? "text-text-muted hover:text-text-primary hover:bg-panel"
+                : "text-text-secondary hover:text-text-primary hover:bg-panel"
+            )}
+            title={isSidebarCollapsed ? "Expand Sidebar (Ctrl+B)" : "Collapse Sidebar (Ctrl+B)"}
+          >
+            <PanelLeft size={13} />
+          </button>
+        )}
+
         {/* Brand Icon */}
         <button
           onClick={() => setActiveWorkspace(null)}
@@ -119,7 +136,23 @@ export const AppHeader: React.FC = () => {
 
       {/* Right-Aligned Quick Actions */}
       <div className="flex items-center gap-1.5 shrink-0 pl-3">
-        {/* Minimal Icon-Only Shortcuts Trigger */}
+        {/* Minimap Toggle */}
+        {activeWorkspace && (
+          <button
+            onClick={toggleMinimap}
+            className={clsx(
+              "w-6 h-6 rounded flex items-center justify-center transition-colors cursor-pointer",
+              isMinimapVisible
+                ? "text-text-primary bg-panel border border-border"
+                : "text-text-dim hover:text-text-muted"
+            )}
+            title={isMinimapVisible ? "Hide Canvas Minimap" : "Show Canvas Minimap"}
+          >
+            <Map size={12} />
+          </button>
+        )}
+
+        {/* Keyboard Shortcuts Trigger */}
         <button
           onClick={() => setShortcutsOpen(true)}
           className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel border border-transparent hover:border-border transition-colors cursor-pointer"
