@@ -58,11 +58,12 @@ impl PtyManager {
         agent_id: String,
         session_id: String,
         provider: String,
+        profile_id: Option<String>,
         prompt: Option<String>,
         rows: u16,
         cols: u16,
     ) -> Result<u32, String> {
-        dbg_log!("[ORBIT DEBUG] create_session called: agent_id={} provider={}", agent_id, provider);
+        dbg_log!("[ORBIT DEBUG] create_session called: agent_id={} provider={} profile={:?}", agent_id, provider, profile_id);
 
         // If already running for this agent and no prompt, re-emit status so frontend can reattach
         {
@@ -208,9 +209,44 @@ impl PtyManager {
             }
         };
 
-        // Inherit all host environment variables (PATH, HOME, USER, LANG, etc.)
+        // Inherit all host environment variables (PATH, USER, LANG, etc.)
+        // But sanitize child agent session tokens so they don't inherit the parent agent's active session
         for (key, value) in std::env::vars() {
+            // Strip active session tokens & connection addresses
+            if key.starts_with("ANTIGRAVITY_") || key.starts_with("JETSKI_") || key == "AI_AGENT" {
+                continue;
+            }
             cmd_builder.env(key, value);
+        }
+
+        // Apply isolated profile environment sandbox if specified (e.g. "work-account", "personal")
+        if let Some(ref prof) = profile_id {
+            if prof != "default" && !prof.trim().is_empty() {
+                let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                let profile_root = std::path::Path::new(&user_home).join(".orbit").join("profiles").join(prof.trim());
+                let _ = std::fs::create_dir_all(&profile_root);
+                let gemini_dir = profile_root.join(".gemini");
+                let config_dir = profile_root.join(".config");
+                let data_dir = profile_root.join(".local").join("share");
+                let _ = std::fs::create_dir_all(&gemini_dir);
+                let _ = std::fs::create_dir_all(&config_dir);
+                let _ = std::fs::create_dir_all(&data_dir);
+
+                let prof_str = profile_root.to_string_lossy().to_string();
+                cmd_builder.env("HOME", &prof_str);
+                cmd_builder.env("XDG_CONFIG_HOME", config_dir.to_string_lossy().to_string());
+                cmd_builder.env("XDG_DATA_HOME", data_dir.to_string_lossy().to_string());
+                cmd_builder.env("ANTIGRAVITY_CONFIG_DIR", gemini_dir.to_string_lossy().to_string());
+                cmd_builder.env("JETSKI_APP_DATA_DIR", gemini_dir.join("antigravity-cli").to_string_lossy().to_string());
+                cmd_builder.env("ORBIT_PROFILE_ID", prof.trim());
+
+                // Disable DBUS / GNOME Keyring fallback so child process cannot read the system host keyring
+                cmd_builder.env("DBUS_SESSION_BUS_ADDRESS", "disabled:");
+                cmd_builder.env("GNOME_KEYRING_CONTROL", "");
+                cmd_builder.env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring");
+
+                dbg_log!("[ORBIT PROFILE] Isolated sandbox mounted at: {}", prof_str);
+            }
         }
 
         cmd_builder.cwd(&cwd);
@@ -252,9 +288,9 @@ impl PtyManager {
             cols_val,
         );
 
-        let child_arc = session.child.clone();
-        let history_arc = session.output_history.clone();
-        let master_arc = session.master.clone(); // for reader + resize
+        let _child_arc = session.child.clone();
+        let _history_arc = session.output_history.clone();
+        let _master_arc = session.master.clone(); // for reader + resize
         let writer_for_initial_prompt = session.writer.clone();
 
         // Feed initial prompt into stdin after a short delay so the CLI process initializes its terminal/event loop

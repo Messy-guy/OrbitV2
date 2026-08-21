@@ -169,6 +169,7 @@ pub fn start_agent_session(
     agent_id: String,
     session_id: String,
     provider: String,
+    profile_id: Option<String>,
     prompt: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
@@ -180,6 +181,7 @@ pub fn start_agent_session(
         agent_id,
         session_id,
         provider,
+        profile_id,
         prompt,
         rows.unwrap_or(30),
         cols.unwrap_or(100),
@@ -415,6 +417,7 @@ pub fn execute_agent_handoff(
         handoff.target_agent_id.clone(),
         target_session_id,
         target_provider.clone(),
+        None, // profile_id (use default)
         None, // No prompt — we deliver separately after TUI mounts
         30,
         100,

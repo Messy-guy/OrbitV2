@@ -271,7 +271,7 @@ impl ActivityDetector {
     }
 
     /// Generate an automatic, proposed Context Draft for user review
-    pub fn generate_draft(&self, workspace_id: &str, project_path: &str) -> ContextDraft {
+    pub fn generate_draft(&self, workspace_id: &str, _project_path: &str) -> ContextDraft {
         let state = self.get_state(workspace_id);
         let now = chrono::Utc::now().timestamp_millis();
 

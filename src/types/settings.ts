@@ -48,6 +48,9 @@ export interface SettingsState {
   defaultProjectsPath: string;
   autoCheckpointOnHandoff: boolean;
 
+  // 7. Global Multi-Account Profiles
+  savedProfiles: string[];
+
   // Actions
   setTheme: (theme: ThemeId) => void;
   setAccent: (accent: AccentId) => void;
@@ -57,6 +60,7 @@ export interface SettingsState {
   setDefaultHandoffMode: (mode: 'safe' | 'autonomous') => void;
   setMaxTokenBudget: (budget: number) => void;
   setAutoIncludeDiffs: (include: boolean) => void;
+  addSavedProfile: (profile: string) => void;
   setTerminalFontFamily: (font: string) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalLineHeight: (lineHeight: number) => void;

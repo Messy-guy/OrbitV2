@@ -50,6 +50,7 @@ export interface Agent {
   provider: AgentProvider;
   name: string;
   model: string;
+  profileId?: string; // Custom isolated config profile name e.g. "work-account", "default"
   status: AgentStatus;
   currentSessionId?: string;
   viewMode?: 'terminal' | 'chat';

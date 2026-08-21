@@ -4,7 +4,7 @@ import { isTauriAvailable, tauriService, DetectedAgentDto } from './tauri.servic
 
 export interface IAgentService {
   getAgents(workspaceId: string): Promise<Agent[]>;
-  addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string): Promise<Agent>;
+  addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, profileId?: string): Promise<Agent>;
   removeAgent(agentId: string): Promise<void>;
   updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent>;
   detectInstalledAgents(): Promise<DetectedAgentDto[]>;
@@ -16,7 +16,8 @@ export interface IAgentService {
     prompt?: string,
     workspaceId?: string,
     rows?: number,
-    cols?: number
+    cols?: number,
+    profileId?: string
   ): Promise<number>;
   sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void>;
   resizeAgentTerminal(agentId: string, rows: number, cols: number): Promise<void>;
@@ -59,7 +60,7 @@ export class HybridAgentService implements IAgentService {
     return this.fallbackAgents.filter(a => a.workspaceId === workspaceId);
   }
 
-  async addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string): Promise<Agent> {
+  async addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, profileId?: string): Promise<Agent> {
     const preset = AVAILABLE_AGENT_PRESETS.find(p => p.provider === provider);
     const newAgent: Agent = {
       id: `agent-${provider}-${Date.now().toString().slice(-4)}`,
@@ -67,6 +68,7 @@ export class HybridAgentService implements IAgentService {
       provider,
       name: customName || preset?.name || provider.toUpperCase(),
       model: customModel || preset?.model || 'Default Model',
+      profileId: profileId || 'default',
       status: 'ready',
       viewMode: 'terminal',
       pid: 3200 + Math.floor(Math.random() * 5000),
@@ -120,7 +122,8 @@ export class HybridAgentService implements IAgentService {
     prompt?: string,
     workspaceId?: string,
     rows?: number,
-    cols?: number
+    cols?: number,
+    profileId?: string
   ): Promise<number> {
     if (isTauriAvailable()) {
       return await tauriService.startAgentSession(
@@ -131,7 +134,8 @@ export class HybridAgentService implements IAgentService {
         prompt,
         workspaceId,
         rows,
-        cols
+        cols,
+        profileId
       );
     }
     return 4800 + Math.floor(Math.random() * 1000);

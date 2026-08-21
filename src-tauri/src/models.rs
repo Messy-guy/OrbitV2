@@ -40,9 +40,11 @@ pub struct AgentUsageStats {
 pub struct Agent {
     pub id: String,
     pub workspace_id: String,
+    pub space_id: Option<String>,
     pub provider: String,
     pub name: String,
     pub model: String,
+    pub profile_id: Option<String>,
     pub status: String, // "ready", "working", "paused", "error", "stopped"
     pub current_session_id: Option<String>,
     pub view_mode: Option<String>,

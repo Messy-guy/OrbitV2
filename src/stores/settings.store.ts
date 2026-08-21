@@ -165,7 +165,7 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
 const DEFAULT_SETTINGS: Omit<SettingsState, 
   'setTheme' | 'setAccent' | 'setCanvasGridStyle' | 'setEnableGlassmorphism' | 
   'updateAgentConfig' | 'setDefaultHandoffMode' | 'setMaxTokenBudget' | 
-  'setAutoIncludeDiffs' | 'setTerminalFontFamily' | 'setTerminalFontSize' | 
+  'setAutoIncludeDiffs' | 'addSavedProfile' | 'setTerminalFontFamily' | 'setTerminalFontSize' | 
   'setTerminalLineHeight' | 'setTerminalCursorStyle' | 'setTerminalCursorBlink' | 
   'setEnableDesktopNotifications' | 'setEnableSoundAlerts' | 'resetToDefaults'> = {
   theme: 'obsidian',
@@ -208,6 +208,7 @@ const DEFAULT_SETTINGS: Omit<SettingsState,
 
   defaultProjectsPath: '~/Desktop/personal_projects',
   autoCheckpointOnHandoff: true,
+  savedProfiles: ['default'],
 };
 
 const loadInitialSettings = () => {
@@ -338,6 +339,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), enableSoundAlerts }));
     } catch {}
+  },
+
+  addSavedProfile: (profile: string) => {
+    const clean = profile.trim().toLowerCase();
+    if (!clean) return;
+    const current = get().savedProfiles || ['default'];
+    if (!current.includes(clean)) {
+      const updated = [...current, clean];
+      set({ savedProfiles: updated });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
+      } catch {}
+    }
   },
 
   resetToDefaults: () => {

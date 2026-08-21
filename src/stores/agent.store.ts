@@ -15,7 +15,7 @@ interface AgentState {
   // Actions
   initializeEventListeners: () => void;
   loadAgentsForWorkspace: (workspaceId: string, projectPath?: string) => Promise<void>;
-  addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, projectPath?: string, spaceId?: string) => Promise<Agent>;
+  addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, projectPath?: string, spaceId?: string, profileId?: string) => Promise<Agent>;
   removeAgent: (agentId: string) => Promise<void>;
   setAgentStatus: (agentId: string, status: AgentStatus) => Promise<void>;
   toggleAgentViewMode: (agentId: string) => void;
@@ -24,6 +24,7 @@ interface AgentState {
   loadMessagesForSession: (sessionId: string) => Promise<void>;
   sendMessage: (agentId: string, sessionId: string, content: string, projectPath?: string, workspaceId?: string) => Promise<void>;
   sendTerminalCommand: (agentId: string, command: string, projectPath?: string, workspaceId?: string) => Promise<void>;
+  broadcastCommand: (command: string, targetAgentIds?: string[], projectPath?: string, workspaceId?: string) => Promise<void>;
   resizeTerminal: (agentId: string, rows: number, cols: number) => Promise<void>;
   clearTerminal: (agentId: string) => void;
   interruptAgent: (agentId: string) => void;
@@ -114,7 +115,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             activeSess,
             agent.provider,
             undefined,
-            workspaceId
+            workspaceId,
+            undefined,
+            undefined,
+            agent.profileId
           ).then((pid) => {
             set((state) => ({
               agents: state.agents.map((a) => (a.id === agent.id ? { ...a, pid } : a)),
@@ -161,15 +165,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     customName?: string,
     customModel?: string,
     projectPath?: string,
-    spaceId?: string
+    spaceId?: string,
+    profileId?: string
   ) => {
     get().initializeEventListeners();
-    const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel);
+    const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel, profileId);
     const newSession = await sessionService.createSession(rawAgent.id, workspaceId, `Session 01`);
 
     const newAgent: Agent = {
       ...rawAgent,
       spaceId: spaceId || 'default',
+      profileId: profileId || 'default',
       currentSessionId: newSession.id,
       viewMode: 'terminal',
       pid: undefined,
@@ -212,7 +218,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       };
     });
 
-    // Start real PTY process for the agent
+    // Start real PTY process for the agent with isolated profile
     if (isTauriAvailable() && projectPath) {
       try {
         const realPid = await agentService.startAgentProcess(
@@ -221,7 +227,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           newSession.id,
           newAgent.provider,
           undefined,
-          workspaceId
+          workspaceId,
+          undefined,
+          undefined,
+          profileId
         );
         set((state) => ({
           agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
@@ -443,6 +452,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         }));
       }, 600);
     }
+  },
+
+  broadcastCommand: async (command: string, targetAgentIds?: string[], projectPath?: string, workspaceId?: string) => {
+    const allAgents = get().agents;
+    const targets = targetAgentIds && targetAgentIds.length > 0
+      ? allAgents.filter((a) => targetAgentIds.includes(a.id))
+      : allAgents;
+
+    if (targets.length === 0) return;
+
+    // Send formatted input with trailing carriage return (\r) to trigger execution in PTY
+    const cleanCmd = command.trim();
+    if (!cleanCmd) return;
+    const inputWithEnter = `${cleanCmd}\r`;
+    await Promise.all(
+      targets.map((agent) => get().sendTerminalCommand(agent.id, inputWithEnter, projectPath, workspaceId))
+    );
   },
 
   resizeTerminal: async (agentId: string, rows: number, cols: number) => {

@@ -128,7 +128,8 @@ export const tauriService = {
     prompt?: string,
     workspaceId?: string,
     rows?: number,
-    cols?: number
+    cols?: number,
+    profileId?: string
   ): Promise<number> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
     return invoke<number>('start_agent_session', {
@@ -136,6 +137,7 @@ export const tauriService = {
       agentId,
       sessionId,
       provider,
+      profileId,
       prompt,
       workspaceId,
       rows,

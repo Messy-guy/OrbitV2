@@ -42,6 +42,11 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
           <span className="font-mono font-extrabold text-xs tracking-wider uppercase text-text-primary">
             {agent.name}
           </span>
+          {agent.profileId && agent.profileId !== 'default' && (
+            <span className="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-mono font-bold uppercase tracking-wider">
+              {agent.profileId}
+            </span>
+          )}
           <span className="text-text-dim text-xs font-mono">/</span>
           <span className="text-[10px] font-mono text-text-muted truncate font-medium">
             {agent.model}

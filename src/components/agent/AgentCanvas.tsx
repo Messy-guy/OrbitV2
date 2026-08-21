@@ -7,6 +7,7 @@ import { useContextStore } from '../../stores/context.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { AgentFloatingWindow } from './AgentFloatingWindow';
 import { CanvasMinimap } from './CanvasMinimap';
+import { SwarmBroadcastBar } from './SwarmBroadcastBar';
 import { AgentProvider } from '../../types/orbit';
 import { clsx } from 'clsx';
 
@@ -545,6 +546,9 @@ export const AgentCanvas: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Floating Orchestrator Swarm Multi-Input Bar */}
+      <SwarmBroadcastBar />
     </div>
   );
 };
