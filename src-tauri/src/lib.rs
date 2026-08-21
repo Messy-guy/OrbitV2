@@ -4,6 +4,7 @@ mod storage;
 mod git;
 mod context;
 mod runtime;
+mod auth;
 mod commands;
 
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use commands::{
     resize_agent_terminal, save_agent, save_checkpoint, save_project_context,
     send_agent_input, start_agent_session, stop_agent_session, get_agent_terminal_history,
     is_agent_process_running, get_project_activity, generate_context_draft, apply_context_draft,
-    record_user_decision, resolve_project_issue, get_agent_usage_stats, AppState,
+    record_user_decision, resolve_project_issue, get_agent_usage_stats, open_external_url, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use storage::StorageManager;
@@ -70,6 +71,7 @@ pub fn run() {
             record_user_decision,
             resolve_project_issue,
             get_agent_usage_stats,
+            open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running orbit application");

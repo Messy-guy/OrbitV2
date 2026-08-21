@@ -74,6 +74,14 @@ export const tauriService = {
     return invoke<string | null>('open_file_dialog', { title });
   },
 
+  async openExternalUrl(url: string): Promise<void> {
+    if (!isTauriAvailable()) {
+      window.open(url, '_blank');
+      return;
+    }
+    return invoke<void>('open_external_url', { url });
+  },
+
   async deleteWorkspace(id: string): Promise<void> {
     if (!isTauriAvailable()) return;
     return invoke<void>('delete_workspace', { id });

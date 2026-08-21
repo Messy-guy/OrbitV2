@@ -7,17 +7,27 @@ import { CreateWorkspaceModal } from './components/workspace/CreateWorkspaceModa
 import { ShortcutsModal } from './components/layout/ShortcutsModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { DiffViewerModal } from './components/git/DiffViewerModal';
+import { AuthModal } from './components/auth/AuthModal';
 import { UpdateNotifier } from './components/layout/UpdateNotifier';
 import { useSettingsStore, applyThemeTokens } from './stores/settings.store';
+
+import { useAuthStore } from './stores/auth.store';
+import { LoginScreen } from './pages/LoginScreen';
 
 export const App: React.FC = () => {
   const { activeWorkspaceId, loadWorkspaces } = useWorkspaceStore();
   const { theme, accent } = useSettingsStore();
+  const { isAuthenticated } = useAuthStore();
 
   useEffect(() => {
     loadWorkspaces();
     applyThemeTokens(theme, accent);
   }, [loadWorkspaces, theme, accent]);
+
+  // Mandatory Authentication Gatekeeper
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-text-primary overflow-hidden select-none">
@@ -34,6 +44,7 @@ export const App: React.FC = () => {
       <ShortcutsModal />
       <SettingsModal />
       <DiffViewerModal />
+      <AuthModal />
       <UpdateNotifier />
     </div>
   );

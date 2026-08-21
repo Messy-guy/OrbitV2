@@ -1,8 +1,9 @@
 import React from 'react';
-import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings } from 'lucide-react';
+import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings, User as UserIcon } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
+import { useAuthStore } from '../../stores/auth.store';
 import { Button } from '../ui/Button';
 import { clsx } from 'clsx';
 
@@ -19,6 +20,7 @@ export const AppHeader: React.FC = () => {
 
   const { agents } = useAgentStore();
   const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen } = useUIStore();
+  const { user, isAuthenticated, setAuthModalOpen } = useAuthStore();
   const activeWorkspace = getActiveWorkspace();
 
   const activeSpaceId =
@@ -134,6 +136,36 @@ export const AppHeader: React.FC = () => {
         >
           <Settings size={13} strokeWidth={2.2} />
         </button>
+
+        {/* User Account / Auth Trigger */}
+        {isAuthenticated && user ? (
+          <button
+            onClick={() => setAuthModalOpen(true)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-well hover:bg-panel border border-border text-text-primary text-xs font-mono transition-colors cursor-pointer"
+            title={`${user.name || user.email} (${user.plan} Plan)`}
+          >
+            {user.avatarUrl ? (
+              <img src={user.avatarUrl} alt="" className="w-3.5 h-3.5 rounded-full" />
+            ) : (
+              <UserIcon size={12} className="text-emerald-500" />
+            )}
+            <span className="text-[10.5px] font-bold truncate max-w-[70px]">
+              {user.name?.split(' ')[0] || 'User'}
+            </span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-bold uppercase">
+              {user.plan}
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setAuthModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-well hover:bg-panel border border-border text-text-primary text-[11px] font-mono font-bold transition-colors cursor-pointer"
+            title="Sign In with GitHub or Google"
+          >
+            <UserIcon size={12} />
+            <span>Sign In</span>
+          </button>
+        )}
 
         {activeWorkspace ? (
           <Button

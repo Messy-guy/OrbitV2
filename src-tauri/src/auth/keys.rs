@@ -1,0 +1,1 @@
+pub const ORBIT_ED25519_PUBLIC_KEY_BASE64: &str = "MCowBQYDK2VwAyEAkmb1nmsw7vUO87Wzw2zC4AcO+JMdiubY/MHlsbKejeI=";

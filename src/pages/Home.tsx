@@ -12,13 +12,15 @@ import {
   X,
   CornerDownLeft,
   SlidersHorizontal,
-  Bot
+  Bot,
+  Github
 } from 'lucide-react';
 import { useWorkspaceStore } from '../stores/workspace.store';
 import { useAgentStore } from '../stores/agent.store';
 import { useUIStore } from '../stores/ui.store';
 import { WorkspaceCard } from '../components/workspace/WorkspaceCard';
 import { WorkspaceRow } from '../components/workspace/WorkspaceRow';
+import { ImportGitHubModal } from '../components/workspace/ImportGitHubModal';
 import { tauriService } from '../services';
 import { clsx } from 'clsx';
 
@@ -42,6 +44,7 @@ export const Home: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [isImportGitHubOpen, setIsImportGitHubOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -183,6 +186,15 @@ export const Home: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setIsImportGitHubOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-panel hover:bg-panel-hover border border-border text-text-primary font-mono text-xs font-bold transition-all shadow-sm cursor-pointer active:scale-95"
+              title="Import remote repository from GitHub"
+            >
+              <Github size={13} strokeWidth={2.5} />
+              <span>Import from GitHub…</span>
+            </button>
+
             <button
               onClick={handlePickAndCreateProject}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-text-primary text-background font-mono text-xs font-bold hover:opacity-90 transition-all shadow-sm cursor-pointer active:scale-95"
@@ -446,6 +458,12 @@ export const Home: React.FC = () => {
         </div>
 
       </div>
+
+      {/* GitHub Repository Importer Modal */}
+      <ImportGitHubModal
+        isOpen={isImportGitHubOpen}
+        onClose={() => setIsImportGitHubOpen(false)}
+      />
     </div>
   );
 };

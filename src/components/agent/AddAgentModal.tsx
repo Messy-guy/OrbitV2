@@ -10,18 +10,26 @@ import { useUIStore } from '../../stores/ui.store';
 import { AVAILABLE_AGENT_PRESETS } from '../../mock/agents';
 import { AgentProvider } from '../../types/orbit';
 import { agentService, DetectedAgentDto } from '../../services';
+import { useAuthStore } from '../../stores/auth.store';
+import { ProUpgradeModal } from './ProUpgradeModal';
 import { clsx } from 'clsx';
 
 export const AddAgentModal: React.FC = () => {
   const { isAddAgentOpen, setAddAgentOpen } = useUIStore();
   const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
-  const { addAgent } = useAgentStore();
+  const { addAgent, agents } = useAgentStore();
+  const { user } = useAuthStore();
 
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider>('antigravity');
   const [customName, setCustomName] = useState('');
   const [customModel, setCustomModel] = useState('');
   const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
+
+  const isPro = user?.plan === 'PRO';
+  const maxAllowedSlots = isPro ? 999 : 2;
+  const currentRunningAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
 
   const activeWorkspace = getActiveWorkspace();
   const activeSpaceId = (activeWorkspace && activeSpaceIdByProject[activeWorkspace.id]) || activeWorkspace?.spaces?.[0]?.id || `space-${activeWorkspace?.id}-1`;
@@ -36,6 +44,14 @@ export const AddAgentModal: React.FC = () => {
 
   const handleAdd = async () => {
     if (!activeWorkspaceId) return;
+
+    // Check slot limit for Free users
+    if (!isPro && currentRunningAgents >= maxAllowedSlots) {
+      setAddAgentOpen(false);
+      setIsProModalOpen(true);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await addAgent(
