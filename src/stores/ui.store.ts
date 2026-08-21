@@ -9,6 +9,7 @@ interface UIState {
   isCreateCheckpointOpen: boolean;
   isShortcutsOpen: boolean;
   isSettingsOpen: boolean;
+  isProUpgradeModalOpen: boolean;
   activeDiffFile: string | null;
   canvasLayoutPreset: 'auto' | 'split' | 'grid' | 'columns' | 'stack';
   selectedAgentForModal: string | null; // agentId
@@ -19,6 +20,7 @@ interface UIState {
   toggleBottomPanel: (panel: BottomPanelType) => void;
   setCreateWorkspaceOpen: (open: boolean) => void;
   setAddAgentOpen: (open: boolean) => void;
+  setProUpgradeModalOpen: (open: boolean) => void;
   setShareContextOpen: (open: boolean, agentId?: string) => void;
   setCreateCheckpointOpen: (open: boolean, agentId?: string) => void;
   setShortcutsOpen: (open: boolean) => void;
@@ -34,6 +36,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeBottomPanel: null,
   isCreateWorkspaceOpen: false,
   isAddAgentOpen: false,
+  isProUpgradeModalOpen: false,
   isShareContextOpen: false,
   isCreateCheckpointOpen: false,
   isShortcutsOpen: false,
@@ -80,14 +83,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ activeBottomPanel: current === panel ? null : panel });
   },
 
-  setCreateWorkspaceOpen: (open: boolean) => {
-    set({ isCreateWorkspaceOpen: open });
-  },
-
-  setAddAgentOpen: (open: boolean) => {
-    set({ isAddAgentOpen: open });
-  },
-
+  setCreateWorkspaceOpen: (open: boolean) => set({ isCreateWorkspaceOpen: open }),
+  setAddAgentOpen: (open: boolean) => set({ isAddAgentOpen: open }),
+  setProUpgradeModalOpen: (open: boolean) => set({ isProUpgradeModalOpen: open }),
   setShareContextOpen: (open: boolean, agentId?: string) => {
     set({ isShareContextOpen: open, selectedAgentForModal: agentId || null });
   },

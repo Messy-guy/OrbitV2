@@ -29,7 +29,7 @@ export const AddAgentModal: React.FC = () => {
 
   const isPro = user?.plan === 'PRO';
   const maxAllowedSlots = isPro ? 999 : 2;
-  const currentRunningAgents = agents.filter(a => a.status === 'running' || a.status === 'idle').length;
+  const currentRunningAgents = agents.filter(a => a.status === 'working' || a.status === 'ready').length;
 
   const activeWorkspace = getActiveWorkspace();
   const activeSpaceId = (activeWorkspace && activeSpaceIdByProject[activeWorkspace.id]) || activeWorkspace?.spaces?.[0]?.id || `space-${activeWorkspace?.id}-1`;
