@@ -139,18 +139,18 @@ export const ShortcutsModal: React.FC = () => {
       maxWidth="sm"
     >
       <div className="flex flex-col gap-2 font-mono text-xs pt-1">
-        <div className="flex flex-col divide-y divide-white/[0.06] rounded-xl bg-[#08090c] border border-white/[0.08] p-1.5">
+        <div className="flex flex-col divide-y divide-border rounded-xl bg-panel border border-border p-1.5 shadow-sm">
           {shortcuts.map((s, idx) => (
             <div
               key={idx}
-              className="flex items-center justify-between px-3 py-2 text-[11.5px] hover:bg-white/[0.03] rounded-lg transition-colors"
+              className="flex items-center justify-between px-3 py-2 text-[11.5px] hover:bg-well rounded-lg transition-colors"
             >
-              <span className="text-[#EDEDED] font-sans text-xs">{s.action}</span>
+              <span className="text-text-primary font-sans text-xs">{s.action}</span>
               <div className="flex items-center gap-1 shrink-0">
                 {s.keys.map((k, kIdx) => (
                   <kbd
                     key={kIdx}
-                    className="px-1.5 py-0.5 rounded bg-[#16171e] border border-white/[0.1] text-[#D0D3DE] font-mono text-[10px] font-semibold"
+                    className="px-1.5 py-0.5 rounded bg-well border border-border text-text-primary font-mono text-[10px] font-bold"
                   >
                     {k}
                   </kbd>
@@ -160,9 +160,9 @@ export const ShortcutsModal: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex items-center justify-between px-2 pt-2 text-[10px] text-[#525666]">
-          <span>Press <kbd className="text-[#8E92A4]">?</kbd> to toggle anytime</span>
-          <span>Press <kbd className="text-[#8E92A4]">Esc</kbd> to exit</span>
+        <div className="flex items-center justify-between px-2 pt-2 text-[10px] text-text-muted">
+          <span>Press <kbd className="text-text-primary font-bold">?</kbd> to toggle anytime</span>
+          <span>Press <kbd className="text-text-primary font-bold">Esc</kbd> to exit</span>
         </div>
       </div>
     </Modal>

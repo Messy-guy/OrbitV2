@@ -384,13 +384,11 @@ pub fn execute_agent_handoff(
         }
     }
 
-    // 3. Build a concise single-line prompt pointing to the HANDOFF.md file.
-    //    This is deliberately short so it fits in any CLI readline buffer safely
-    //    and works generically for any TUI agent (OpenCode, agy, claude, codex, etc.).
+    // 3. Build a high-signal directive pointing directly to .orbit/HANDOFF.md.
+    //    Explicitly command reading the brief first and adhering to the protocol.
     let concise_prompt = format!(
-        "Orbit Handoff from {}: Continue working on '{}'. Full context in .orbit/HANDOFF.md",
-        handoff.context_package.source_agent,
-        handoff.context_package.current_task
+        "Please read .orbit/HANDOFF.md first and follow the ingestion protocol inside. (Handoff from {})",
+        handoff.context_package.source_agent
     );
 
     // 4. If the target agent session is ALREADY running — write directly to its stdin.

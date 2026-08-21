@@ -34,16 +34,16 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
   };
 
   return (
-    <div className="px-3.5 py-2 bg-[#171821]/80 backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between select-none handle cursor-move relative">
+    <div className="px-3.5 py-2 bg-panel-elevated backdrop-blur-md border-b border-border flex items-center justify-between select-none handle cursor-move relative">
       {/* Left: Agent Identifier + Model */}
       <div className="flex items-center gap-2.5 truncate">
         {getStatusDot(agent.status)}
         <div className="truncate flex items-center gap-1.5">
-          <span className="font-mono font-extrabold text-xs tracking-wider uppercase text-white">
+          <span className="font-mono font-extrabold text-xs tracking-wider uppercase text-text-primary">
             {agent.name}
           </span>
-          <span className="text-white/20 text-xs font-mono">/</span>
-          <span className="text-[10px] font-mono text-[#8e93a0] truncate font-medium">
+          <span className="text-text-dim text-xs font-mono">/</span>
+          <span className="text-[10px] font-mono text-text-muted truncate font-medium">
             {agent.model}
           </span>
         </div>
@@ -54,17 +54,17 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
         {/* Toggle Mode Button */}
         <button
           onClick={() => toggleAgentViewMode(agent.id)}
-          className="px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center gap-1.5 bg-black/40 hover:bg-white/[0.08] text-text-secondary hover:text-white border border-white/[0.08] transition-all"
+          className="px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center gap-1.5 bg-well hover:bg-panel text-text-secondary hover:text-text-primary border border-border transition-all cursor-pointer"
           title={isTerminal ? "Switch to Structured Chat View" : "Switch to Raw Terminal CLI"}
         >
           {isTerminal ? (
             <>
-              <Terminal size={11} className="text-[#00e5ff]" />
+              <Terminal size={11} className="text-cyan-500" />
               <span className="font-bold tracking-wider">CLI</span>
             </>
           ) : (
             <>
-              <MessageSquare size={11} className="text-emerald-400" />
+              <MessageSquare size={11} className="text-emerald-500" />
               <span className="font-bold tracking-wider">CHAT</span>
             </>
           )}
@@ -74,10 +74,10 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
           <select
             value={currentSessionId || ''}
             onChange={(e) => setActiveSession(agent.id, e.target.value)}
-            className="bg-black/40 border border-white/[0.08] rounded-md text-[10px] font-mono text-text-secondary px-2 py-0.5 focus:outline-none focus:border-[#00e5ff]/50"
+            className="bg-well border border-border rounded-md text-[10px] font-mono text-text-secondary px-2 py-0.5 focus:outline-none focus:border-border-hover"
           >
             {agentSessions.map(s => (
-              <option key={s.id} value={s.id} className="bg-[#14151c] text-white">
+              <option key={s.id} value={s.id} className="bg-panel text-text-primary">
                 {s.title.split('—')[0].trim()}
               </option>
             ))}
@@ -87,14 +87,14 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
         <div className="relative">
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="text-text-muted hover:text-white p-1 rounded-md hover:bg-white/[0.08] transition-colors"
+            className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-well transition-colors cursor-pointer"
           >
             <MoreVertical size={13} />
           </button>
 
           {isMenuOpen && (
             <div
-              className="absolute right-0 top-7 w-44 surface-elevated rounded-lg shadow-2xl py-1.5 z-50 text-xs font-mono border border-white/[0.12]"
+              className="absolute right-0 top-7 w-44 bg-panel-elevated rounded-xl shadow-2xl py-1.5 z-50 text-xs font-mono border border-border"
               onMouseLeave={() => setIsMenuOpen(false)}
             >
               <button
@@ -102,7 +102,7 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   createNewSession(agent.id, agent.workspaceId);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-white/[0.08] hover:text-white flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-panel hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 <Plus size={12} />
                 <span>New Session</span>
@@ -113,20 +113,20 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
                   setAgentStatus(agent.id, agent.status === 'paused' ? 'ready' : 'paused');
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-white/[0.08] hover:text-white flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
+                className="w-full text-left px-3 py-1.5 hover:bg-panel hover:text-text-primary flex items-center gap-2 text-text-secondary text-[11px] transition-colors"
               >
                 {agent.status === 'paused' ? <Play size={12} /> : <Pause size={12} />}
                 <span>{agent.status === 'paused' ? 'Resume Process' : 'Pause Process'}</span>
               </button>
 
-              <div className="h-px bg-white/[0.08] my-1" />
+              <div className="h-px bg-border my-1" />
 
               <button
                 onClick={() => {
                   removeAgent(agent.id);
                   setIsMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-red-500/20 text-red-400 flex items-center gap-2 text-[11px] transition-colors font-semibold"
+                className="w-full text-left px-3 py-1.5 hover:bg-red-500/10 text-red-500 flex items-center gap-2 text-[11px] transition-colors font-semibold"
               >
                 <Trash2 size={12} />
                 <span>Delete Terminal</span>

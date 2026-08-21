@@ -84,7 +84,7 @@ export const CreateWorkspaceModal: React.FC = () => {
                   console.warn('Folder selection error:', err);
                 }
               }}
-              className="text-[10.5px] text-white/80 hover:text-white underline font-mono flex items-center gap-1 cursor-pointer"
+              className="text-[10.5px] text-text-muted hover:text-text-primary underline font-mono flex items-center gap-1 cursor-pointer"
             >
               <Folder size={11} />
               <span>Browse Device...</span>

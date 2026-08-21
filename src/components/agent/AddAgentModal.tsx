@@ -64,7 +64,7 @@ export const AddAgentModal: React.FC = () => {
       subtitle="Select a local AI coding CLI or interactive shell to spawn in this workspace"
       maxWidth="lg"
     >
-      <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-3.5 font-sans">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {AVAILABLE_AGENT_PRESETS.map((preset) => {
             const isSelected = selectedProvider === preset.provider;
@@ -76,41 +76,43 @@ export const AddAgentModal: React.FC = () => {
                 key={preset.provider}
                 onClick={() => setSelectedProvider(preset.provider)}
                 className={clsx(
-                  'p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between select-none group',
+                  'p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between select-none group shadow-sm',
                   isSelected
-                    ? 'bg-white/[0.08] border-white/40 shadow-md'
-                    : 'bg-[#171821]/60 hover:bg-[#1f212d]/80 border-white/[0.08] hover:border-white/[0.16]'
+                    ? 'bg-panel-hover border-border-hover shadow-md ring-1 ring-border-hover'
+                    : 'bg-panel-elevated hover:bg-panel-hover border-border hover:border-border-hover'
                 )}
               >
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-xs tracking-wider uppercase text-white font-mono flex items-center gap-2">
-                      <span className={clsx('w-2 h-2 rounded-full', isSelected ? 'bg-white shadow-[0_0_6px_#ffffff]' : 'bg-white/30')} />
+                    <span className="font-bold text-xs tracking-wider uppercase text-text-primary font-mono flex items-center gap-2">
+                      <span className={clsx('w-2 h-2 rounded-full transition-colors', isSelected ? 'bg-text-primary' : 'bg-text-dim')} />
                       <span>{preset.name}</span>
                     </span>
                     {isAvailableOnHost ? (
-                      <Badge variant="success" dot className="text-[9px] uppercase font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 font-mono">
                         Installed
-                      </Badge>
+                      </span>
                     ) : (
-                      <Badge variant="secondary" className="text-[9px] uppercase bg-white/[0.04] border border-white/[0.08] text-[#8e93a0]">
+                      <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono">
                         Available
-                      </Badge>
+                      </span>
                     )}
                   </div>
-                  <div className="text-[11px] font-mono text-white/90 mb-1.5 font-medium">
+                  <div className="text-[11px] font-mono text-text-secondary mb-1.5 font-medium">
                     {detected?.version || preset.model}
                   </div>
-                  <p className="text-[11.5px] text-[#8e93a0] leading-snug">
+                  <p className="text-[11.5px] text-text-muted leading-snug">
                     {preset.description}
                   </p>
                 </div>
 
-                <div className="mt-4 pt-2.5 border-t border-white/[0.06] flex items-center justify-between text-[10.5px]">
-                  <span className="text-white/40 font-mono uppercase font-bold tracking-wider">{preset.provider}</span>
+                <div className="mt-4 pt-2.5 border-t border-border flex items-center justify-between text-[10.5px]">
+                  <span className="text-text-dim font-mono uppercase font-bold tracking-wider">{preset.provider}</span>
                   <div className={clsx(
                     'w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-                    isSelected ? 'border-white bg-white text-black font-bold shadow-sm' : 'border-white/20 group-hover:border-white/40'
+                    isSelected 
+                      ? 'border-text-primary bg-text-primary text-background font-bold shadow-sm' 
+                      : 'border-border group-hover:border-border-hover'
                   )}>
                     {isSelected && <Check size={10} strokeWidth={3.5} />}
                   </div>
@@ -121,7 +123,7 @@ export const AddAgentModal: React.FC = () => {
         </div>
 
         {selectedProvider === 'custom' && (
-          <div className="p-3.5 surface-well rounded-panel border border-border mt-1 space-y-2.5">
+          <div className="p-3.5 bg-well rounded-panel border border-border mt-1 space-y-2.5">
             <h4 className="text-xs font-bold text-text-primary font-mono uppercase">Custom Agent Adapter Configuration</h4>
             <div className="grid grid-cols-2 gap-2">
               <Input

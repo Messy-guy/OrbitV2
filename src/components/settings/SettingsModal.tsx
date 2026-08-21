@@ -25,27 +25,6 @@ import { clsx } from 'clsx';
 
 type SettingsTab = 'appearance' | 'agents' | 'handoff' | 'terminal' | 'notifications' | 'workspace' | 'about';
 
-// Provider Model Registries retrieved from actual CLI specs
-export const PROVIDER_MODELS: Record<'antigravity' | 'claude' | 'opencode', Array<{ id: string; label: string; desc: string }>> = {
-  antigravity: [
-    { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Default)', desc: 'Ultra-fast low-latency multimodal reasoning' },
-    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro', desc: '1M Context window with deep codebase comprehension' },
-    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', desc: 'High-speed deterministic execution' },
-    { id: 'gemini-ultra', label: 'Gemini Ultra (Experimental)', desc: 'Frontier reasoning for complex algorithmic refactors' },
-  ],
-  claude: [
-    { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet (Default)', desc: 'Hybrid reasoning with extended thinking mode' },
-    { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', desc: 'Industry benchmark for precise software engineering' },
-    { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku', desc: 'Ultra-fast lightweight autonomous subagent' },
-    { id: 'claude-3-opus', label: 'Claude 3 Opus', desc: 'Deep synthesis and complex architectural planning' },
-  ],
-  opencode: [
-    { id: 'default-local', label: 'Local Default Engine', desc: 'System environment model adapter' },
-    { id: 'qwen-2.5-coder-32b', label: 'Qwen 2.5 Coder 32B', desc: 'High-performance local open-weights coding model' },
-    { id: 'deepseek-coder-v2', label: 'DeepSeek Coder V2', desc: 'Full repository context analysis' },
-  ],
-};
-
 export const SettingsModal: React.FC = () => {
   const { isSettingsOpen, setSettingsOpen } = useUIStore();
   const settings = useSettingsStore();
@@ -265,65 +244,26 @@ export const SettingsModal: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Radix Select Model Dropdown */}
-                  <div>
-                    <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
-                      Default Engine Model
-                    </label>
-                    <Select.Root
-                      value={settings.agentConfigs.antigravity.defaultModel}
-                      onValueChange={(val) => settings.updateAgentConfig('antigravity', { defaultModel: val })}
+                <div>
+                  <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
+                    Binary Executable Path Override
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={settings.agentConfigs.antigravity.customBinaryPath || ''}
+                      onChange={(e) => settings.updateAgentConfig('antigravity', { customBinaryPath: e.target.value })}
+                      placeholder="Auto-detected (~/.gemini/antigravity-cli/bin/agy)"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover"
+                    />
+                    <button
+                      onClick={() => handlePickBinary('antigravity')}
+                      className="px-3 py-2.5 rounded-xl bg-well border border-border text-text-muted hover:text-text-primary hover:border-border-hover transition-colors flex items-center gap-1.5 font-mono text-xs cursor-pointer shrink-0"
+                      title="Browse executable file on device"
                     >
-                      <Select.Trigger className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs focus:outline-none focus:border-border-hover cursor-pointer">
-                        <Select.Value />
-                        <Select.Icon>
-                          <ChevronDown size={13} className="text-text-muted" />
-                        </Select.Icon>
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className="z-[11000] overflow-hidden bg-panel-elevated border border-border rounded-xl shadow-2xl p-1 font-mono text-xs text-text-primary animate-in fade-in-50 duration-100">
-                          <Select.Viewport className="p-1 space-y-1">
-                            {PROVIDER_MODELS.antigravity.map((m) => (
-                              <Select.Item
-                                key={m.id}
-                                value={m.id}
-                                className="flex flex-col gap-0.5 px-3 py-2 rounded-lg cursor-pointer select-none hover:bg-panel focus:bg-panel outline-none data-[highlighted]:bg-panel"
-                              >
-                                <Select.ItemText>
-                                  <span className="font-bold text-text-primary">{m.label}</span>
-                                </Select.ItemText>
-                                <span className="text-[10.5px] text-text-muted font-sans">{m.desc}</span>
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
-                  </div>
-
-                  {/* Native File Browser for Binary Path Override */}
-                  <div>
-                    <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
-                      Binary Executable Path
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={settings.agentConfigs.antigravity.customBinaryPath || ''}
-                        onChange={(e) => settings.updateAgentConfig('antigravity', { customBinaryPath: e.target.value })}
-                        placeholder="Auto-detected (~/.gemini/antigravity-cli/bin/agy)"
-                        className="flex-1 px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover"
-                      />
-                      <button
-                        onClick={() => handlePickBinary('antigravity')}
-                        className="px-3 py-2.5 rounded-xl bg-well border border-border text-text-muted hover:text-text-primary hover:border-border-hover transition-colors flex items-center gap-1.5 font-mono text-xs cursor-pointer shrink-0"
-                        title="Browse executable file on device"
-                      >
-                        <FileCode size={13} />
-                        <span>Browse…</span>
-                      </button>
-                    </div>
+                      <FileCode size={13} />
+                      <span>Browse…</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -340,65 +280,26 @@ export const SettingsModal: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Radix Select Model Dropdown */}
-                  <div>
-                    <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
-                      Default Engine Model
-                    </label>
-                    <Select.Root
-                      value={settings.agentConfigs.claude.defaultModel}
-                      onValueChange={(val) => settings.updateAgentConfig('claude', { defaultModel: val })}
+                <div>
+                  <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
+                    Binary Executable Path Override
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={settings.agentConfigs.claude.customBinaryPath || ''}
+                      onChange={(e) => settings.updateAgentConfig('claude', { customBinaryPath: e.target.value })}
+                      placeholder="Auto-detected (claude)"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover"
+                    />
+                    <button
+                      onClick={() => handlePickBinary('claude')}
+                      className="px-3 py-2.5 rounded-xl bg-well border border-border text-text-muted hover:text-text-primary hover:border-border-hover transition-colors flex items-center gap-1.5 font-mono text-xs cursor-pointer shrink-0"
+                      title="Browse executable file on device"
                     >
-                      <Select.Trigger className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs focus:outline-none focus:border-border-hover cursor-pointer">
-                        <Select.Value />
-                        <Select.Icon>
-                          <ChevronDown size={13} className="text-text-muted" />
-                        </Select.Icon>
-                      </Select.Trigger>
-                      <Select.Portal>
-                        <Select.Content className="z-[11000] overflow-hidden bg-panel-elevated border border-border rounded-xl shadow-2xl p-1 font-mono text-xs text-text-primary animate-in fade-in-50 duration-100">
-                          <Select.Viewport className="p-1 space-y-1">
-                            {PROVIDER_MODELS.claude.map((m) => (
-                              <Select.Item
-                                key={m.id}
-                                value={m.id}
-                                className="flex flex-col gap-0.5 px-3 py-2 rounded-lg cursor-pointer select-none hover:bg-panel focus:bg-panel outline-none data-[highlighted]:bg-panel"
-                              >
-                                <Select.ItemText>
-                                  <span className="font-bold text-text-primary">{m.label}</span>
-                                </Select.ItemText>
-                                <span className="text-[10.5px] text-text-muted font-sans">{m.desc}</span>
-                              </Select.Item>
-                            ))}
-                          </Select.Viewport>
-                        </Select.Content>
-                      </Select.Portal>
-                    </Select.Root>
-                  </div>
-
-                  {/* Native File Browser for Binary Path Override */}
-                  <div>
-                    <label className="text-[10px] font-mono text-text-muted uppercase block mb-1.5 font-bold">
-                      Binary Executable Path
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={settings.agentConfigs.claude.customBinaryPath || ''}
-                        onChange={(e) => settings.updateAgentConfig('claude', { customBinaryPath: e.target.value })}
-                        placeholder="Auto-detected (claude)"
-                        className="flex-1 px-3.5 py-2.5 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover"
-                      />
-                      <button
-                        onClick={() => handlePickBinary('claude')}
-                        className="px-3 py-2.5 rounded-xl bg-well border border-border text-text-muted hover:text-text-primary hover:border-border-hover transition-colors flex items-center gap-1.5 font-mono text-xs cursor-pointer shrink-0"
-                        title="Browse executable file on device"
-                      >
-                        <FileCode size={13} />
-                        <span>Browse…</span>
-                      </button>
-                    </div>
+                      <FileCode size={13} />
+                      <span>Browse…</span>
+                    </button>
                   </div>
                 </div>
               </div>

@@ -85,14 +85,41 @@ export class HybridHandoffService implements IHandoffService {
     relevantHistory?: string[];
     notes?: string[];
   }): Promise<ContextPackage> {
-    return await tauriService.generateContextPackage(params);
+    if (isTauriAvailable()) {
+      try {
+        return await tauriService.generateContextPackage(params);
+      } catch (e) {
+        console.warn('Tauri generateContextPackage fallback', e);
+      }
+    }
+
+    return {
+      schemaVersion: 1,
+      sourceAgent: params.sourceAgent,
+      sourceSessionId: params.sourceSessionId,
+      targetAgent: params.targetAgent,
+      workspaceId: params.workspaceId,
+      workspaceName: params.workspaceName,
+      projectPath: params.projectPath,
+      checkpointId: params.checkpointId,
+      currentTask: params.currentTask,
+      progress: params.progress,
+      decisions: params.decisions,
+      changedFiles: params.changedFiles,
+      knownIssues: params.knownIssues,
+      gitState: params.gitState,
+      relevantHistory: params.relevantHistory,
+      notes: params.notes,
+      generatedAt: Date.now(),
+      estimatedTokens: 600,
+    };
   }
 
   generateHandoffPreview(
     context: ProjectContext,
     sourceAgentName: string,
     _sourceSessionTitle: string,
-    _targetAgentName: string,
+    targetAgentName: string,
     selection: HandoffSelection,
     gitState?: GitState,
     distilledBrief?: any
@@ -107,30 +134,83 @@ export class HybridHandoffService implements IHandoffService {
     if (selection.includeRelevantConversation) tokenBase += 150;
     if (selection.includeFullConversation) tokenBase += 300;
 
-    const primaryIssue = distilledBrief?.blockers?.[0] || context.issues[0]?.title || "None specified.";
+    // Collect all blockers
+    const rawBlockers: string[] = distilledBrief?.issues || distilledBrief?.blockers || [];
+    const allBlockers = rawBlockers.length > 0
+      ? rawBlockers
+      : context.issues.map(i => i.title);
+    const primaryIssue = allBlockers[0] || "None specified.";
+
+    // Collect all decisions
+    const rawDecisions: string[] = distilledBrief?.decisions || [];
+    const allDecisions = rawDecisions.length > 0
+      ? rawDecisions
+      : context.decisions.map((d: any) => d.title);
+
     const files = selection.includeChangedFiles
-      ? (distilledBrief?.filesTouched?.length ? distilledBrief.filesTouched : (gitState?.modifiedFiles.map((f: any) => f.path) || context.relevantFiles)).slice(0, 8)
-      : ['src/main.rs'];
+      ? (distilledBrief?.filesTouched?.length ? distilledBrief.filesTouched : (gitState?.modifiedFiles.map((f: ChangedFileItem) => f.path) || context.relevantFiles)).slice(0, 10)
+      : [];
 
-    const requireConfirm = selection.requireConfirmation !== false; // Default to true (safe & polite)
+    const requireConfirm = selection.requireConfirmation !== false;
 
+    // High-signal, uncompromising execution protocol
     const executionGuidance = requireConfirm
-      ? `## 🛑 MANDATORY INGESTION PROTOCOL (DO NOT EXECUTE TOOLS YET)\n1. DO NOT write code, edit files, or execute bash/terminal commands yet.\n2. Ingest this context and respond directly to the user with a concise briefing:\n   - **Understood Mission & Goal**\n   - **Memory & Decisions Ingested**\n   - **Active Files Mapped**\n   - **Proposed Action Plan (Step 1, Step 2)**\n   - **Clarifying Questions** (if any ambiguities exist)\n3. End your response with: *"I am ready. Shall I proceed with Step 1, or do you have adjustments?"* and wait for user confirmation.`
-      : `## 🚀 DIRECT EXECUTION PROTOCOL\nAcknowledge this brief and proceed with the next immediate step without repeating completed work.`;
+      ? `## 🛑 MANDATORY INGESTION PROTOCOL (DO NOT EDIT FILES YET)
+1. DO NOT write code, edit files, or execute build/test commands yet.
+2. Ingest this handoff brief completely.
+3. Respond to the user with a crisp 3-part recap:
+   - **Mission Understood**: 1 sentence summary of the active objective.
+   - **Past Context & Decisions Ingested**: Key constraints from ${sourceAgentName}.
+   - **Proposed Next Action**: Exact step 1 and step 2 you intend to execute.
+4. End your message with: *"I am ready. Shall I proceed with Step 1?"* and WAIT for user confirmation.`
+      : `## 🚀 DIRECT EXECUTION PROTOCOL
+Acknowledge this brief in 1 sentence and immediately proceed with the Next Step without repeating completed work.`;
 
-    const narrativeSection = distilledBrief?.summaryNarrative
-      ? `\n### Context Synthesis\n${distilledBrief.summaryNarrative}\n`
+    const narrative = distilledBrief?.summaryNarrative || distilledBrief?.notes || '';
+    const narrativeSection = narrative
+      ? `## 🧠 Agent Conversation & Work Summary (From ${sourceAgentName})\n${narrative}\n\n`
       : '';
 
-    const formattedInstruction = `# ORBIT CONTEXT HANDOFF BRIEF\n**Handoff Source:** ${sourceAgentName}\n**Workspace:** ${context.goal || 'Orbit Workspace'}\n\n${executionGuidance}\n\n## 🎯 Goal & Mission\n${distilledBrief?.goal || context.currentTask || context.goal}\n\n## ⚡ Architectural Decisions & Context\n${selection.includeDecisions && context.decisions.length > 0 ? context.decisions.map((d: any) => `• ${d.title}`).join('\n') : (distilledBrief?.decisions?.length ? distilledBrief.decisions.map((d: string) => `• ${d}`).join('\n') : '• Maintained existing codebase architecture.')}\n${narrativeSection}\n## 📝 Active Touchpoints / Modified Files\n${files.map((f: string) => `• \`${f}\``).join('\n')}\n\n## ⚠️ Known Blockers & Issues\n• ${primaryIssue}\n\n## 👉 Next Recommended Action\n${distilledBrief?.nextSteps || 'Inspect the files listed above and proceed with the proposed plan.'}\n\n---\n*Please acknowledge this brief and follow the protocol above.*`;
+    const decisionsSection = allDecisions.length > 0
+      ? `## ⚡ Architectural Decisions & Rules (DO NOT REVERT)\n${allDecisions.map(d => `• ${d}`).join('\n')}\n\n`
+      : '';
+
+    const blockersSection = allBlockers.length > 0 && allBlockers[0] !== 'None specified.'
+      ? `## ⚠️ Encountered Blockers & Errors (Avoid repeating these!)\n${allBlockers.map(b => `• ⚠️ ${b}`).join('\n')}\n\n`
+      : '';
+
+    const filesSection = files.length > 0
+      ? `## 📝 Active Touchpoints / Modified Files\n${files.map((f: string) => `• \`${f}\``).join('\n')}\n\n`
+      : '';
+
+    const gitSection = gitState
+      ? `## 🌿 Git State\n• **Branch**: \`${gitState.currentBranch}\`\n• **HEAD**: \`${gitState.headCommit}\`\n\n`
+      : '';
+
+    const formattedInstruction = `# ORBIT CONTEXT HANDOFF BRIEF
+**From**: ${sourceAgentName}  ➔  **To**: ${targetAgentName}
+**Project**: ${context.goal || 'Orbit Workspace'}
+
+${executionGuidance}
+
+---
+
+## 🎯 Active Goal & Mission
+${distilledBrief?.task || distilledBrief?.goal || context.currentTask || context.goal}
+
+${narrativeSection}${decisionsSection}${blockersSection}${filesSection}${gitSection}## 👉 Immediate Next Action
+${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect the active touchpoints and begin step 1 of the objective.'}
+
+---
+*Generated by Orbit Multi-Agent Mesh Engine. Please adhere strictly to the protocol above.*`;
 
     return {
-      task: distilledBrief?.goal || context.currentTask || `Continue ${context.goal.toLowerCase() || 'active workspace development'}.`,
+      task: distilledBrief?.task || distilledBrief?.goal || context.currentTask || `Continue ${context.goal.toLowerCase() || 'active workspace development'}.`,
       progress: selection.includeProgress ? `Implementation is active (~${context.progress}%).` : 'In progress.',
       currentIssue: primaryIssue,
       relevantFiles: files,
       previousAgent: sourceAgentName,
-      nextStep: distilledBrief?.nextSteps || 'Inspect active files and proceed with next task module.',
+      nextStep: distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active files and proceed with next task module.',
       estimatedTokens: tokenBase,
       formattedInstruction,
     };
@@ -202,11 +282,7 @@ export class HybridHandoffService implements IHandoffService {
       id: `msg-reply-${Date.now() + 100}`,
       sessionId: targetSessionId,
       role: 'agent',
-      content: `I've received the structured context handoff from ${previewSummary.previousAgent}. I am inspecting the changed files and will resolve the known blockers without repeating previous tasks.`,
-      toolInvocations: [
-        { id: 'th-1', toolName: 'read_file', file: previewSummary.relevantFiles[0] || 'src/socket/playlist.socket.ts', status: 'completed' },
-        { id: 'th-2', toolName: 'edit_file', file: 'src/store/playlist.store.ts', status: 'completed' },
-      ],
+      content: `I have received the context handoff from ${previewSummary.previousAgent}. I have ingested the summary, past architectural decisions, and active files from .orbit/HANDOFF.md and will proceed according to protocol.`,
       timestamp: Date.now() + 100,
     };
 
@@ -219,9 +295,11 @@ export class HybridHandoffService implements IHandoffService {
         const list = await tauriService.getHandoffHistory(workspaceId);
         if (list && list.length > 0) return list;
       } catch (e) {
-        console.warn('Tauri getHandoffHistory failed', e);
+        console.warn('Tauri getHandoffHistory fallback', e);
       }
     }
     return this.fallbackHistory[workspaceId] || [];
   }
 }
+
+export const handoffService = new HybridHandoffService();

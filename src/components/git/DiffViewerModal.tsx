@@ -41,26 +41,26 @@ export const DiffViewerModal: React.FC = () => {
       />
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-2xl bg-[#0b0c0e] border border-white/[0.12] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col z-10 font-mono text-xs animate-in zoom-in-95 duration-120">
+      <div className="relative w-full max-w-2xl bg-panel-elevated border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 font-mono text-xs animate-in zoom-in-95 duration-120">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] bg-[#121319]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-panel">
           <div className="flex items-center gap-2 truncate">
-            <FileCode size={14} className="text-amber-400 shrink-0" />
-            <span className="font-bold text-white tracking-tight truncate">{activeDiffFile}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-[#71717a]">DIFF</span>
+            <FileCode size={14} className="text-amber-500 shrink-0" />
+            <span className="font-bold text-text-primary tracking-tight truncate">{activeDiffFile}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-well text-text-muted">DIFF</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono bg-white/[0.04] hover:bg-white/[0.08] text-[#a1a1aa] hover:text-white border border-white/[0.06] transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono bg-well hover:bg-panel-hover text-text-muted hover:text-text-primary border border-border transition-colors cursor-pointer"
             >
-              {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
               <span>{copied ? 'Copied' : 'Copy Diff'}</span>
             </button>
             <button
               onClick={() => setActiveDiffFile(null)}
-              className="p-1 rounded-md text-[#71717a] hover:text-white hover:bg-white/[0.06] transition-colors"
+              className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
             >
               <X size={14} />
             </button>
@@ -68,18 +68,18 @@ export const DiffViewerModal: React.FC = () => {
         </div>
 
         {/* Diff Content */}
-        <div className="max-h-[60vh] overflow-y-auto p-4 bg-[#060709] text-[11.5px] leading-relaxed flex flex-col font-mono custom-scrollbar">
+        <div className="max-h-[60vh] overflow-y-auto p-4 bg-well text-[11.5px] leading-relaxed flex flex-col font-mono custom-scrollbar">
           {mockDiff.map((line, idx) => {
-            let lineClass = 'text-[#71717a]';
+            let lineClass = 'text-text-muted';
             let bgClass = '';
             if (line.type === 'added') {
-              lineClass = 'text-emerald-400 font-semibold';
+              lineClass = 'text-emerald-600 dark:text-emerald-400 font-semibold';
               bgClass = 'bg-emerald-500/10 px-2 rounded';
             } else if (line.type === 'removed') {
-              lineClass = 'text-red-400 font-semibold';
+              lineClass = 'text-red-600 dark:text-red-400 font-semibold';
               bgClass = 'bg-red-500/10 px-2 rounded';
             } else if (line.type === 'hunk') {
-              lineClass = 'text-cyan-400/80';
+              lineClass = 'text-cyan-600 dark:text-cyan-400';
             }
 
             return (
@@ -91,9 +91,9 @@ export const DiffViewerModal: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/[0.06] bg-[#0c0d12] text-[10.5px] text-[#71717a]">
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-panel text-[10.5px] text-text-muted">
           <span>Branch: {gitState?.currentBranch || 'main'}</span>
-          <span>Press <kbd className="text-[#a1a1aa]">ESC</kbd> to close</span>
+          <span>Press <kbd className="text-text-primary font-bold">ESC</kbd> to close</span>
         </div>
       </div>
     </div>

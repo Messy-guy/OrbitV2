@@ -1,7 +1,7 @@
 /**
  * Universal Session Extractor
  * Ingests raw PTY terminal output (xterm) or chat messages across any AI CLI (Antigravity, OpenCode, Claude Code, Codex, Bash)
- * and extracts clean conversation turns, tools executed, errors encountered, and file changes.
+ * and extracts clean conversation turns, tools executed, errors encountered, user intent, and file changes.
  */
 
 export interface ExtractedTurn {
@@ -19,10 +19,12 @@ export interface ExtractedSessionData {
   sessionId: string;
   turns: ExtractedTurn[];
   primaryGoal?: string;
+  recentUserInstructions: string[];
   filesTouched: string[];
   blockersFound: string[];
   decisionsFormulated: string[];
   lastUnfinishedStep?: string;
+  detailedConversationLog?: string;
 }
 
 export class UniversalSessionExtractor {
@@ -74,10 +76,10 @@ export class UniversalSessionExtractor {
     const filesTouched = new Set<string>();
     const blockersFound = new Set<string>();
     const decisionsFormulated = new Set<string>();
+    const recentUserInstructions: string[] = [];
 
     let currentTurn: ExtractedTurn | null = null;
     let primaryGoal = '';
-    let latestUserRequest = '';
     let lastUnfinishedStep = '';
 
     const finalizeTurn = () => {
@@ -87,12 +89,12 @@ export class UniversalSessionExtractor {
       }
     };
 
-    // Regex matchers for CLI prompts & events
-    const USER_PROMPT_REGEX = /^(?:>|\$|❯|>>>|Ask anything\.\.\.|Orbit Handoff from|\?\s+Prompt:|<USER_REQUEST>)\s*(.*)/i;
+    // Regex matchers for CLI prompts & events across Antigravity, Claude, OpenCode, Codex, Aider
+    const USER_PROMPT_REGEX = /^(?:>|\$|❯|>>>|Ask anything\.\.\.|Orbit Handoff from|\?\s+Prompt:|<USER_REQUEST>|Human:|User:)\s*(.*)/i;
     const FILE_PATH_REGEX = /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g;
-    const ERROR_REGEX = /(?:error|failed|exception|panic|fatal|cannot find|invalid|ENAMETOOLONG|EADDRINUSE|404|500):?\s*(.*)/i;
-    const TOOL_EXEC_REGEX = /(?:running|executing|read_file|edit_file|write_to_file|replace_file_content|run_command|grep|bash|cargo|npm)\s+([^\n\r]+)/i;
-    const DECISION_REGEX = /(?:decided to|refactored|switched from|chosen|agreed upon|standardized|we have fixed|updated|configured|implemented|added)\s+([^\n\r]+)/i;
+    const ERROR_REGEX = /(?:error|failed|exception|panic|fatal|cannot find|invalid|ENAMETOOLONG|EADDRINUSE|404|500|syntax error|type error|undefined):?\s*(.*)/i;
+    const TOOL_EXEC_REGEX = /(?:running|executing|read_file|edit_file|write_to_file|replace_file_content|run_command|grep|bash|cargo|npm|git)\s+([^\n\r]+)/i;
+    const DECISION_REGEX = /(?:decided to|refactored|switched from|chosen|agreed upon|standardized|we have fixed|updated|configured|implemented|added|created|modified)\s+([^\n\r]+)/i;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -109,27 +111,29 @@ export class UniversalSessionExtractor {
 
       // Check for errors / blockers
       const errMatch = line.match(ERROR_REGEX);
-      if (errMatch && errMatch[1] && errMatch[1].length > 5) {
+      if (errMatch && errMatch[1] && errMatch[1].length > 4) {
         blockersFound.add(errMatch[0].trim());
       }
 
       // Check for user prompt turns
       const userMatch = line.match(USER_PROMPT_REGEX);
-      if (userMatch && userMatch[1] && userMatch[1].length > 3) {
+      if (userMatch && userMatch[1] && userMatch[1].length > 2) {
         finalizeTurn();
         const promptText = userMatch[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
-        if (!primaryGoal) {
-          primaryGoal = promptText;
+        if (promptText && !promptText.startsWith('Orbit Handoff')) {
+          if (!primaryGoal) {
+            primaryGoal = promptText;
+          }
+          recentUserInstructions.push(promptText);
+          currentTurn = {
+            id: `turn-${Date.now()}-${turns.length}`,
+            role: 'user',
+            content: promptText,
+            timestamp: Date.now(),
+            filesReferenced: fileMatches || [],
+          };
+          continue;
         }
-        latestUserRequest = promptText;
-        currentTurn = {
-          id: `turn-${Date.now()}-${turns.length}`,
-          role: 'user',
-          content: promptText,
-          timestamp: Date.now(),
-          filesReferenced: fileMatches || [],
-        };
-        continue;
       }
 
       // Detect tool execution
@@ -166,7 +170,7 @@ export class UniversalSessionExtractor {
 
       // Track architectural decisions & state milestones
       const decMatch = line.match(DECISION_REGEX);
-      if (decMatch && decMatch[1] && decMatch[1].length > 8) {
+      if (decMatch && decMatch[1] && decMatch[1].length > 6) {
         decisionsFormulated.add(decMatch[0].replace(/^[•\-\*]\s*/, '').trim());
       }
     }
@@ -178,19 +182,28 @@ export class UniversalSessionExtractor {
       const lastTurn = turns[turns.length - 1];
       if (lastTurn.role === 'agent') {
         const lastLines = lastTurn.content.split('\n').filter(l => l.trim().length > 10);
-        lastUnfinishedStep = lastLines.slice(-2).join(' ').trim();
+        lastUnfinishedStep = lastLines.slice(-3).join(' ').trim();
       }
     }
+
+    // Build structured full conversational dialogue transcript
+    const detailedDialogue = turns.map(t => {
+      const prefix = t.role === 'user' ? '👤 USER REQUEST' : '🤖 AGENT WORK';
+      const snippet = t.content.length > 500 ? t.content.slice(0, 500) + '... [truncated]' : t.content;
+      return `### ${prefix}:\n${snippet}`;
+    }).join('\n\n');
 
     return {
       agentId,
       sessionId,
       turns,
-      primaryGoal: latestUserRequest || primaryGoal || 'Active workspace development',
+      primaryGoal: recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace development',
+      recentUserInstructions: recentUserInstructions.slice(-5),
       filesTouched: Array.from(filesTouched),
-      blockersFound: Array.from(blockersFound).slice(0, 5),
-      decisionsFormulated: Array.from(decisionsFormulated).slice(0, 5),
-      lastUnfinishedStep: lastUnfinishedStep || 'Continue active implementation flow from previous agent',
+      blockersFound: Array.from(blockersFound),
+      decisionsFormulated: Array.from(decisionsFormulated),
+      lastUnfinishedStep: lastUnfinishedStep || 'Continue active implementation flow from previous agent without repeating work.',
+      detailedConversationLog: detailedDialogue,
     };
   }
 
@@ -202,6 +215,7 @@ export class UniversalSessionExtractor {
     const filesTouched = new Set<string>();
     const blockersFound = new Set<string>();
     const decisionsFormulated = new Set<string>();
+    const recentUserInstructions: string[] = [];
     let primaryGoal = '';
 
     const FILE_PATH_REGEX = /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g;
@@ -210,8 +224,9 @@ export class UniversalSessionExtractor {
       const role: 'user' | 'agent' | 'system' = msg.role === 'user' ? 'user' : 'agent';
       const content = msg.content || '';
 
-      if (role === 'user' && !primaryGoal) {
-        primaryGoal = content.split('\n')[0].trim();
+      if (role === 'user') {
+        recentUserInstructions.push(content);
+        if (!primaryGoal) primaryGoal = content.split('\n')[0].trim();
       }
 
       const fileMatches = content.match(FILE_PATH_REGEX);
@@ -250,11 +265,13 @@ export class UniversalSessionExtractor {
       agentId,
       sessionId,
       turns,
-      primaryGoal: primaryGoal || 'Active workspace task',
+      primaryGoal: recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace task',
+      recentUserInstructions: recentUserInstructions.slice(-5),
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound),
       decisionsFormulated: Array.from(decisionsFormulated),
       lastUnfinishedStep: turns[turns.length - 1]?.content.slice(0, 150) || 'Continue implementation',
+      detailedConversationLog: turns.map(t => `${t.role.toUpperCase()}: ${t.content}`).join('\n\n'),
     };
   }
 }
