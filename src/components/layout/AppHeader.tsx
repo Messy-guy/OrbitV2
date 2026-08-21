@@ -146,8 +146,8 @@ export const AppHeader: React.FC = () => {
             <span>ADD AGENT</span>
           </Button>
         ) : (
-          <div className="text-[10px] font-mono text-text-dim uppercase tracking-widest font-bold">
-            Project Hub
+          <div className="text-[10px] font-mono text-text-muted uppercase tracking-widest font-bold px-2 py-0.5 rounded-md bg-well border border-border">
+            Workspace Launcher
           </div>
         )}
       </div>

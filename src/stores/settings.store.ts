@@ -45,13 +45,13 @@ export const THEMES: Record<ThemeId, { name: string; description: string; previe
     },
   },
   light: {
-    name: 'Warm Cream (Latte)',
-    description: 'Cozy parchment & warm espresso typography',
+    name: 'Linear Daylight',
+    description: 'Crisp studio daylight & high-contrast slate typography',
     preview: {
-      bg: '#fbf8f2',
-      sidebar: '#f3ede2',
-      panel: '#fffdf9',
-      border: 'rgba(92,72,54,0.14)',
+      bg: '#f8fafc',
+      sidebar: '#f1f5f9',
+      panel: '#ffffff',
+      border: 'rgba(15, 23, 42, 0.12)',
     },
   },
 };
@@ -69,22 +69,22 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
   const root = document.documentElement;
 
   if (theme === 'light') {
-    root.style.setProperty('--bg-canvas', '#fbf8f2');
-    root.style.setProperty('--bg-chrome', '#f3ede2');
-    root.style.setProperty('--bg-panel', '#fffdf9');
-    root.style.setProperty('--bg-panel-elevated', '#f7f1e6');
-    root.style.setProperty('--bg-panel-hover', '#efe7d8');
-    root.style.setProperty('--bg-well', '#ebe3d3');
-    root.style.setProperty('--bg-well-secondary', '#e4dbc9');
-    root.style.setProperty('--text-primary', '#2c2520');
-    root.style.setProperty('--text-secondary', '#5c5248');
-    root.style.setProperty('--text-muted', '#8a7d71');
-    root.style.setProperty('--text-dim', '#b3a79a');
-    root.style.setProperty('--border-base', 'rgba(92, 72, 54, 0.14)');
-    root.style.setProperty('--border-subtle', 'rgba(92, 72, 54, 0.08)');
-    root.style.setProperty('--border-hover', 'rgba(92, 72, 54, 0.24)');
-    document.body.style.backgroundColor = '#fbf8f2';
-    document.body.style.color = '#2c2520';
+    root.style.setProperty('--bg-canvas', '#f8fafc');
+    root.style.setProperty('--bg-chrome', '#f1f5f9');
+    root.style.setProperty('--bg-panel', '#ffffff');
+    root.style.setProperty('--bg-panel-elevated', '#ffffff');
+    root.style.setProperty('--bg-panel-hover', '#f1f5f9');
+    root.style.setProperty('--bg-well', '#e2e8f0');
+    root.style.setProperty('--bg-well-secondary', '#cbd5e1');
+    root.style.setProperty('--text-primary', '#0f172a');
+    root.style.setProperty('--text-secondary', '#334155');
+    root.style.setProperty('--text-muted', '#64748b');
+    root.style.setProperty('--text-dim', '#94a3b8');
+    root.style.setProperty('--border-base', 'rgba(15, 23, 42, 0.12)');
+    root.style.setProperty('--border-subtle', 'rgba(15, 23, 42, 0.06)');
+    root.style.setProperty('--border-hover', 'rgba(15, 23, 42, 0.25)');
+    document.body.style.backgroundColor = '#f8fafc';
+    document.body.style.color = '#0f172a';
   } else if (theme === 'tokyo-night') {
     root.style.setProperty('--bg-canvas', '#1a1b26');
     root.style.setProperty('--bg-chrome', '#16161e');

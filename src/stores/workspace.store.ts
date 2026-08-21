@@ -7,12 +7,17 @@ interface WorkspaceState {
   activeWorkspaceId: string | null;
   activeSpaceIdByProject: Record<string, string>; // projectId -> spaceId
   collapsedProjects: Record<string, boolean>; // projectId -> isCollapsed
+  pinnedProjectIds: Record<string, boolean>; // projectId -> isPinned
+  viewMode: 'grid' | 'list';
   isLoading: boolean;
   
   // Actions
   loadWorkspaces: () => Promise<void>;
   setActiveWorkspace: (id: string | null) => void;
   createWorkspace: (name: string, projectPath: string) => Promise<Workspace>;
+  deleteWorkspace: (id: string) => Promise<void>;
+  togglePinWorkspace: (id: string) => void;
+  setViewMode: (mode: 'grid' | 'list') => void;
   getActiveWorkspace: () => Workspace | undefined;
   
   // Space / Tab Management
@@ -23,12 +28,63 @@ interface WorkspaceState {
   toggleProjectCollapsed: (projectId: string) => void;
 }
 
+const PINNED_STORAGE_KEY = 'orbit_pinned_projects_v1';
+const VIEW_MODE_STORAGE_KEY = 'orbit_launcher_view_mode_v1';
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
   activeSpaceIdByProject: {},
   collapsedProjects: {},
+  pinnedProjectIds: (() => {
+    try {
+      const raw = localStorage.getItem(PINNED_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })(),
+  viewMode: (() => {
+    try {
+      const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      return (raw === 'list' || raw === 'grid') ? raw : 'grid';
+    } catch {
+      return 'grid';
+    }
+  })(),
   isLoading: false,
+
+  togglePinWorkspace: (id: string) => {
+    set(state => {
+      const updated = {
+        ...state.pinnedProjectIds,
+        [id]: !state.pinnedProjectIds[id],
+      };
+      try {
+        localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(updated));
+      } catch {}
+      return { pinnedProjectIds: updated };
+    });
+  },
+
+  setViewMode: (mode: 'grid' | 'list') => {
+    set({ viewMode: mode });
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {}
+  },
+
+  deleteWorkspace: async (id: string) => {
+    try {
+      await workspaceService.deleteWorkspace(id);
+    } catch (e) {
+      console.warn('Failed to delete workspace backend storage:', e);
+    }
+    set(state => ({
+      workspaces: state.workspaces.filter(w => w.id !== id),
+      activeWorkspaceId: state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
+    }));
+  },
 
   loadWorkspaces: async () => {
     set({ isLoading: true });
