@@ -202,30 +202,16 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
             <Trash2 size={11} />
           </button>
 
-          <div className="h-3 w-px bg-border mx-0.5" />
-
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setCreateCheckpointOpen(true, agent.id);
-            }}
-            className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono text-text-muted hover:text-text-primary hover:bg-well rounded-lg transition-colors cursor-pointer"
-            title="Create Checkpoint snapshot for this agent"
-          >
-            <Bookmark size={11} />
-            <span className="hidden sm:inline">Checkpoint</span>
-          </button>
-
           <button
             onClick={(e) => {
               e.stopPropagation();
               setShareContextOpen(true, agent.id);
             }}
-            className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono text-text-muted hover:text-text-primary hover:bg-well rounded-lg transition-colors cursor-pointer"
-            title="Handoff context to another agent"
+            className="flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-mono text-text-primary hover:text-white bg-well hover:bg-panel-elevated border border-border hover:border-border-hover rounded-md transition-all cursor-pointer shadow-sm active:scale-95"
+            title="Handoff context & chat memory to another agent"
           >
-            <ArrowLeftRight size={11} />
-            <span className="hidden sm:inline">Handoff</span>
+            <ArrowLeftRight size={11} className="text-emerald-400" />
+            <span>Handoff</span>
           </button>
 
           <div className="h-3 w-px bg-border mx-0.5" />
