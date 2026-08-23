@@ -5,11 +5,13 @@ interface UIState {
   activeBottomPanel: BottomPanelType;
   isCreateWorkspaceOpen: boolean;
   isAddAgentOpen: boolean;
+  spawnerParentAgentId: string | null;
   isShareContextOpen: boolean;
   isCreateCheckpointOpen: boolean;
   isShortcutsOpen: boolean;
   isSettingsOpen: boolean;
   isProUpgradeModalOpen: boolean;
+  isPairMobileOpen: boolean;
   isSidebarCollapsed: boolean;
   isBroadcastCollapsed: boolean;
   isMinimapVisible: boolean;
@@ -19,11 +21,13 @@ interface UIState {
   maximizedAgentId: string | null; // agentId for fullscreen/maximized terminal
 
   // Actions
+  openWorkerSpawner: (parentAgentId?: string) => void;
   setActiveBottomPanel: (panel: BottomPanelType) => void;
   toggleBottomPanel: (panel: BottomPanelType) => void;
   setCreateWorkspaceOpen: (open: boolean) => void;
-  setAddAgentOpen: (open: boolean) => void;
+  setAddAgentOpen: (open: boolean, parentAgentId?: string) => void;
   setProUpgradeModalOpen: (open: boolean) => void;
+  setPairMobileOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleBroadcastCollapsed: () => void;
@@ -45,7 +49,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeBottomPanel: null,
   isCreateWorkspaceOpen: false,
   isAddAgentOpen: false,
+  spawnerParentAgentId: null,
   isProUpgradeModalOpen: false,
+  isPairMobileOpen: false,
   isSidebarCollapsed: false,
   isBroadcastCollapsed: false,
   isMinimapVisible: true,
@@ -57,6 +63,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   canvasLayoutPreset: 'auto',
   selectedAgentForModal: null,
   maximizedAgentId: null,
+
+  openWorkerSpawner: (parentAgentId?: string) => set({ isAddAgentOpen: true, spawnerParentAgentId: parentAgentId || null }),
+  setAddAgentOpen: (open: boolean, parentAgentId?: string) => set({ isAddAgentOpen: open, spawnerParentAgentId: open ? (parentAgentId || null) : null }),
 
   setShortcutsOpen: (open: boolean) => {
     set({ isShortcutsOpen: open });
@@ -96,8 +105,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   setCreateWorkspaceOpen: (open: boolean) => set({ isCreateWorkspaceOpen: open }),
-  setAddAgentOpen: (open: boolean) => set({ isAddAgentOpen: open }),
   setProUpgradeModalOpen: (open: boolean) => set({ isProUpgradeModalOpen: open }),
+  setPairMobileOpen: (open: boolean) => set({ isPairMobileOpen: open }),
   toggleSidebar: () => set(state => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setSidebarCollapsed: (collapsed: boolean) => set({ isSidebarCollapsed: collapsed }),
   toggleBroadcastCollapsed: () => set(state => ({ isBroadcastCollapsed: !state.isBroadcastCollapsed })),

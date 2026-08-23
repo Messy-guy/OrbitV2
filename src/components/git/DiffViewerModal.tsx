@@ -34,10 +34,10 @@ export const DiffViewerModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[11000] flex items-center justify-center p-4">
-      {/* Backdrop */}
+      {/* Subtle Translucent Frosted Glass Backdrop */}
       <div 
         onClick={() => setActiveDiffFile(null)}
-        className="absolute inset-0 bg-black/80 backdrop-blur-[4px] animate-in fade-in-50 duration-100"
+        className="absolute inset-0 bg-black/40 backdrop-blur-xs animate-in fade-in-50 duration-100"
       />
 
       {/* Modal Container */}

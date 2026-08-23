@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings, User as UserIcon, PanelLeft, Map } from 'lucide-react';
+import { Plus, Orbit, X, LayoutGrid, Keyboard, Settings, User as UserIcon, PanelLeft, Map, Smartphone } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -19,7 +19,7 @@ export const AppHeader: React.FC = () => {
   } = useWorkspaceStore();
 
   const { agents } = useAgentStore();
-  const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen, isSidebarCollapsed, toggleSidebar, isMinimapVisible, toggleMinimap } = useUIStore();
+  const { setAddAgentOpen, setShortcutsOpen, setSettingsOpen, isSidebarCollapsed, toggleSidebar, isMinimapVisible, toggleMinimap, setPairMobileOpen } = useUIStore();
   const { user, isAuthenticated, setAuthModalOpen } = useAuthStore();
   const activeWorkspace = getActiveWorkspace();
 
@@ -151,6 +151,15 @@ export const AppHeader: React.FC = () => {
             <Map size={12} />
           </button>
         )}
+
+        {/* Pair Mobile Trigger */}
+        <button
+          onClick={() => setPairMobileOpen(true)}
+          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel border border-transparent hover:border-border transition-colors cursor-pointer"
+          title="Pair Orbit Mobile Cockpit (QR Code)"
+        >
+          <Smartphone size={13} />
+        </button>
 
         {/* Keyboard Shortcuts Trigger */}
         <button

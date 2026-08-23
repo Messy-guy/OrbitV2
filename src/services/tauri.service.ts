@@ -129,7 +129,8 @@ export const tauriService = {
     workspaceId?: string,
     rows?: number,
     cols?: number,
-    profileId?: string
+    profileId?: string,
+    role?: string
   ): Promise<number> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
     return invoke<number>('start_agent_session', {
@@ -142,12 +143,23 @@ export const tauriService = {
       workspaceId,
       rows,
       cols,
+      role,
     });
   },
 
   async sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void> {
     if (!isTauriAvailable()) return;
     return invoke<void>('send_agent_input', { agentId, sessionId, input });
+  },
+
+  async setAgentRole(agentId: string, role: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('set_agent_role', { agentId, role });
+  },
+
+  async getAgentMcpTools(agentId: string): Promise<any[]> {
+    if (!isTauriAvailable()) return [];
+    return invoke<any[]>('get_agent_mcp_tools', { agentId });
   },
 
   async resizeAgentTerminal(agentId: string, rows: number, cols: number): Promise<void> {

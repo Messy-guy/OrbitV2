@@ -1,0 +1,96 @@
+import { AgentRoleConfig, AgentRoleType } from '../types/orbit';
+
+export const AGENT_ROLE_CONFIGS: Record<AgentRoleType, AgentRoleConfig> = {
+  raw: {
+    id: 'raw',
+    name: 'Shell',
+    shortLabel: 'SHELL',
+    icon: 'Terminal',
+    color: '#D1D5DB',
+    bgColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    description: 'Direct interactive terminal shell.',
+    systemDirective: '',
+    invariants: ['Unconstrained terminal session'],
+  },
+  architect: {
+    id: 'architect',
+    name: 'Plan',
+    shortLabel: 'PLAN',
+    icon: 'Compass',
+    color: '#E5E7EB',
+    bgColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    description: 'Plans architecture, system invariants, and test specifications.',
+    systemDirective:
+      'ROLE: SYSTEM PLANNER.\nObjective: Interrogate requirements, define domain boundaries, and output ONLY formal specifications (SPEC.md) and failing test files.\nRule: Do NOT write production implementation code in src/ until the spec is approved.',
+    invariants: [
+      'Outputs plan and automated test cases only',
+      'Does not modify production files directly',
+      'Surfaces architectural edge cases and tradeoffs',
+    ],
+  },
+  implementer: {
+    id: 'implementer',
+    name: 'Code',
+    shortLabel: 'CODE',
+    icon: 'Zap',
+    color: '#E5E7EB',
+    bgColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    description: 'Writes minimal, type-safe code to make failing tests turn green.',
+    systemDirective:
+      'ROLE: IMPLEMENTATION SPECIALIST.\nObjective: Write minimal, elegant code to make the failing test suite turn GREEN.\nRule: Do NOT add new third-party packages. Adhere strictly to existing types and architecture.',
+    invariants: [
+      'Pass test suite with minimal diff',
+      'No unapproved npm packages or dependency bloat',
+      'Follow project typing & lint rules strictly',
+    ],
+  },
+  reviewer: {
+    id: 'reviewer',
+    name: 'Review',
+    shortLabel: 'REVIEW',
+    icon: 'ShieldCheck',
+    color: '#E5E7EB',
+    bgColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    description: 'Audits diffs for security, error boundaries, and bundle size.',
+    systemDirective:
+      'ROLE: CODE REVIEWER & QA.\nObjective: Inspect git diffs for edge-case vulnerabilities, bundle size regressions, unhandled errors, and type safety leaks.\nRule: Provide a concise bulleted audit report.',
+    invariants: [
+      'Audit security and error boundary handling',
+      'Verify 100% type safety and performance limits',
+      'Check for dead code and dependency additions',
+    ],
+  },
+  designer: {
+    id: 'designer',
+    name: 'Design',
+    shortLabel: 'DESIGN',
+    icon: 'Palette',
+    color: '#E5E7EB',
+    bgColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    description: 'Enforces project typography scales, theme tokens, and layout craft.',
+    systemDirective:
+      'ROLE: DESIGN SYSTEM SPECIALIST.\nObjective: Ensure components adhere strictly to project theme tokens, typography scales, accessibility (a11y), and tactile micro-interactions.\nRule: Reject raw inline hex colors or non-standard Tailwind utilities.',
+    invariants: [
+      'Strict design token adherence',
+      'Zero arbitrary hex colors or rogue font sizes',
+      'Ensure accessible keyboard navigation & contrast',
+    ],
+  },
+  custom: {
+    id: 'custom',
+    name: 'Custom',
+    shortLabel: 'CUSTOM',
+    icon: 'Wrench',
+    color: '#E5E7EB',
+    bgColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    description: 'User-defined instructions and file path constraints.',
+    systemDirective: 'ROLE: CUSTOM SPECIALIST.',
+    invariants: ['Custom user defined guardrails'],
+  },
+};

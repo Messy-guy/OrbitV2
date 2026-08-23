@@ -74,7 +74,7 @@ export const ContextDraftModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
       <div className="w-full max-w-2xl bg-[#111217] border border-[#272935] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-white/[0.08] bg-[#16171e] flex items-center justify-between">

@@ -17,7 +17,8 @@ export interface IAgentService {
     workspaceId?: string,
     rows?: number,
     cols?: number,
-    profileId?: string
+    profileId?: string,
+    role?: string
   ): Promise<number>;
   sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void>;
   resizeAgentTerminal(agentId: string, rows: number, cols: number): Promise<void>;
@@ -123,7 +124,8 @@ export class HybridAgentService implements IAgentService {
     workspaceId?: string,
     rows?: number,
     cols?: number,
-    profileId?: string
+    profileId?: string,
+    role?: string
   ): Promise<number> {
     if (isTauriAvailable()) {
       return await tauriService.startAgentSession(
@@ -135,7 +137,8 @@ export class HybridAgentService implements IAgentService {
         workspaceId,
         rows,
         cols,
-        profileId
+        profileId,
+        role
       );
     }
     return 4800 + Math.floor(Math.random() * 1000);

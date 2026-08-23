@@ -101,3 +101,24 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
         recent_commits,
     }
 }
+
+pub fn get_git_diff_summary(project_path: &str) -> String {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        return "No git repository found at workspace path.".to_string();
+    }
+
+    let diff_output = Command::new("git")
+        .args(["diff", "HEAD", "--stat"])
+        .current_dir(path)
+        .output()
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+        .unwrap_or_default();
+
+    if diff_output.trim().is_empty() {
+        "Working tree is clean. No uncommitted diffs found.".to_string()
+    } else {
+        diff_output
+    }
+}

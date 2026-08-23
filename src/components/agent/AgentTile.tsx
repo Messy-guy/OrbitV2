@@ -12,14 +12,56 @@ interface AgentTileProps {
 }
 
 export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
-  const { activeSessionIdByAgent, sessions } = useAgentStore();
+  const { activeSessionIdByAgent, sessions, setAgentRole } = useAgentStore();
   const { setShareContextOpen, setCreateCheckpointOpen, setActiveBottomPanel } = useUIStore();
+  const [isDragOver, setIsDragOver] = React.useState(false);
 
   const currentSessionId = activeSessionIdByAgent[agent.id] || sessions[agent.id]?.[0]?.id;
   const isTerminal = agent.viewMode !== 'chat';
 
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-orbit-role')) {
+      e.preventDefault();
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const droppedRole = e.dataTransfer.getData('application/x-orbit-role') as import('../../types/orbit').AgentRoleType;
+    if (droppedRole) {
+      setAgentRole(agent.id, droppedRole);
+    }
+  };
+
   return (
-    <div className="h-full w-full surface-panel rounded-panel shadow-panel flex flex-col overflow-hidden transition-colors focus-within:border-border-hover">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`h-full w-full surface-panel rounded-panel shadow-panel flex flex-col overflow-hidden transition-all relative ${
+        isDragOver
+          ? 'ring-2 ring-emerald-500/80 border-emerald-500/50 scale-[1.005] shadow-2xl'
+          : 'focus-within:border-border-hover'
+      }`}
+    >
+      {/* Visual Role Drop Highlight Overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-xs z-40 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/80 rounded-panel">
+          <div className="px-3 py-1.5 rounded-full bg-[#10121A] border border-emerald-400 shadow-xl flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="font-mono font-bold text-xs text-emerald-400 uppercase tracking-wider">
+              Drop to Assign Role
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header with CLI / Chat Switcher */}
       <AgentTileHeader agent={agent} />
 

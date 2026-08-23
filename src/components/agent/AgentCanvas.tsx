@@ -22,7 +22,14 @@ interface WindowBounds {
 export const AgentCanvas: React.FC = () => {
   const { agents, addAgent } = useAgentStore();
   const { getActiveWorkspace, activeSpaceIdByProject, setActiveSpace, createSpace, deleteSpace } = useWorkspaceStore();
-  const { toggleBottomPanel, activeBottomPanel, setShareContextOpen, setAddAgentOpen, maximizedAgentId, isMinimapVisible } = useUIStore();
+  const { 
+    toggleBottomPanel, 
+    activeBottomPanel, 
+    setShareContextOpen, 
+    setAddAgentOpen, 
+    maximizedAgentId, 
+    isMinimapVisible 
+  } = useUIStore();
   const { checkpoints, currentContext } = useContextStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,9 +57,9 @@ export const AgentCanvas: React.FC = () => {
   const activeWorkspace = getActiveWorkspace();
   const activeSpaceId = (activeWorkspace && activeSpaceIdByProject[activeWorkspace.id]) || activeWorkspace?.spaces?.[0]?.id || `space-${activeWorkspace?.id}-1`;
 
-  // Filter agents that belong to current active Space/Tab (or default fallback)
+  // All agents belonging to this workspace are visible on the canvas
   const visibleAgents = agents.filter(
-    (a) => (a.spaceId || activeWorkspace?.spaces?.[0]?.id || 'default') === activeSpaceId || (!a.spaceId && activeWorkspace?.spaces?.[0]?.id === activeSpaceId)
+    (a) => !activeWorkspace || a.workspaceId === activeWorkspace.id || !a.workspaceId
   );
 
   // Track container dimensions on resize
@@ -132,19 +139,22 @@ export const AgentCanvas: React.FC = () => {
     return layout;
   };
 
-  // Re-align layout whenever agents count changes or on mount
+  // Re-align layout whenever visible agents change
   useEffect(() => {
-    if (!containerRef.current || agents.length === 0) return;
-    const containerW = containerRef.current.clientWidth || window.innerWidth - 260;
-    const containerH = containerRef.current.clientHeight || window.innerHeight - 80;
+    if (visibleAgents.length === 0) return;
+    const containerW = containerRef.current?.clientWidth || window.innerWidth - 260;
+    const containerH = containerRef.current?.clientHeight || window.innerHeight - 80;
 
-    const newLayout = calculateSmartLayout(agents, containerW, containerH);
+    const newLayout = calculateSmartLayout(visibleAgents, containerW, containerH);
+    // Directly apply the newly computed aligned coordinates across all visible terminals
     setWindowBounds(newLayout);
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
 
-    if (agents.length > 0 && !activeAgentId) {
-      setActiveAgentId(agents[0].id);
+    if (visibleAgents.length > 0 && !activeAgentId) {
+      setActiveAgentId(visibleAgents[visibleAgents.length - 1].id);
     }
-  }, [agents.length]);
+  }, [visibleAgents.length]);
 
   const bringToFront = (agentId: string) => {
     setActiveAgentId(agentId);
@@ -282,6 +292,39 @@ export const AgentCanvas: React.FC = () => {
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
   };
+
+  // Global Keyboard Shortcuts (Alt+1..5 for Role Switching)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const focusedAgent = activeAgentId ? agents.find(a => a.id === activeAgentId) : visibleAgents[0];
+        if (!focusedAgent) return;
+
+        const roleMap: Record<string, import('../../types/orbit').AgentRoleType> = {
+          '1': 'architect', // Alt+1: Plan
+          '2': 'implementer', // Alt+2: Code
+          '3': 'reviewer',    // Alt+3: Review
+          '4': 'designer',    // Alt+4: Design
+          '5': 'raw',         // Alt+5: Shell
+        };
+
+        if (e.key.toLowerCase() === 'n') {
+          e.preventDefault();
+          useUIStore.getState().setAddAgentOpen(true);
+          return;
+        }
+
+        const targetRole = roleMap[e.key];
+        if (targetRole) {
+          e.preventDefault();
+          useAgentStore.getState().setAgentRole(focusedAgent.id, targetRole);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeAgentId, agents, visibleAgents]);
 
   const handleQuickSpawn = async (provider: AgentProvider) => {
     setIsQuickAddOpen(false);
@@ -514,7 +557,7 @@ export const AgentCanvas: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-text-primary text-background rounded-lg text-xs font-mono font-bold transition-all shadow-md hover:opacity-90 cursor-pointer"
               >
                 <Plus size={13} strokeWidth={3} />
-                <span>+ Add Agent</span>
+                <span>+ Spawn Worker</span>
               </button>
             </div>
           ) : (

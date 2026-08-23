@@ -24,6 +24,7 @@ use crate::runtime::session_events::{SessionEvent, SessionEventType};
 
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>, // agent_id -> PtySession
+    roles: Arc<Mutex<HashMap<String, String>>>,        // agent_id -> role (e.g. "architect", "reviewer", "implementer")
     pub activity_detector: Arc<ActivityDetector>,
 }
 
@@ -31,8 +32,50 @@ impl PtyManager {
     pub fn new(activity_detector: Arc<ActivityDetector>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            roles: Arc::new(Mutex::new(HashMap::new())),
             activity_detector,
         }
+    }
+
+    pub fn set_role(&self, agent_id: &str, role: &str) {
+        let mut map = self.roles.lock().unwrap();
+        map.insert(agent_id.to_string(), role.to_string());
+
+        // Update the isolated profile rule file dynamically for the specific agent session
+        let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let profiles_dir = std::path::Path::new(&user_home).join(".orbit").join("profiles");
+        
+        let role_rule_content = match role {
+            "architect" => "# ROLE: SYSTEM ARCHITECT\n- You are in PLAN ONLY mode.\n- Do NOT create, write, edit, or modify any files.\n- Do NOT execute file modifying bash commands.\n- Only output specifications, architecture, and markdown plans.",
+            "reviewer" => "# ROLE: CODE REVIEWER\n- You are in AUDIT ONLY mode.\n- Do NOT modify any files.\n- Focus exclusively on reviewing diffs, security flaws, and type safety.",
+            _ => "",
+        };
+
+        // If active session exists, update only this agent's profile sandbox
+        let sess_map = self.sessions.lock().unwrap();
+        if let Some(session) = sess_map.get(agent_id) {
+            let prof_path = profiles_dir.join(&session.agent_id);
+            let gemini_config = prof_path.join(".gemini").join("config");
+            let claude_config = prof_path.join(".claude");
+            let _ = std::fs::create_dir_all(&gemini_config);
+            let _ = std::fs::create_dir_all(&claude_config);
+
+            let gemini_rule = gemini_config.join("GEMINI.md");
+            let claude_rule = claude_config.join("CLAUDE.md");
+
+            if !role_rule_content.is_empty() {
+                let _ = std::fs::write(&gemini_rule, role_rule_content);
+                let _ = std::fs::write(&claude_rule, role_rule_content);
+            } else {
+                let _ = std::fs::remove_file(&gemini_rule);
+                let _ = std::fs::remove_file(&claude_rule);
+            }
+        }
+    }
+
+    pub fn get_role(&self, agent_id: &str) -> String {
+        let map = self.roles.lock().unwrap();
+        map.get(agent_id).cloned().unwrap_or_else(|| "raw".to_string())
     }
 
     pub fn get_history(&self, agent_id: &str) -> String {
@@ -122,6 +165,16 @@ impl PtyManager {
         // Resolve executable command and arguments
         let prov = provider.to_lowercase();
         let prompt_to_send = prompt.clone();
+        let active_role = self.get_role(&agent_id);
+
+        let role_directive = match active_role.as_str() {
+            "architect" => "ROLE: SYSTEM ARCHITECT. You are in PLAN ONLY mode. You must ONLY produce specifications, architecture docs, and failing test contracts. You are STRICTLY FORBIDDEN from creating or modifying source code in this mode.",
+            "reviewer" => "ROLE: CODE REVIEWER. You are in AUDIT ONLY mode. You must ONLY inspect git diffs, security vulnerabilities, and code quality. You are STRICTLY FORBIDDEN from creating or modifying source code in this mode.",
+            "implementer" | "code" => "ROLE: TDD IMPLEMENTER. Write minimal, type-safe code to make failing tests turn green without adding unapproved packages.",
+            "designer" => "ROLE: UI/UX DESIGNER. Enforce project typography scales, theme tokens, and accessible component layouts.",
+            _ => "",
+        };
+
         let mut cmd_builder = match prov.as_str() {
             "antigravity" => {
                 let bin = find_executable(
@@ -132,14 +185,25 @@ impl PtyManager {
                     ],
                 ).ok_or_else(|| "Antigravity CLI (agy) binary not found on host".to_string())?;
 
-                let cmd = CommandBuilder::new(bin);
+                let mut cmd = CommandBuilder::new(bin);
+                if active_role == "architect" || active_role == "reviewer" {
+                    cmd.arg("--mode");
+                    cmd.arg("plan");
+                } else if active_role == "implementer" || active_role == "code" {
+                    cmd.arg("--mode");
+                    cmd.arg("accept-edits");
+                }
                 cmd
             }
             "claude" => {
                 let bin = find_executable(&["claude"], &["/home/leo/.local/bin/claude"])
                     .ok_or_else(|| "Claude Code CLI (claude) binary not found on host".to_string())?;
 
-                let cmd = CommandBuilder::new(bin);
+                let mut cmd = CommandBuilder::new(bin);
+                if active_role == "architect" || active_role == "reviewer" {
+                    cmd.arg("--permission-mode");
+                    cmd.arg("plan");
+                }
                 cmd
             }
             "codex" => {
@@ -184,7 +248,14 @@ impl PtyManager {
                                 .unwrap_or_else(|| Path::new("bash").to_path_buf())
                         }
                     });
-                let cmd = CommandBuilder::new(bin);
+                let mut cmd = CommandBuilder::new(bin);
+                if active_role == "architect" {
+                    cmd.arg("--agent");
+                    cmd.arg("plan");
+                } else if active_role == "reviewer" {
+                    cmd.arg("--agent");
+                    cmd.arg("plan");
+                }
                 cmd
             }
             "terminal" | "shell" | _ => {
@@ -209,17 +280,21 @@ impl PtyManager {
             }
         };
 
-        // Inherit all host environment variables (PATH, USER, LANG, etc.)
-        // But sanitize child agent session tokens so they don't inherit the parent agent's active session
+        // Inherit all host environment variables (PATH, USER, LANG, HOME, OAuth Auth, etc.)
         for (key, value) in std::env::vars() {
-            // Strip active session tokens & connection addresses
-            if key.starts_with("ANTIGRAVITY_") || key.starts_with("JETSKI_") || key == "AI_AGENT" {
+            // Strip active session tokens, connection addresses, and conflicting npm prefix vars
+            if key.starts_with("ANTIGRAVITY_") 
+                || key.starts_with("JETSKI_") 
+                || key == "AI_AGENT"
+                || key == "npm_config_prefix"
+                || key == "NPM_CONFIG_PREFIX" 
+            {
                 continue;
             }
             cmd_builder.env(key, value);
         }
 
-        // Apply isolated profile environment sandbox if specified (e.g. "work-account", "personal")
+        // Apply isolated profile environment sandbox only if a custom profile is explicitly specified
         if let Some(ref prof) = profile_id {
             if prof != "default" && !prof.trim().is_empty() {
                 let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -240,12 +315,12 @@ impl PtyManager {
                 cmd_builder.env("JETSKI_APP_DATA_DIR", gemini_dir.join("antigravity-cli").to_string_lossy().to_string());
                 cmd_builder.env("ORBIT_PROFILE_ID", prof.trim());
 
-                // Disable DBUS / GNOME Keyring fallback so child process cannot read the system host keyring
+                // Disable DBUS / GNOME Keyring fallback so custom sandbox profile doesn't leak host keyring
                 cmd_builder.env("DBUS_SESSION_BUS_ADDRESS", "disabled:");
                 cmd_builder.env("GNOME_KEYRING_CONTROL", "");
                 cmd_builder.env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring");
 
-                dbg_log!("[ORBIT PROFILE] Isolated sandbox mounted at: {}", prof_str);
+                dbg_log!("[ORBIT PROFILE] Isolated custom sandbox mounted at: {}", prof_str);
             }
         }
 
@@ -484,8 +559,53 @@ impl PtyManager {
     }
 
     pub fn write(&self, agent_id: &str, data: &str) -> Result<(), String> {
+        let current_role = self.get_role(agent_id);
         let map = self.sessions.lock().unwrap();
+
         if let Some(session) = map.get(agent_id) {
+            // If in Plan (architect) or Review (reviewer) mode, buffer characters until Enter key is pressed
+            if current_role == "architect" || current_role == "reviewer" {
+                let mut buf_guard = session.line_buffer.lock().unwrap();
+
+                for ch in data.chars() {
+                    if ch == '\r' || ch == '\n' {
+                        let full_line = buf_guard.trim().to_string();
+                        buf_guard.clear();
+
+                        // Detect file redirection or destructive file mutation patterns
+                        let is_mutation = full_line.contains(" > ")
+                            || full_line.contains(" >> ")
+                            || full_line.starts_with(">")
+                            || full_line.contains(" | tee ")
+                            || full_line.contains("sed -i")
+                            || full_line.contains("rm -rf")
+                            || full_line.contains("rm -f")
+                            || (full_line.starts_with("rm ") && !full_line.contains("--help"));
+
+                        if is_mutation {
+                            dbg_log!("[ORBIT GUARD BLOCK] Blocked mutating command in role '{}': {}", current_role, full_line);
+                            let mut writer = session.writer.lock().unwrap();
+                            let warning_msg = format!(
+                                "\r\n\x1b[1;33m[ORBIT ROLE GUARD]\x1b[0m File mutation is blocked in \x1b[1;35m{} Mode\x1b[0m. Switch to \x1b[1;32mCode Mode\x1b[0m to apply changes.\r\n",
+                                current_role.to_uppercase()
+                            );
+                            let _ = writer.write_all(b"\x03"); // Cancel current command line
+                            let _ = writer.write_all(warning_msg.as_bytes());
+                            let _ = writer.flush();
+                            return Ok(());
+                        }
+                    } else if ch == '\x08' || ch == '\x7f' {
+                        // Backspace support
+                        buf_guard.pop();
+                    } else if ch == '\x03' {
+                        // Ctrl+C clears line buffer
+                        buf_guard.clear();
+                    } else {
+                        buf_guard.push(ch);
+                    }
+                }
+            }
+
             let mut writer = session.writer.lock().unwrap();
             writer
                 .write_all(data.as_bytes())

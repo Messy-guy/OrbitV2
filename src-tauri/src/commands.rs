@@ -164,16 +164,21 @@ pub fn create_session(state: State<'_, AppState>, session: Session) -> Result<()
 pub fn start_agent_session(
     app: AppHandle,
     state: State<'_, AppState>,
-    workspace_id: Option<String>,
     workspace_path: String,
     agent_id: String,
     session_id: String,
     provider: String,
     profile_id: Option<String>,
     prompt: Option<String>,
+    workspace_id: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
+    role: Option<String>,
 ) -> Result<u32, String> {
+    if let Some(r) = role.as_deref() {
+        state.pty_manager.set_role(&agent_id, r);
+    }
+
     state.pty_manager.create_session(
         app,
         workspace_id.unwrap_or_else(|| "default-ws".to_string()),
@@ -197,6 +202,26 @@ pub fn send_agent_input(
 ) -> Result<(), String> {
     // Send raw PTY byte stream directly as typed (e.g. letters, backspaces, enter keys)
     state.pty_manager.write(&agent_id, &input)
+}
+
+#[tauri::command]
+pub fn set_agent_role(
+    state: State<'_, AppState>,
+    agent_id: String,
+    role: String,
+) -> Result<(), String> {
+    state.pty_manager.set_role(&agent_id, &role);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_agent_mcp_tools(
+    state: State<'_, AppState>,
+    agent_id: String,
+) -> Vec<crate::mcp::McpToolDefinition> {
+    let role = state.pty_manager.get_role(&agent_id);
+    let mcp_mgr = crate::mcp::McpRoleManager::new();
+    mcp_mgr.get_tools_for_role(&role)
 }
 
 #[tauri::command]

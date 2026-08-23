@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MoreVertical, Trash2, Plus, Play, Pause, Terminal, MessageSquare } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types/orbit';
 import { Badge } from '../ui/Badge';
+import { WorkAreaRoleBadge } from './WorkAreaRoleBadge';
 import { useAgentStore } from '../../stores/agent.store';
 
 interface AgentTileHeaderProps {
@@ -9,7 +10,7 @@ interface AgentTileHeaderProps {
 }
 
 export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
-  const { removeAgent, setAgentStatus, sessions, activeSessionIdByAgent, setActiveSession, createNewSession, toggleAgentViewMode } = useAgentStore();
+  const { removeAgent, setAgentStatus, setAgentRole, sessions, activeSessionIdByAgent, setActiveSession, createNewSession, toggleAgentViewMode } = useAgentStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const agentSessions = sessions[agent.id] || [];
@@ -35,8 +36,8 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
 
   return (
     <div className="px-3.5 py-2 bg-panel-elevated backdrop-blur-md border-b border-border flex items-center justify-between select-none handle cursor-move relative">
-      {/* Left: Agent Identifier + Model */}
-      <div className="flex items-center gap-2.5 truncate">
+      {/* Left: Agent Identifier + Segmented Role Control + Model */}
+      <div className="flex items-center gap-2 truncate">
         {getStatusDot(agent.status)}
         <div className="truncate flex items-center gap-1.5">
           <span className="font-mono font-extrabold text-xs tracking-wider uppercase text-text-primary">
@@ -47,11 +48,10 @@ export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
               {agent.profileId}
             </span>
           )}
-          <span className="text-text-dim text-xs font-mono">/</span>
-          <span className="text-[10px] font-mono text-text-muted truncate font-medium">
-            {agent.model}
-          </span>
         </div>
+
+        {/* Clean Work Area Responsibility Badge */}
+        <WorkAreaRoleBadge role={agent.role || 'raw'} />
       </div>
 
       {/* Right: View Mode Toggle (Terminal vs Chat) + Session Switcher + Menu */}

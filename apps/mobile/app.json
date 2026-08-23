@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Orbit Mobile",
+    "slug": "orbit-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "orbit",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0B0E"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.useorbit.mobile"
+    },
+    "android": {
+      "package": "dev.useorbit.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ]
+  }
+}

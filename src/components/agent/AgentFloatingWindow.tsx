@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Rnd } from 'react-rnd';
 import { 
   X, 
+  Plus,
   Maximize2, 
   Minimize2, 
   Terminal, 
@@ -11,11 +12,18 @@ import {
   Copy, 
   Trash2, 
   Bookmark, 
-  ArrowLeftRight 
+  ArrowLeftRight,
+  GitFork,
+  ChevronDown,
+  FlaskConical,
+  Zap,
+  ShieldCheck,
+  CornerDownRight
 } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { AgentTerminal } from './AgentTerminal';
 import { AgentChat } from './AgentChat';
+import { WorkAreaRoleBadge } from './WorkAreaRoleBadge';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
 import { tauriService } from '../../services';
@@ -45,7 +53,9 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
   onFocus,
   onPositionChange,
 }) => {
-  const { removeAgent, activeSessionIdByAgent } = useAgentStore();
+  const { removeAgent, setAgentRole, activeSessionIdByAgent, forkWorker, agents } = useAgentStore();
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isForkMenuOpen, setIsForkMenuOpen] = useState(false);
   const { 
     setShareContextOpen, 
     setCreateCheckpointOpen, 
@@ -53,9 +63,30 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
     setMaximizedAgentId 
   } = useUIStore();
 
+  const parentAgent = agent.parentId ? agents.find(a => a.id === agent.parentId) : null;
   const isMaximized = maximizedAgentId === agent.id;
   const [prevBounds, setPrevBounds] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-orbit-role')) {
+      e.preventDefault();
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const droppedRole = e.dataTransfer.getData('application/x-orbit-role') as import('../../types/orbit').AgentRoleType;
+    if (droppedRole) {
+      setAgentRole(agent.id, droppedRole);
+    }
+  };
 
   const currentSessionId = activeSessionIdByAgent[agent.id];
   const isTerminal = agent.viewMode !== 'chat';
@@ -154,20 +185,63 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
         backgroundColor: 'var(--bg-panel, #090a0f)',
       }}
       onMouseDown={onFocus}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {/* Visual Role Drop Highlight Overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-xs z-50 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/80 rounded-2xl">
+          <div className="px-3 py-1.5 rounded-full bg-[#10121A] border border-emerald-400 shadow-xl flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="font-mono font-bold text-xs text-emerald-400 uppercase tracking-wider">
+              Drop to Assign Role
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Top Titlebar */}
       <div
         className="floating-window-header h-8 px-3 border-b border-border flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated transition-colors"
         onDoubleClick={handleToggleMaximize}
       >
-        {/* Left: Provider Icon + Agent Name + Live Usage Cap Badge */}
-        <div className="flex items-center gap-2 truncate">
-          <div className="flex items-center justify-center w-4 h-4">
+        {/* Left: Provider Icon + Agent Name + Work Area Badge + Next-Stage Chain Button */}
+        <div className="flex items-center gap-2 overflow-hidden">
+          <div className="flex items-center justify-center w-4 h-4 shrink-0">
             {getProviderIcon()}
           </div>
-          <span className="text-[12px] font-bold font-mono text-text-primary tracking-tight truncate">
+          <span className="text-[12px] font-bold font-mono text-text-primary tracking-tight truncate max-w-[140px]">
             {getProviderLabel()}
           </span>
+
+          {/* Clean Work Area Responsibility Badge */}
+          <WorkAreaRoleBadge role={agent.role || 'raw'} />
+
+          {/* Child Worker Subtitle Link */}
+          {parentAgent && (
+            <span 
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-400 font-mono text-[9px] font-bold"
+              title={`Child worker attached to ${parentAgent.name}`}
+            >
+              <CornerDownRight size={9} />
+              <span className="truncate max-w-[80px]">{parentAgent.name}</span>
+            </span>
+          )}
+
+          {/* User-Governed Spawn Worker Button (AgentGrid Model) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              useUIStore.getState().openWorkerSpawner(agent.id);
+            }}
+            className="h-5 px-1.5 rounded bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.12] text-zinc-200 font-mono text-[9.5px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs active:scale-95 no-drag"
+            title={`Spawn worker for ${agent.name}`}
+          >
+            <Plus size={10} className="text-amber-400" strokeWidth={3} />
+            <span>+ Spawn Worker</span>
+          </button>
         </div>
 
         {/* Right: Quick Actions (Copy, Checkpoint, Handoff) + Window Controls */}

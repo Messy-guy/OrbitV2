@@ -206,28 +206,38 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         unlistenStatus();
       };
 
-      // 5. Spawn PTY session
+      // 5. Spawn or Reattach PTY session
       const ws = workspaceRef.current;
       const projPath = ws?.projectPath || '/home/leo/Desktop/personal_projects/OrbitV2';
-      const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}-${Date.now()}`;
+      const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
 
-      await tauriService.startAgentSession(
-        projPath,
-        agentRef.current.id,
-        sessionId,
-        agentRef.current.provider,
-        undefined,
-        ws?.id || 'ws-orbit',
-        rows,
-        cols,
-        agentRef.current.profileId
-      );
+      // Check if session is already running in Rust before starting
+      const isAlreadyRunning = await tauriService.isAgentProcessRunning(agentRef.current.id);
+
+      if (!isAlreadyRunning) {
+        if (agentRef.current.role) {
+          await tauriService.setAgentRole(agentRef.current.id, agentRef.current.role).catch(() => {});
+        }
+
+        await tauriService.startAgentSession(
+          projPath,
+          agentRef.current.id,
+          sessionId,
+          agentRef.current.provider,
+          undefined,
+          ws?.id || 'ws-orbit',
+          rows,
+          cols,
+          agentRef.current.profileId,
+          agentRef.current.role
+        );
+      }
 
       setPhase('active');
       resizeTerminal(agentRef.current.id, rows, cols);
       term.focus();
 
-      // 6. Replay history if any
+      // 6. Replay history if any (seamless reattach)
       const history = await tauriService.getAgentTerminalHistory(agentRef.current.id);
       if (history && history.length > 0 && termRef.current) {
         termRef.current.write(history);

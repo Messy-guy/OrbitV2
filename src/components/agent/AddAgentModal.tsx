@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, ArrowRight, UserCheck, Plus, Sparkles, AlertCircle } from 'lucide-react';
+import { Check, ArrowRight, UserCheck, Plus, Sparkles, AlertCircle, ChevronDown } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -16,16 +16,20 @@ import { clsx } from 'clsx';
 import { useSettingsStore } from '../../stores/settings.store';
 
 export const AddAgentModal: React.FC = () => {
-  const { isAddAgentOpen, setAddAgentOpen } = useUIStore();
+  const { isAddAgentOpen, setAddAgentOpen, spawnerParentAgentId } = useUIStore();
   const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
   const { addAgent, agents } = useAgentStore();
   const { user } = useAuthStore();
   const { savedProfiles, addSavedProfile } = useSettingsStore();
 
+  const parentAgent = spawnerParentAgentId ? agents.find(a => a.id === spawnerParentAgentId) : null;
+
   // Wizard Step: 1 = Select Agent Preset, 2 = Configure Profile / Account
   const [step, setStep] = useState<1 | 2>(1);
 
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider>('antigravity');
+  const [selectedRole, setSelectedRole] = useState<import('../../types/orbit').AgentRoleType>('raw');
+  const [taskDirective, setTaskDirective] = useState('');
   const [customName, setCustomName] = useState('');
   const [customModel, setCustomModel] = useState('');
   const [customProfile, setCustomProfile] = useState('default');
@@ -34,9 +38,27 @@ export const AddAgentModal: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
 
-  // Compute all unique profiles across all projects (global persistent settings + current active agents)
+  // Compute unique profiles strictly scoped per agent/provider (e.g. Antigravity only sees Antigravity profiles)
   const existingProfiles = Array.from(
-    new Set(['default', ...(savedProfiles || []), ...agents.map((a) => a.profileId).filter(Boolean) as string[]])
+    new Set([
+      'default',
+      ...(savedProfiles || [])
+        .map((p) => {
+          if (p.startsWith(`${selectedProvider}:`)) {
+            return p.slice(`${selectedProvider}:`.length);
+          }
+          // The previous un-prefixed profile was created for antigravity, so only show it when antigravity is selected
+          if (!p.includes(':') && p !== 'default' && selectedProvider === 'antigravity') {
+            return p;
+          }
+          return null;
+        })
+        .filter((p): p is string => Boolean(p)),
+      ...agents
+        .filter((a) => a.provider === selectedProvider)
+        .map((a) => a.profileId)
+        .filter((p): p is string => Boolean(p) && p !== 'default')
+    ])
   );
 
   const isPro = user?.plan === 'PRO';
@@ -51,46 +73,74 @@ export const AddAgentModal: React.FC = () => {
   useEffect(() => {
     if (isAddAgentOpen) {
       setStep(1);
+      setSelectedRole(parentAgent ? 'implementer' : 'architect');
+      setTaskDirective('');
+      setCustomProfile('default');
+      setIsCreatingNewProfile(false);
       agentService.detectInstalledAgents().then((res) => {
         setDetectedAgents(res);
       }).catch(() => {});
     }
   }, [isAddAgentOpen]);
 
+  useEffect(() => {
+    setCustomProfile('default');
+    setIsCreatingNewProfile(false);
+  }, [selectedProvider]);
+
   const handleNextStep = () => {
-    // Check slot limit for Free users before proceeding to step 2
-    if (!isPro && currentRunningAgents >= maxAllowedSlots) {
-      setAddAgentOpen(false);
+    if (currentRunningAgents >= maxAllowedSlots) {
       setIsProModalOpen(true);
       return;
     }
     setStep(2);
   };
 
-  const handleSpawn = async () => {
+  const handleCreateAgent = async () => {
     if (!activeWorkspaceId) return;
 
-    setIsSubmitting(true);
     try {
-      const cleanProfile = customProfile.trim().toLowerCase() || 'default';
+      setIsSubmitting(true);
+      const cleanProfile = customProfile.trim() || 'default';
       if (cleanProfile !== 'default') {
-        addSavedProfile(cleanProfile);
+        addSavedProfile(`${selectedProvider}:${cleanProfile}`);
       }
+
+      const roleLabels: Record<string, string> = {
+        architect: 'Plan Architect',
+        implementer: 'TDD Builder',
+        reviewer: 'Code Auditor',
+        raw: 'Shell Terminal',
+      };
+
+      const finalAgentName = customName.trim()
+        ? customName.trim().slice(0, 24)
+        : taskDirective.trim()
+        ? taskDirective.trim().slice(0, 24)
+        : parentAgent
+        ? `${roleLabels[selectedRole] || 'Worker'} (${parentAgent.name.slice(0, 8)})`
+        : (selectedProvider === 'custom' ? 'Custom Agent' : undefined);
 
       await addAgent(
         activeWorkspaceId,
         selectedProvider,
-        selectedProvider === 'custom' ? customName.trim() || 'Custom Agent' : undefined,
+        finalAgentName,
         selectedProvider === 'custom' ? customModel.trim() || 'Local LLM' : undefined,
         activeWorkspace?.projectPath,
         activeSpaceId,
-        cleanProfile
+        cleanProfile,
+        selectedRole,
+        spawnerParentAgentId || undefined,
+        undefined,
+        taskDirective.trim() || undefined
       );
       setAddAgentOpen(false);
       setStep(1);
       setCustomName('');
+      setTaskDirective('');
       setCustomModel('');
       setCustomProfile('default');
+      setSelectedRole('raw');
     } catch (e) {
       console.error(e);
     } finally {
@@ -106,143 +156,170 @@ export const AddAgentModal: React.FC = () => {
           setAddAgentOpen(false);
           setStep(1);
         }}
-        title={step === 1 ? "Add Agent / Harness" : "Configure Account & Profile"}
-        subtitle={step === 1 
-          ? "Select a local AI coding CLI or interactive shell to spawn in this workspace" 
-          : `Choose the account profile or authentication context for ${selectedPreset?.name || selectedProvider}`}
-        maxWidth="lg"
+        title={
+          parentAgent
+            ? `Spawn Worker for ${parentAgent.name}`
+            : "Spawn Agent Worker"
+        }
+        subtitle={
+          parentAgent 
+            ? `Select engine and mode for child worker attached to ${parentAgent.name}` 
+            : "Choose an AI engine and purpose mode to spawn into this workspace"
+        }
+        maxWidth="3xl"
+        className="max-h-[85vh] p-0 overflow-hidden"
       >
-        <div className="flex flex-col gap-4 font-sans">
-          {step === 1 ? (
-            /* STEP 1: Select AI Agent Preset */
-            <div className="flex flex-col gap-3.5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="flex flex-col font-sans -mx-4 -my-4">
+          {/* Main 2-Pane Content Grid */}
+          <div className="flex flex-col sm:flex-row h-[420px] overflow-hidden">
+            
+            {/* Left Pane: Compact AI Engine Picker (Internal Scroll only) */}
+            <div className="w-full sm:w-64 border-b sm:border-b-0 sm:border-r border-border bg-panel-elevated p-3 flex flex-col gap-2 shrink-0 select-none">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
+                  1. Engine / Harness
+                </span>
+                <span className="text-[9px] font-mono text-text-dim">
+                  {AVAILABLE_AGENT_PRESETS.length} Available
+                </span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-0.5 custom-scrollbar">
                 {AVAILABLE_AGENT_PRESETS.map((preset) => {
                   const isSelected = selectedProvider === preset.provider;
                   const detected = detectedAgents.find((d) => d.provider === preset.provider);
                   const isAvailableOnHost = detected?.isAvailable ?? true;
 
                   return (
-                    <div
+                    <button
                       key={preset.provider}
+                      type="button"
                       onClick={() => setSelectedProvider(preset.provider)}
                       className={clsx(
-                        'p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between select-none group shadow-sm',
+                        'w-full p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer select-none',
                         isSelected
-                          ? 'bg-panel-hover border-border-hover shadow-md ring-1 ring-border-hover'
-                          : 'bg-panel-elevated hover:bg-panel-hover border-border hover:border-border-hover'
+                          ? 'bg-panel border-border-hover shadow-xs ring-1 ring-border-hover'
+                          : 'bg-well/50 hover:bg-panel border-border text-text-muted'
                       )}
                     >
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-bold text-xs tracking-wider uppercase text-text-primary font-mono flex items-center gap-2">
-                            <span className={clsx('w-2 h-2 rounded-full transition-colors', isSelected ? 'bg-text-primary' : 'bg-text-dim')} />
-                            <span>{preset.name}</span>
+                      <div className="flex items-center gap-2 truncate">
+                        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', isSelected ? 'bg-text-primary' : 'bg-text-dim')} />
+                        <div className="flex flex-col truncate">
+                          <span className={clsx('text-xs font-mono font-bold truncate', isSelected ? 'text-text-primary' : 'text-text-secondary')}>
+                            {preset.name}
                           </span>
-                          {isAvailableOnHost ? (
-                            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 font-mono">
-                              Installed
-                            </span>
-                          ) : (
-                            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono">
-                              Available
-                            </span>
-                          )}
+                          <span className="text-[10px] font-mono text-text-dim truncate">
+                            {detected?.version || preset.model}
+                          </span>
                         </div>
-                        <div className="text-[11px] font-mono text-text-secondary mb-1.5 font-medium">
-                          {detected?.version || preset.model}
-                        </div>
-                        <p className="text-[11.5px] text-text-muted leading-snug">
-                          {preset.description}
-                        </p>
                       </div>
 
-                      <div className="mt-4 pt-2.5 border-t border-border flex items-center justify-between text-[10.5px]">
-                        <span className="text-text-dim font-mono uppercase font-bold tracking-wider">{preset.provider}</span>
-                        <div className={clsx(
-                          'w-4 h-4 rounded-full border flex items-center justify-center transition-all',
-                          isSelected 
-                            ? 'border-text-primary bg-text-primary text-background font-bold shadow-sm' 
-                            : 'border-border group-hover:border-border-hover'
-                        )}>
-                          {isSelected && <Check size={10} strokeWidth={3.5} />}
-                        </div>
-                      </div>
-                    </div>
+                      {isAvailableOnHost ? (
+                        <span className="text-[8.5px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
+                          Installed
+                        </span>
+                      ) : (
+                        <span className="text-[8.5px] uppercase font-bold px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 font-mono shrink-0">
+                          Not Installed
+                        </span>
+                      )}
+                    </button>
                   );
                 })}
               </div>
 
               {selectedProvider === 'custom' && (
-                <div className="p-3.5 bg-well rounded-panel border border-border mt-1 space-y-2.5">
-                  <h4 className="text-xs font-bold text-text-primary font-mono uppercase">Custom Agent Adapter Configuration</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      placeholder="Agent Name (e.g. Aider, Cursor CLI)"
-                      value={customName}
-                      onChange={(e) => setCustomName(e.target.value)}
-                    />
-                    <Input
-                      placeholder="Model (e.g. Qwen 2.5 Coder 32B)"
-                      value={customModel}
-                      onChange={(e) => setCustomModel(e.target.value)}
-                    />
-                  </div>
+                <div className="p-2 bg-well rounded-xl border border-border space-y-1.5 shrink-0">
+                  <span className="text-[9.5px] font-mono font-bold uppercase text-text-secondary">Custom CLI</span>
+                  <input
+                    type="text"
+                    placeholder="Binary/Command (e.g. aider)"
+                    value={customName}
+                    onChange={(e) => setCustomName(e.target.value)}
+                    className="w-full px-2 py-1 rounded-lg bg-panel border border-border text-text-primary text-[11px] font-mono focus:outline-hidden"
+                  />
                 </div>
               )}
-
-              <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  onClick={() => setAddAgentOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleNextStep}
-                  className="gap-1.5 font-mono text-xs font-bold"
-                >
-                  <span>Configure & Spawn</span>
-                  <ArrowRight size={13} />
-                </Button>
-              </div>
             </div>
-          ) : (
-            /* STEP 2: Configure Account Profile & Launch */
-            <div className="flex flex-col gap-4 py-1">
+
+            {/* Right Pane: Mode, Directive & Profile Controls */}
+            <div className="flex-1 p-4 flex flex-col justify-between overflow-y-auto bg-panel gap-3.5">
               
-              {/* Selected Agent Summary Banner */}
-              <div className="p-3.5 rounded-2xl bg-panel-elevated border border-border flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-well border border-border flex items-center justify-center text-text-primary font-mono font-bold text-xs">
-                    {selectedProvider[0].toUpperCase()}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-mono font-bold text-xs text-text-primary uppercase">
-                      {selectedPreset?.name || selectedProvider}
-                    </span>
-                    <span className="text-[11px] text-text-muted">
-                      {selectedPreset?.model || 'Default Model'}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-well border border-border text-text-secondary font-bold uppercase">
-                  Step 2 of 2
+              {/* Purpose & Mode Selector */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
+                  2. Operating Mode
                 </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('architect')}
+                    className={clsx(
+                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
+                      selectedRole === 'architect'
+                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
+                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                    )}
+                  >
+                    <span className="font-mono text-xs font-bold text-text-primary">📐 1. Plan</span>
+                    <span className="text-[9.5px] text-text-muted leading-tight">Native --mode plan. Read-only spec.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('implementer')}
+                    className={clsx(
+                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
+                      selectedRole === 'implementer'
+                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
+                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                    )}
+                  >
+                    <span className="font-mono text-xs font-bold text-text-primary">⚡ 2. Code</span>
+                    <span className="text-[9.5px] text-text-muted leading-tight">Native --mode accept-edits. Builder.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRole('reviewer')}
+                    className={clsx(
+                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
+                      selectedRole === 'reviewer'
+                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
+                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                    )}
+                  >
+                    <span className="font-mono text-xs font-bold text-text-primary">🛡️ 3. Audit</span>
+                    <span className="text-[9.5px] text-text-muted leading-tight">Diff review & security audit.</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Profile Account Picker Card */}
-              <div className="p-4 rounded-2xl bg-well border border-border flex flex-col gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-mono font-bold text-xs text-text-primary">Profile / Account Context</span>
-                  <span className="text-[11.5px] text-text-muted">
-                    Each profile maintains an isolated login token and auth sandbox in Orbit.
-                  </span>
-                </div>
+              {/* Task Directive / Goal input */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary flex items-center justify-between">
+                  <span>3. Task Directive / Scope</span>
+                  <span className="text-[9px] text-text-dim lowercase">optional</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Run test suite on auth endpoints, implement JWT rotation"
+                  value={taskDirective}
+                  onChange={(e) => setTaskDirective(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateAgent();
+                  }}
+                  className="px-3 py-2 rounded-xl bg-panel-elevated border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-hidden focus:border-border-hover transition-colors"
+                />
+              </div>
 
+              {/* Account Profile Context */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
+                  4. Account Profile / Sandbox
+                </span>
                 {!isCreatingNewProfile ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                  <div className="relative">
                     <select
                       value={customProfile}
                       onChange={(e) => {
@@ -253,25 +330,32 @@ export const AddAgentModal: React.FC = () => {
                           setCustomProfile(e.target.value);
                         }
                       }}
-                      className="flex-1 px-3 py-2 rounded-xl bg-panel border border-border text-text-primary font-mono text-xs focus:outline-none focus:border-border-hover cursor-pointer"
+                      className="w-full appearance-none px-3 py-2 rounded-xl bg-[#0e0f13] border border-white/[0.12] hover:border-white/[0.2] text-[#ededed] font-mono text-xs focus:outline-hidden cursor-pointer pr-8 shadow-inner"
+                      style={{ color: '#ededed', backgroundColor: '#0e0f13' }}
                     >
                       {existingProfiles.map((p) => (
-                        <option key={p} value={p}>
-                          {p === 'default' ? 'default (Main Global Login)' : `Profile: ${p}`}
+                        <option key={p} value={p} style={{ backgroundColor: '#14151b', color: '#f3f4f8' }}>
+                          {p === 'default' ? 'default (Main Global Auth)' : `Profile: ${p}`}
                         </option>
                       ))}
-                      <option value="__NEW__">+ Create New Account Profile…</option>
+                      <option value="__NEW__" style={{ backgroundColor: '#14151b', color: '#fbbf24', fontWeight: 'bold' }}>
+                        + Create New Account Profile…
+                      </option>
                     </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                      <ChevronDown size={12} />
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Enter profile name (e.g. work, client-a)"
+                      placeholder="e.g. work, client-a"
                       value={customProfile}
                       onChange={(e) => setCustomProfile(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
                       autoFocus
-                      className="flex-1 px-3 py-2 rounded-xl bg-panel border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover transition-colors"
+                      className="flex-1 px-3 py-2 rounded-xl bg-[#0e0f13] border border-white/[0.15] text-[#ededed] font-mono text-xs focus:outline-hidden"
+                      style={{ color: '#ededed', backgroundColor: '#0e0f13' }}
                     />
                     <button
                       type="button"
@@ -279,7 +363,7 @@ export const AddAgentModal: React.FC = () => {
                         setIsCreatingNewProfile(false);
                         setCustomProfile('default');
                       }}
-                      className="px-3 py-2 rounded-xl text-text-muted hover:text-text-primary text-xs font-mono hover:bg-panel transition-colors cursor-pointer"
+                      className="px-2.5 py-1.5 rounded-lg text-text-muted hover:text-text-primary text-xs font-mono"
                     >
                       Cancel
                     </button>
@@ -287,24 +371,42 @@ export const AddAgentModal: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                <Button
-                  variant="ghost"
-                  onClick={() => setStep(1)}
-                >
-                  Back
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleSpawn}
-                  isLoading={isSubmitting}
-                  className="font-mono text-xs font-bold"
-                >
-                  Spawn in Workspace
-                </Button>
+              {/* Footer Actions */}
+              <div className="flex items-center justify-between pt-2 border-t border-border mt-auto">
+                <div className="flex items-center gap-1.5">
+                  {detectedAgents.length > 0 && !detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable && (
+                    <span className="text-[10px] font-mono text-rose-400 font-bold flex items-center gap-1">
+                      ⚠️ Binary not installed on host
+                    </span>
+                  )}
+                  {detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable !== false && (
+                    <span className="text-[10px] font-mono text-text-dim">
+                      Press <kbd className="px-1.5 py-0.5 rounded bg-well text-text-secondary font-mono">Enter</kbd>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAddAgentOpen(false)}
+                    className="font-mono text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleCreateAgent}
+                    isLoading={isSubmitting}
+                    disabled={detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false}
+                    className="gap-1.5 font-mono text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Spawn Worker</span>
+                    <ArrowRight size={13} />
+                  </Button>
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </Modal>
 

@@ -15,9 +15,27 @@ interface AgentState {
   // Actions
   initializeEventListeners: () => void;
   loadAgentsForWorkspace: (workspaceId: string, projectPath?: string) => Promise<void>;
-  addAgent: (workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, projectPath?: string, spaceId?: string, profileId?: string) => Promise<Agent>;
+  addAgent: (
+    workspaceId: string,
+    provider: AgentProvider,
+    customName?: string,
+    customModel?: string,
+    projectPath?: string,
+    spaceId?: string,
+    profileId?: string,
+    initialRole?: import('../types/orbit').AgentRoleType,
+    parentId?: string,
+    workerType?: 'test' | 'code' | 'audit' | 'shell' | 'custom',
+    taskDirective?: string
+  ) => Promise<Agent>;
+  forkWorker: (
+    parentAgentId: string,
+    workerType: 'test' | 'code' | 'audit' | 'shell',
+    taskDirective?: string
+  ) => Promise<Agent | null>;
   removeAgent: (agentId: string) => Promise<void>;
   setAgentStatus: (agentId: string, status: AgentStatus) => Promise<void>;
+  setAgentRole: (agentId: string, role: import('../types/orbit').AgentRoleType) => void;
   toggleAgentViewMode: (agentId: string) => void;
   setActiveSession: (agentId: string, sessionId: string) => void;
   createNewSession: (agentId: string, workspaceId: string, title?: string) => Promise<Session>;
@@ -166,7 +184,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     customModel?: string,
     projectPath?: string,
     spaceId?: string,
-    profileId?: string
+    profileId?: string,
+    initialRole?: import('../types/orbit').AgentRoleType,
+    parentId?: string,
+    workerType?: 'test' | 'code' | 'audit' | 'shell' | 'custom',
+    taskDirective?: string
   ) => {
     get().initializeEventListeners();
     const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel, profileId);
@@ -176,6 +198,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       ...rawAgent,
       spaceId: spaceId || 'default',
       profileId: profileId || 'default',
+      role: initialRole || 'raw',
+      parentId,
+      workerType,
+      taskDirective,
       currentSessionId: newSession.id,
       viewMode: 'terminal',
       pid: undefined,
@@ -218,6 +244,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       };
     });
 
+    // Synchronize initial role state to Rust backend before spawning process
+    if (isTauriAvailable() && initialRole) {
+      try {
+        await tauriService.setAgentRole(newAgent.id, initialRole);
+      } catch (err) {
+        console.warn('Failed to pre-set agent role in Tauri PTY manager:', err);
+      }
+    }
+
     // Start real PTY process for the agent with isolated profile
     if (isTauriAvailable() && projectPath) {
       try {
@@ -230,7 +265,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           workspaceId,
           undefined,
           undefined,
-          profileId
+          profileId,
+          initialRole
         );
         set((state) => ({
           agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
@@ -241,6 +277,43 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
 
     return newAgent;
+  },
+
+  forkWorker: async (
+    parentAgentId: string,
+    workerType: 'test' | 'code' | 'audit' | 'shell',
+    taskDirective?: string
+  ) => {
+    const parent = get().agents.find((a) => a.id === parentAgentId);
+    if (!parent) return null;
+
+    const roleMap: Record<string, import('../types/orbit').AgentRoleType> = {
+      test: 'raw',
+      code: 'implementer',
+      audit: 'reviewer',
+      shell: 'raw',
+    };
+
+    const roleTitles: Record<string, string> = {
+      test: `Test Worker (${parent.name.slice(0, 10)})`,
+      code: `Coder (${parent.name.slice(0, 10)})`,
+      audit: `Auditor (${parent.name.slice(0, 10)})`,
+      shell: `Shell (${parent.name.slice(0, 10)})`,
+    };
+
+    return await get().addAgent(
+      parent.workspaceId,
+      parent.provider,
+      taskDirective ? taskDirective.slice(0, 24) : roleTitles[workerType],
+      undefined,
+      undefined,
+      parent.spaceId,
+      parent.profileId,
+      roleMap[workerType],
+      parent.id,
+      workerType,
+      taskDirective
+    );
   },
 
   removeAgent: async (agentId: string) => {
@@ -257,6 +330,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((state) => ({
       agents: state.agents.map((a) => (a.id === agentId ? { ...a, status } : a)),
     }));
+  },
+
+  setAgentRole: (agentId: string, role: import('../types/orbit').AgentRoleType) => {
+    set((state) => ({
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, role } : a)),
+    }));
+
+    // Synchronize role state to Rust backend for physical PTY mutation guard & MCP tool-gating out-of-band
+    if (isTauriAvailable()) {
+      tauriService.setAgentRole(agentId, role).catch((err) => {
+        console.warn('Failed to set agent role in Tauri PTY manager:', err);
+      });
+    }
   },
 
   toggleAgentViewMode: (agentId: string) => {

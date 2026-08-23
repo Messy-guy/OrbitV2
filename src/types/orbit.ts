@@ -4,6 +4,21 @@ export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'g
 
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error';
 
+export type AgentRoleType = 'raw' | 'architect' | 'implementer' | 'reviewer' | 'designer' | 'custom';
+
+export interface AgentRoleConfig {
+  id: AgentRoleType;
+  name: string;
+  shortLabel: string;
+  icon: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  description: string;
+  systemDirective: string;
+  invariants: string[];
+}
+
 export interface AgentUsageStats {
   provider: string;
   activeTokens: number;
@@ -47,10 +62,15 @@ export interface Agent {
   id: string;
   workspaceId: string;
   spaceId?: string;
+  parentId?: string; // Linked parent agent if this is a forked worker
+  workerType?: 'test' | 'code' | 'audit' | 'shell' | 'custom'; // Sub-worker specialty
   provider: AgentProvider;
   name: string;
   model: string;
   profileId?: string; // Custom isolated config profile name e.g. "work-account", "default"
+  role?: AgentRoleType;
+  taskDirective?: string; // Direct user task assigned on spawn
+  sourceAgentId?: string; // If chained from previous worker
   status: AgentStatus;
   currentSessionId?: string;
   viewMode?: 'terminal' | 'chat';

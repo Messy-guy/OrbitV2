@@ -5,6 +5,7 @@ mod git;
 mod context;
 mod runtime;
 mod auth;
+mod mcp;
 mod commands;
 
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use commands::{
     get_git_state, get_handoff_history, get_project_context, get_sessions,
     get_workspace_agents, get_workspaces, interrupt_agent_session, open_folder_dialog, open_file_dialog, record_handoff,
     resize_agent_terminal, save_agent, save_checkpoint, save_project_context,
-    send_agent_input, start_agent_session, stop_agent_session, get_agent_terminal_history,
+    send_agent_input, set_agent_role, get_agent_mcp_tools, start_agent_session, stop_agent_session, get_agent_terminal_history,
     is_agent_process_running, get_project_activity, generate_context_draft, apply_context_draft,
     record_user_decision, resolve_project_issue, get_agent_usage_stats, open_external_url, AppState,
 };
@@ -50,6 +51,8 @@ pub fn run() {
             create_session,
             start_agent_session,
             send_agent_input,
+            set_agent_role,
+            get_agent_mcp_tools,
             resize_agent_terminal,
             interrupt_agent_session,
             stop_agent_session,

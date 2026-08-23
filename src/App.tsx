@@ -4,10 +4,12 @@ import { AppHeader } from './components/layout/AppHeader';
 import { Home } from './pages/Home';
 import { WorkspaceView } from './pages/WorkspaceView';
 import { CreateWorkspaceModal } from './components/workspace/CreateWorkspaceModal';
+import { AddAgentModal } from './components/agent/AddAgentModal';
 import { ShortcutsModal } from './components/layout/ShortcutsModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { DiffViewerModal } from './components/git/DiffViewerModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { PairMobileModal } from './components/auth/PairMobileModal';
 import { ProUpgradeModal } from './components/agent/ProUpgradeModal';
 import { UpdateNotifier } from './components/layout/UpdateNotifier';
 import { useSettingsStore, applyThemeTokens } from './stores/settings.store';
@@ -15,11 +17,12 @@ import { useUIStore } from './stores/ui.store';
 import { useAgentStore } from './stores/agent.store';
 import { useAuthStore } from './stores/auth.store';
 import { LoginScreen } from './pages/LoginScreen';
+import { desktopRelayService } from './services/desktopRelay.service';
 
 export const App: React.FC = () => {
   const { activeWorkspaceId, loadWorkspaces } = useWorkspaceStore();
   const { theme, accent } = useSettingsStore();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, tokens } = useAuthStore();
   const { isProUpgradeModalOpen, setProUpgradeModalOpen } = useUIStore();
   const { agents } = useAgentStore();
 
@@ -31,6 +34,14 @@ export const App: React.FC = () => {
     loadWorkspaces();
     applyThemeTokens(theme, accent);
   }, [loadWorkspaces, theme, accent]);
+
+  useEffect(() => {
+    if (isAuthenticated && tokens?.accessToken) {
+      desktopRelayService.connect();
+    } else {
+      desktopRelayService.disconnect();
+    }
+  }, [isAuthenticated, tokens?.accessToken]);
 
   // Mandatory Authentication Gatekeeper
   if (!isAuthenticated) {
@@ -48,11 +59,13 @@ export const App: React.FC = () => {
       </div>
 
       {/* Global Modals & Update Notifier */}
+      <AddAgentModal />
       <CreateWorkspaceModal />
       <ShortcutsModal />
       <SettingsModal />
       <DiffViewerModal />
       <AuthModal />
+      <PairMobileModal />
       <ProUpgradeModal
         isOpen={isProUpgradeModalOpen}
         onClose={() => setProUpgradeModalOpen(false)}
