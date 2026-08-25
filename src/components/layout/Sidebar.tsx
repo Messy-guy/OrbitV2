@@ -61,7 +61,7 @@ export const Sidebar: React.FC = () => {
 
   if (isSidebarCollapsed) {
     return (
-      <aside className="w-10 bg-panel border-r border-border flex flex-col items-center py-2 flex-shrink-0 z-20">
+      <aside className="w-10 glass-panel border-r border-white/5 flex flex-col items-center py-2 flex-shrink-0 z-20">
         <button
           onClick={toggleSidebar}
           className="p-1.5 text-text-muted hover:text-text-primary hover:bg-well rounded-md transition-colors cursor-pointer"
@@ -74,9 +74,9 @@ export const Sidebar: React.FC = () => {
   }
 
   return (
-    <aside className="w-56 bg-panel border-r border-border flex flex-col flex-shrink-0 select-none z-20 font-sans">
+    <aside className="w-56 glass-panel border-r border-white/5 flex flex-col flex-shrink-0 select-none z-20 font-sans">
       {/* Sidebar Header */}
-      <div className="h-9 px-3 border-b border-border flex items-center justify-between">
+      <div className="h-9 px-3 border-b border-white/5 flex items-center justify-between">
         <span className="text-[11px] font-mono font-bold text-text-primary tracking-wider uppercase">
           WORKSPACE
         </span>

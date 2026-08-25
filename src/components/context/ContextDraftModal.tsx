@@ -74,10 +74,10 @@ export const ContextDraftModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-2xl bg-[#111217] border border-[#272935] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-b from-black/25 via-black/35 to-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl glass-elevated border border-white/15 rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-white/[0.08] bg-[#16171e] flex items-center justify-between">
+        <div className="px-5 py-3.5 border-b border-white/[0.08] bg-panel-elevated/90 backdrop-blur-sm flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-white/[0.06] border border-white/[0.12] flex items-center justify-center text-white">
               <FileCode size={14} />

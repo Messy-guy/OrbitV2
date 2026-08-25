@@ -200,12 +200,11 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
       enableResizing={!isMaximized}
       bounds="parent"
       className={clsx(
-        "rounded-2xl flex flex-col overflow-hidden shadow-panel border",
-        !isDragging && "transition-[border-color,box-shadow,opacity] duration-150",
+        "rounded-2xl flex flex-col overflow-hidden transition-[border-color,box-shadow,opacity] duration-200",
         isActive 
-          ? "border-border-hover shadow-2xl ring-1 ring-border" 
-          : "border-border opacity-95",
-        isDragging && "shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-border-hover cursor-grabbing ring-2 ring-emerald-500/30"
+          ? "border-border-active shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)] ring-1 ring-white/10" 
+          : "border-border/70 opacity-95 shadow-[0_8px_32px_-4px_rgba(0,0,0,0.5)]",
+        isDragging && "shadow-[0_28px_64px_rgba(0,0,0,0.8)] border-border-highlight cursor-grabbing ring-2 ring-emerald-500/30 scale-[1.002]"
       )}
       style={{
         zIndex: isMaximized ? 9999 : zIndex,
@@ -215,7 +214,9 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
         transform: 'translate3d(0,0,0)',
         backfaceVisibility: 'hidden',
         willChange: isDragging ? 'transform' : 'auto',
-        backgroundColor: 'var(--bg-panel, #090a0f)',
+        backgroundColor: 'var(--bg-panel, rgba(15, 16, 21, 0.88))',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
       }}
       onMouseDown={onFocus}
       onDragOver={handleDragOver}
@@ -224,9 +225,9 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
     >
       {/* Minimal Visual Drop Highlight Overlay */}
       {isDragOver && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-xs z-50 pointer-events-none flex items-center justify-center border-2 border-dashed border-text-muted rounded-2xl">
-          <div className="px-3 py-1 rounded-md bg-panel-elevated border border-border shadow-xl flex items-center gap-2">
-            <span className="font-mono font-medium text-xs text-text-primary">
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-md z-50 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/50 rounded-2xl animate-pulse">
+          <div className="px-3.5 py-1.5 rounded-xl bg-panel-elevated border border-emerald-400/30 shadow-2xl flex items-center gap-2">
+            <span className="font-mono font-bold text-xs text-emerald-400">
               {dragOverType === 'skill' ? '+ Equip Skill' : 'Assign Role'}
             </span>
           </div>
@@ -235,11 +236,11 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
 
       {/* Top Titlebar */}
       <div
-        className="floating-window-header h-8 px-3 border-b border-border flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated transition-colors"
+        className="floating-window-header h-8.5 px-3.5 border-b border-border/80 flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated/90 backdrop-blur-md transition-colors"
         onDoubleClick={handleToggleMaximize}
       >
         {/* Left: Provider Icon + Agent Name + Work Area Badge + Active Skill Badges */}
-        <div className="flex items-center gap-2 overflow-hidden">
+        <div className="flex items-center gap-2.5 overflow-hidden">
           <div className="flex items-center justify-center w-4 h-4 shrink-0">
             {getProviderIcon()}
           </div>

@@ -45,39 +45,39 @@ export const Modal: React.FC<ModalProps> = ({
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-          {/* Subtle Translucent Frosted Glass Backdrop */}
+          {/* Luminous Frosted Glass Backdrop with Subtle Atmospheric Vignette */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/40 backdrop-blur-xs pointer-events-auto"
+            className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/35 to-black/50 backdrop-blur-sm pointer-events-auto"
           />
 
           {/* Dialog Container */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.98, y: 6 }}
+            initial={{ opacity: 0, scale: 0.98, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 6 }}
-            transition={{ duration: 0.14, ease: [0.2, 0, 0, 1] }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={twMerge(
               clsx(
-                'relative w-full surface-elevated rounded-panel shadow-elevated overflow-hidden z-10 flex flex-col',
+                'relative w-full surface-elevated rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.8)] overflow-hidden z-10 flex flex-col border border-border-hover/80',
                 maxW[maxWidth],
                 className
               )
             )}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-panel-elevated">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/80 bg-panel-elevated/90 backdrop-blur-md">
               <div>
                 <h3 className="text-[13px] font-bold text-text-primary tracking-wider font-mono uppercase">{title}</h3>
-                {subtitle && <p className="text-[11px] text-text-muted mt-0.5 font-sans">{subtitle}</p>}
+                {subtitle && <p className="text-[11px] text-text-muted mt-0.5 font-sans leading-relaxed">{subtitle}</p>}
               </div>
               <button
                 onClick={onClose}
-                className="text-text-muted hover:text-white p-1 rounded-btn hover:bg-panel-hover transition-colors border border-transparent hover:border-border"
+                className="text-text-muted hover:text-white p-1.5 rounded-xl hover:bg-panel-hover transition-all duration-140 border border-transparent hover:border-border cursor-pointer"
               >
                 <X size={14} />
               </button>

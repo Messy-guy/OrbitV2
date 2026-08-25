@@ -636,6 +636,39 @@ pub fn get_agent_usage_stats(
 }
 
 #[tauri::command]
+pub fn write_project_skill_file(project_path: String, relative_path: String, content: String) -> Result<bool, String> {
+    let full_path = std::path::Path::new(&project_path).join(&relative_path);
+    if let Some(parent) = full_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create skill directory: {}", e))?;
+    }
+    std::fs::write(&full_path, content).map_err(|e| format!("Failed to write skill file: {}", e))?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn install_agent_cli(command: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    cmd.args(["-NoProfile", "-Command", &command]);
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = std::process::Command::new("bash");
+    #[cfg(not(target_os = "windows"))]
+    cmd.args(["-c", &command]);
+
+    let output = cmd.output().map_err(|e| format!("Failed to execute installer: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        return Err(format!("Installer exited with error:\n{}{}", stdout, stderr));
+    }
+
+    Ok(if stdout.is_empty() { stderr } else { stdout })
+}
+
+#[tauri::command]
 pub fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {

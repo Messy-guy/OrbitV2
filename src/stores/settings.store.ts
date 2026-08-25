@@ -46,13 +46,13 @@ export const THEMES: Record<ThemeId, { name: string; description: string; previe
     },
   },
   light: {
-    name: 'Linear Daylight',
-    description: 'Crisp studio daylight & high-contrast slate typography',
+    name: 'Porcelain & Warm Slate',
+    description: 'Modern porcelain canvas with subtle warm slate depth',
     preview: {
-      bg: '#f8fafc',
-      sidebar: '#f1f5f9',
+      bg: '#f8f7f4',
+      sidebar: '#f2f0eb',
       panel: '#ffffff',
-      border: 'rgba(15, 23, 42, 0.12)',
+      border: 'rgba(28, 25, 23, 0.10)',
     },
   },
 };
@@ -69,22 +69,24 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
   const root = document.documentElement;
   
   if (theme === 'light') {
-    root.style.setProperty('--bg-canvas', '#f8fafc');
-    root.style.setProperty('--bg-chrome', '#f1f5f9');
+    root.style.setProperty('--bg-canvas', '#f8f7f4');
+    root.style.setProperty('--bg-chrome', '#f2f0eb');
     root.style.setProperty('--bg-panel', '#ffffff');
     root.style.setProperty('--bg-panel-elevated', '#ffffff');
-    root.style.setProperty('--bg-panel-hover', '#f1f5f9');
-    root.style.setProperty('--bg-well', '#f1f5f9');
-    root.style.setProperty('--bg-well-secondary', '#e2e8f0');
-    root.style.setProperty('--text-primary', '#0f172a');
-    root.style.setProperty('--text-secondary', '#334155');
-    root.style.setProperty('--text-muted', '#64748b');
-    root.style.setProperty('--text-dim', '#94a3b8');
-    root.style.setProperty('--border-base', 'rgba(15, 23, 42, 0.12)');
-    root.style.setProperty('--border-subtle', 'rgba(15, 23, 42, 0.06)');
-    root.style.setProperty('--border-hover', 'rgba(15, 23, 42, 0.25)');
-    document.body.style.backgroundColor = '#f8fafc';
-    document.body.style.color = '#0f172a';
+    root.style.setProperty('--bg-panel-hover', '#f5f3ef');
+    root.style.setProperty('--bg-well', '#f2f0eb');
+    root.style.setProperty('--bg-well-secondary', '#e8e5de');
+    root.style.setProperty('--text-primary', '#1c1917');
+    root.style.setProperty('--text-secondary', '#44403c');
+    root.style.setProperty('--text-muted', '#78716c');
+    root.style.setProperty('--text-dim', '#a8a29e');
+    root.style.setProperty('--border-base', 'rgba(28, 25, 23, 0.10)');
+    root.style.setProperty('--border-subtle', 'rgba(28, 25, 23, 0.05)');
+    root.style.setProperty('--border-hover', 'rgba(28, 25, 23, 0.20)');
+    root.style.setProperty('--border-active', 'rgba(28, 25, 23, 0.32)');
+    root.style.setProperty('--border-highlight', 'rgba(28, 25, 23, 0.60)');
+    document.body.style.backgroundColor = '#f8f7f4';
+    document.body.style.color = '#1c1917';
   } else if (theme === 'tokyo-night') {
     root.style.setProperty('--bg-canvas', '#1a1b26');
     root.style.setProperty('--bg-chrome', '#16161e');
@@ -137,23 +139,23 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
     document.body.style.backgroundColor = '#1e1e2e';
     document.body.style.color = '#cdd6f4';
   } else {
-    // Default Obsidian Dark
-    root.style.setProperty('--bg-canvas', '#0b0c0e');
-    root.style.setProperty('--bg-chrome', '#101114');
-    root.style.setProperty('--bg-panel', 'rgba(18, 19, 23, 0.88)');
-    root.style.setProperty('--bg-panel-elevated', 'rgba(24, 25, 30, 0.95)');
-    root.style.setProperty('--bg-panel-hover', 'rgba(34, 36, 44, 0.7)');
-    root.style.setProperty('--bg-well', '#060709');
-    root.style.setProperty('--bg-well-secondary', '#0a0b0d');
-    root.style.setProperty('--text-primary', '#EDEDED');
-    root.style.setProperty('--text-secondary', '#B4B7C4');
-    root.style.setProperty('--text-muted', '#7A7E8F');
-    root.style.setProperty('--text-dim', '#4E5262');
-    root.style.setProperty('--border-base', 'rgba(255, 255, 255, 0.1)');
-    root.style.setProperty('--border-subtle', 'rgba(255, 255, 255, 0.06)');
-    root.style.setProperty('--border-hover', 'rgba(255, 255, 255, 0.2)');
-    document.body.style.backgroundColor = '#0b0c0e';
-    document.body.style.color = '#EDEDED';
+    // Default Obsidian Dark (Rich Atmospheric Dark Slate)
+    root.style.setProperty('--bg-canvas', '#0e1015');
+    root.style.setProperty('--bg-chrome', '#12151c');
+    root.style.setProperty('--bg-panel', 'rgba(20, 23, 31, 0.85)');
+    root.style.setProperty('--bg-panel-elevated', 'rgba(28, 32, 44, 0.94)');
+    root.style.setProperty('--bg-panel-hover', 'rgba(38, 43, 58, 0.7)');
+    root.style.setProperty('--bg-well', '#08090d');
+    root.style.setProperty('--bg-well-secondary', '#0d0f14');
+    root.style.setProperty('--text-primary', '#F3F4F8');
+    root.style.setProperty('--text-secondary', '#B4B9C8');
+    root.style.setProperty('--text-muted', '#7E8499');
+    root.style.setProperty('--text-dim', '#50566A');
+    root.style.setProperty('--border-base', 'rgba(255, 255, 255, 0.12)');
+    root.style.setProperty('--border-subtle', 'rgba(255, 255, 255, 0.07)');
+    root.style.setProperty('--border-hover', 'rgba(255, 255, 255, 0.22)');
+    document.body.style.backgroundColor = '#0e1015';
+    document.body.style.color = '#F3F4F8';
   }
 
   const acc = ACCENTS[accent] || ACCENTS.emerald;

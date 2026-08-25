@@ -88,6 +88,27 @@ export const useSkillStore = create<SkillState>()(
         };
 
         set({ installedSkills: [...current, newSkill] });
+
+        // If in an active workspace, automatically mount the skill into project discovery directories
+        try {
+          const { useWorkspaceStore } = await import('./workspace.store');
+          const activeWorkspace = useWorkspaceStore.getState().getActiveWorkspace();
+          if (activeWorkspace?.projectPath) {
+            const { ProviderSkillAdapterService } = await import('../services/providerSkillAdapter.service');
+            await ProviderSkillAdapterService.mountSkillsForProvider(
+              activeWorkspace.projectPath,
+              'antigravity',
+              [newSkill]
+            );
+            await ProviderSkillAdapterService.mountSkillsForProvider(
+              activeWorkspace.projectPath,
+              'claude',
+              [newSkill]
+            );
+          }
+        } catch (e) {
+          console.warn('Native skill install auto-mount notice:', e);
+        }
       },
 
       uninstallSkill: async (skillId) => {
@@ -108,9 +129,45 @@ export const useSkillStore = create<SkillState>()(
           },
         });
 
-        // Live stream injection directive directly into target PTY
+        // 1. Mount into provider-native progressive disclosure path (.agents/skills or .claude/skills)
         try {
-          const injectionText = `\n[ORBIT CONTINUOUS INVARIANT - SKILL EQUIPPED: ${skill.name}]: ${skill.directive}\n`;
+          const { useWorkspaceStore } = await import('./workspace.store');
+          const { useAgentStore } = await import('./agent.store');
+          const agent = useAgentStore.getState().agents.find(a => a.id === agentId);
+          const activeWorkspace = useWorkspaceStore.getState().getActiveWorkspace();
+          if (agent && activeWorkspace?.projectPath) {
+            const { ProviderSkillAdapterService } = await import('../services/providerSkillAdapter.service');
+            await ProviderSkillAdapterService.mountSkillsForProvider(
+              activeWorkspace.projectPath,
+              agent.provider,
+              [skill]
+            );
+          }
+        } catch (e) {
+          console.warn('Progressive disclosure mount notice on equip:', e);
+        }
+
+        // 2. Stream natural provider-tailored command or mention directly into target PTY
+        try {
+          const { useAgentStore } = await import('./agent.store');
+          const agent = useAgentStore.getState().agents.find(a => a.id === agentId);
+          const slugName = (skill.shortLabel || skill.name)
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '-')
+            .replace(/-+/g, '-');
+
+          let injectionText = '';
+          if (agent?.provider === 'claude') {
+            // Claude Code uses slash-command /skill or .claude/skills reference
+            injectionText = `\n/use-skill ${slugName}\n[SKILL MOUNTED: .claude/skills/${slugName}/SKILL.md]\n`;
+          } else if (agent?.provider === 'antigravity') {
+            // Antigravity progressive disclosure standard reference
+            injectionText = `\n[EQUIPPED SKILL: ${skill.name}]\nRead .agents/skills/${slugName}/SKILL.md for instructions and rules when relevant.\n`;
+          } else {
+            // Universal reference
+            injectionText = `\n[EQUIPPED SKILL: ${skill.name}]\nLocation: .agents/skills/${slugName}/SKILL.md\nInstruction: Follow all guidelines in this skill for upcoming tasks.\n`;
+          }
+
           await tauriService.sendAgentInput(agentId, 'default', injectionText);
         } catch (err) {
           console.warn('PTY skill stream injection notice:', err);

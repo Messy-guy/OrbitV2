@@ -319,6 +319,21 @@ export const tauriService = {
     return invoke<void>('resolve_project_issue', { workspaceId, issueId });
   },
 
+  async writeProjectSkillFile(projectPath: string, relativePath: string, content: string): Promise<boolean> {
+    if (!isTauriAvailable()) return false;
+    try {
+      return await invoke<boolean>('write_project_skill_file', { projectPath, relativePath, content });
+    } catch (e) {
+      console.warn('write_project_skill_file fallback:', e);
+      return false;
+    }
+  },
+
+  async installAgentCli(command: string): Promise<string> {
+    if (!isTauriAvailable()) return 'Simulated install in web mode';
+    return invoke<string>('install_agent_cli', { command });
+  },
+
   // Event Subscriptions
   async onAgentOutput(callback: (payload: AgentOutputPayload) => void): Promise<UnlistenFn> {
     if (!isTauriAvailable()) return () => {};

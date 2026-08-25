@@ -344,16 +344,16 @@ export const AgentCanvas: React.FC = () => {
   const getCanvasBackground = () => {
     if (canvasGridStyle === 'grid') {
       return {
-        backgroundImage: `linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px)`,
+        backgroundImage: `linear-gradient(to right, var(--border-hover) 1px, transparent 1px), linear-gradient(to bottom, var(--border-hover) 1px, transparent 1px)`,
         backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
         backgroundPosition: `${pan.x}px ${pan.y}px`,
       };
     } else if (canvasGridStyle === 'solid') {
       return {};
     }
-    // Default: Dots
+    // Default: Dynamic Theme-Aware Dots (Crisply visible in both Light and Dark themes)
     return {
-      backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)',
+      backgroundImage: 'radial-gradient(var(--border-active) 1.5px, transparent 1.5px)',
       backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
       backgroundPosition: `${pan.x}px ${pan.y}px`,
     };
@@ -370,43 +370,43 @@ export const AgentCanvas: React.FC = () => {
         isPanning ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       style={{
-        backgroundColor: 'var(--bg-canvas, #07080a)',
+        backgroundColor: 'var(--bg-canvas)',
         ...getCanvasBackground(),
       }}
     >
       {/* Bottom-Left Canvas Zoom & Navigation Floating Bar */}
-      <div className="absolute bottom-4 left-4 z-40 flex items-center gap-1 bg-[#14151b]/95 backdrop-blur-md border border-[#272935] rounded-lg p-1 shadow-2xl text-xs font-mono text-[#8e93a0]">
+      <div className="absolute bottom-4 left-4 z-40 flex items-center gap-1.5 glass-elevated rounded-xl p-1.5 shadow-2xl text-xs font-mono text-text-muted">
         <button
           onClick={() => setZoom(prev => Math.max(0.35, prev * 0.9))}
-          className="p-1.5 hover:text-[#f3f4f8] hover:bg-[#1f212c] rounded-md transition-colors"
+          className="p-1.5 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
           title="Zoom Out"
         >
           <ZoomOut size={13} />
         </button>
         <button
           onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-          className="px-1.5 py-0.5 hover:text-[#f3f4f8] font-medium text-[11px] transition-colors"
+          className="px-2 py-0.5 hover:text-white font-medium text-[11px] transition-colors cursor-pointer"
           title="Reset Zoom to 100%"
         >
           {Math.round(zoom * 100)}%
         </button>
         <button
           onClick={() => setZoom(prev => Math.min(1.8, prev * 1.1))}
-          className="p-1.5 hover:text-[#f3f4f8] hover:bg-[#1f212c] rounded-md transition-colors"
+          className="p-1.5 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
           title="Zoom In"
         >
           <ZoomIn size={13} />
         </button>
-        <div className="h-3.5 w-px bg-[#272935] mx-0.5" />
+        <div className="h-3.5 w-px bg-white/10 mx-0.5" />
         <button
           onClick={handleFitToView}
-          className="flex items-center gap-1 px-2 py-1 hover:text-[#f3f4f8] hover:bg-[#1f212c] rounded-md text-[11px] transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1 hover:text-white hover:bg-white/5 rounded-lg text-[11px] transition-colors cursor-pointer"
           title="Fit All Terminals to View"
         >
           <Maximize size={11} />
           <span>Fit View</span>
         </button>
-        <div className="h-3.5 w-px bg-[#272935] mx-0.5" />
+        <div className="h-3.5 w-px bg-white/10 mx-0.5" />
         {/* Layout Presets */}
         <button
           onClick={() => {
@@ -423,7 +423,7 @@ export const AgentCanvas: React.FC = () => {
             });
             setWindowBounds(layout);
           }}
-          className="p-1.5 hover:text-white hover:bg-[#1f212c] rounded-md transition-colors"
+          className="p-1.5 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
           title="Side-by-Side (50/50 Split)"
         >
           <Columns2 size={13} />

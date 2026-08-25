@@ -20,9 +20,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           className={twMerge(
             clsx(
-              'w-full surface-well rounded-btn px-3 py-1.5 text-xs text-text-primary placeholder:text-text-dim transition-colors font-mono',
-              'focus:outline-none focus:border-border-highlight focus:bg-well',
-              icon && 'pl-8',
+              'w-full surface-well rounded-xl px-3.5 py-2 text-xs text-text-primary placeholder:text-text-dim transition-all duration-140 ease-[cubic-bezier(0.16,1,0.3,1)] font-mono',
+              'focus:outline-none focus:border-border-active focus:bg-well focus:shadow-[0_0_0_1px_rgba(255,255,255,0.12)]',
+              icon && 'pl-9',
               error && 'border-status-error focus:border-status-error',
               className
             )

@@ -17,7 +17,7 @@ use commands::{
     resize_agent_terminal, save_agent, save_checkpoint, save_project_context,
     send_agent_input, set_agent_role, get_agent_mcp_tools, start_agent_session, stop_agent_session, get_agent_terminal_history,
     is_agent_process_running, get_project_activity, generate_context_draft, apply_context_draft,
-    record_user_decision, resolve_project_issue, get_agent_usage_stats, open_external_url, AppState,
+    record_user_decision, resolve_project_issue, get_agent_usage_stats, write_project_skill_file, install_agent_cli, open_external_url, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use storage::StorageManager;
@@ -74,6 +74,8 @@ pub fn run() {
             record_user_decision,
             resolve_project_issue,
             get_agent_usage_stats,
+            write_project_skill_file,
+            install_agent_cli,
             open_external_url,
         ])
         .run(tauri::generate_context!())

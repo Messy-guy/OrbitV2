@@ -30,11 +30,7 @@ export const AppHeader: React.FC = () => {
 
   return (
     <header 
-      className="h-10 border-b px-3 flex items-center justify-between select-none z-30 font-sans transition-colors duration-200"
-      style={{
-        backgroundColor: 'var(--bg-chrome, #0c0d10)',
-        borderColor: 'var(--border-subtle, rgba(255,255,255,0.06))',
-      }}
+      className="h-10 border-b px-3 flex items-center justify-between select-none z-30 font-sans transition-all duration-200 glass-panel border-white/5"
     >
       {/* Left-Aligned Strip: Sidebar Toggle + Brand Logo + Project Name + Flat Space Tabs */}
       <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-x-auto">

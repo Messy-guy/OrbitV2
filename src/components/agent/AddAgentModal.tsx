@@ -3,6 +3,7 @@ import { Check, ArrowRight, UserCheck, Plus, Sparkles, AlertCircle, ChevronDown 
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { CustomSelect, SelectOption } from '../ui/CustomSelect';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -14,6 +15,10 @@ import { ProUpgradeModal } from './ProUpgradeModal';
 import { clsx } from 'clsx';
 
 import { useSettingsStore } from '../../stores/settings.store';
+
+import { OFFICIAL_AGENT_INSTALLERS, AgentInstallerConfig } from '../../constants/agentInstallers';
+import { tauriService } from '../../services/tauri.service';
+import { Terminal as TerminalIcon, Download, Copy, RefreshCw } from 'lucide-react';
 
 export const AddAgentModal: React.FC = () => {
   const { isAddAgentOpen, setAddAgentOpen, spawnerParentAgentId } = useUIStore();
@@ -37,6 +42,12 @@ export const AddAgentModal: React.FC = () => {
   const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
+
+  // In-App 1-Click Installer State
+  const [isInstalling, setIsInstalling] = useState(false);
+  const [installOutput, setInstallOutput] = useState<string | null>(null);
+  const [customInstallCmd, setCustomInstallCmd] = useState('');
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   // Compute unique profiles strictly scoped per agent/provider (e.g. Antigravity only sees Antigravity profiles)
   const existingProfiles = Array.from(
@@ -83,10 +94,31 @@ export const AddAgentModal: React.FC = () => {
     }
   }, [isAddAgentOpen]);
 
-  useEffect(() => {
-    setCustomProfile('default');
-    setIsCreatingNewProfile(false);
-  }, [selectedProvider]);
+  const refreshDetection = async () => {
+    try {
+      const res = await agentService.detectInstalledAgents();
+      setDetectedAgents(res);
+    } catch {}
+  };
+
+  const handleInstallAgent = async (cmdToRun?: string) => {
+    const installerConfig = OFFICIAL_AGENT_INSTALLERS[selectedProvider];
+    const cmd = cmdToRun || (selectedProvider === 'custom' ? customInstallCmd : installerConfig?.command);
+    if (!cmd) return;
+
+    setIsInstalling(true);
+    setInstallOutput('🚀 Starting installation in Orbit background runner...\n');
+
+    try {
+      const output = await tauriService.installAgentCli(cmd);
+      setInstallOutput((prev) => `${prev || ''}\n✅ Installation output:\n${output}\n\n🔍 Refreshing detected agents...`);
+      await refreshDetection();
+    } catch (err: any) {
+      setInstallOutput((prev) => `${prev || ''}\n❌ Installation failed:\n${err?.message || err}\n`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
 
   const handleNextStep = () => {
     if (currentRunningAgents >= maxAllowedSlots) {
@@ -171,20 +203,20 @@ export const AddAgentModal: React.FC = () => {
       >
         <div className="flex flex-col font-sans -mx-4 -my-4">
           {/* Main 2-Pane Content Grid */}
-          <div className="flex flex-col sm:flex-row h-[420px] overflow-hidden">
+          <div className="flex flex-col sm:flex-row h-[500px] overflow-hidden">
             
-            {/* Left Pane: Compact AI Engine Picker (Internal Scroll only) */}
-            <div className="w-full sm:w-64 border-b sm:border-b-0 sm:border-r border-border bg-panel-elevated p-3 flex flex-col gap-2 shrink-0 select-none">
+            {/* Left Pane: Dedicated Scrollable Engine Catalog (Scales to 50+ CLIs) */}
+            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-3.5 flex flex-col gap-2.5 shrink-0 select-none">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
-                  1. Engine / Harness
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                  1. AI Engine
                 </span>
-                <span className="text-[9px] font-mono text-text-dim">
-                  {AVAILABLE_AGENT_PRESETS.length} Available
+                <span className="text-[9.5px] font-mono text-text-dim">
+                  {AVAILABLE_AGENT_PRESETS.length} presets
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-0.5 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                 {AVAILABLE_AGENT_PRESETS.map((preset) => {
                   const isSelected = selectedProvider === preset.provider;
                   const detected = detectedAgents.find((d) => d.provider === preset.provider);
@@ -196,31 +228,29 @@ export const AddAgentModal: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedProvider(preset.provider)}
                       className={clsx(
-                        'w-full p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer select-none',
-                        isSelected
-                          ? 'bg-panel border-border-hover shadow-xs ring-1 ring-border-hover'
-                          : 'bg-well/50 hover:bg-panel border-border text-text-muted'
+                        'w-full px-3 py-2.5 rounded-xl text-left flex items-center justify-between cursor-pointer select-none group',
+                        isSelected ? 'surface-selectable-active' : 'surface-selectable'
                       )}
                     >
-                      <div className="flex items-center gap-2 truncate">
-                        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', isSelected ? 'bg-text-primary' : 'bg-text-dim')} />
+                      <div className="flex items-center gap-2.5 truncate min-w-0 pr-2">
+                        <span className={clsx('w-2 h-2 rounded-full shrink-0', isAvailableOnHost ? 'bg-emerald-400 ring-2 ring-emerald-400/20' : 'bg-amber-400 ring-2 ring-amber-400/20')} />
                         <div className="flex flex-col truncate">
-                          <span className={clsx('text-xs font-mono font-bold truncate', isSelected ? 'text-text-primary' : 'text-text-secondary')}>
+                          <span className={clsx('text-xs font-mono font-semibold truncate leading-tight', isSelected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary')}>
                             {preset.name}
                           </span>
-                          <span className="text-[10px] font-mono text-text-dim truncate">
+                          <span className="text-[10px] font-mono text-text-dim truncate mt-0.5">
                             {detected?.version || preset.model}
                           </span>
                         </div>
                       </div>
 
                       {isAvailableOnHost ? (
-                        <span className="text-[8.5px] uppercase font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
-                          Installed
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
+                          Ready
                         </span>
                       ) : (
-                        <span className="text-[8.5px] uppercase font-bold px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 font-mono shrink-0">
-                          Not Installed
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
+                          Install
                         </span>
                       )}
                     </button>
@@ -229,132 +259,196 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {selectedProvider === 'custom' && (
-                <div className="p-2 bg-well rounded-xl border border-border space-y-1.5 shrink-0">
-                  <span className="text-[9.5px] font-mono font-bold uppercase text-text-secondary">Custom CLI</span>
+                <div className="p-2.5 bg-well rounded-xl border border-border space-y-1.5 shrink-0 mt-1">
+                  <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-text-muted">Custom CLI Binary</span>
                   <input
                     type="text"
-                    placeholder="Binary/Command (e.g. aider)"
+                    placeholder="e.g. aider, mentor"
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
-                    className="w-full px-2 py-1 rounded-lg bg-panel border border-border text-text-primary text-[11px] font-mono focus:outline-hidden"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-panel border border-border text-text-primary text-[11px] font-mono focus:outline-hidden"
                   />
                 </div>
               )}
             </div>
 
-            {/* Right Pane: Mode, Directive & Profile Controls */}
-            <div className="flex-1 p-4 flex flex-col justify-between overflow-y-auto bg-panel gap-3.5">
+            {/* Right Pane: Modes, Directives, Profile & 1-Click Installer */}
+            <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between overflow-y-auto bg-panel gap-4 custom-scrollbar">
               
-              {/* Purpose & Mode Selector */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
-                  2. Operating Mode (Auto-Binds Invariant Skills)
+              {/* If Selected Agent is NOT installed: Clean 1-Click Installer Banner */}
+              {detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false && (
+                <div className="p-3.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/20 flex flex-col gap-2.5 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Download size={14} className="text-amber-400" />
+                      <span className="font-mono font-bold text-xs text-text-primary">
+                        Setup {selectedPreset?.name || 'Agent'} CLI
+                      </span>
+                    </div>
+                    <button
+                      onClick={refreshDetection}
+                      className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                      title="Re-check installation"
+                    >
+                      <RefreshCw size={12} className={isInstalling ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-text-muted leading-relaxed">
+                    {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.description || 'Harness binary not detected on your system. Run 1-click install below.'}
+                  </p>
+
+                  <div className="flex flex-col gap-2 pt-0.5">
+                    {selectedProvider === 'custom' ? (
+                      <input
+                        type="text"
+                        placeholder="e.g. pip install aider-chat"
+                        value={customInstallCmd}
+                        onChange={(e) => setCustomInstallCmd(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-[11px] focus:outline-hidden"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[11px] text-text-primary truncate">
+                        <span className="truncate text-emerald-400 select-all font-mono">
+                          {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command || 'npm i -g custom-agent'}
+                        </span>
+                        <button
+                          onClick={() => {
+                            const cmd = OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command;
+                            if (cmd) {
+                              navigator.clipboard.writeText(cmd);
+                              setCopiedCmd(true);
+                              setTimeout(() => setCopiedCmd(false), 2000);
+                            }
+                          }}
+                          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel transition-colors shrink-0 ml-2 cursor-pointer"
+                          title="Copy command"
+                        >
+                          {copiedCmd ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleInstallAgent()}
+                      isLoading={isInstalling}
+                      className="font-mono text-xs font-bold gap-2 bg-amber-500 hover:bg-amber-400 text-black border-amber-500 h-8.5 rounded-xl"
+                    >
+                      <TerminalIcon size={13} />
+                      <span>{isInstalling ? 'Installing in Orbit...' : `⚡ 1-Click Install ${selectedPreset?.name || ''}`}</span>
+                    </Button>
+                  </div>
+
+                  {installOutput && (
+                    <div className="p-2.5 rounded-xl bg-black/60 border border-border font-mono text-[10px] text-zinc-300 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                      {installOutput}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 2. Operational Mode (Auto-Binds Invariant Skills) */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                  2. Operational Mode (Auto-Binds Skills)
                 </span>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setSelectedRole('architect')}
                     className={clsx(
-                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
-                      selectedRole === 'architect'
-                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
-                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                      'p-3 rounded-xl text-left flex flex-col gap-1.5 cursor-pointer select-none',
+                      selectedRole === 'architect' ? 'surface-selectable-active' : 'surface-selectable'
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold text-text-primary">📐 1. Plan</span>
-                      <span className="text-[8.5px] font-mono text-amber-400 bg-amber-400/10 px-1 rounded">Spec Skill</span>
+                      <span className="text-[8.5px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-md font-semibold">SPEC</span>
                     </div>
-                    <span className="text-[9.5px] text-text-muted leading-tight">Strict plan only. Forbids raw edits; produces architecture & tests.</span>
+                    <span className="text-[9.5px] text-text-muted leading-snug">Strict plan only. Forbids code edits; outputs specs & tests.</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setSelectedRole('implementer')}
                     className={clsx(
-                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
-                      selectedRole === 'implementer'
-                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
-                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                      'p-3 rounded-xl text-left flex flex-col gap-1.5 cursor-pointer select-none',
+                      selectedRole === 'implementer' ? 'surface-selectable-active' : 'surface-selectable'
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold text-text-primary">⚡ 2. Code</span>
-                      <span className="text-[8.5px] font-mono text-emerald-400 bg-emerald-400/10 px-1 rounded">TDD Skill</span>
+                      <span className="text-[8.5px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-md font-semibold">TDD</span>
                     </div>
-                    <span className="text-[9.5px] text-text-muted leading-tight">TDD implementer. Writes clean, type-safe minimal code to pass tests.</span>
+                    <span className="text-[9.5px] text-text-muted leading-snug">TDD builder. Writes minimal type-safe code to pass tests.</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setSelectedRole('reviewer')}
                     className={clsx(
-                      'p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer select-none',
-                      selectedRole === 'reviewer'
-                        ? 'bg-panel-hover border-border-hover shadow-xs ring-1 ring-border-hover'
-                        : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
+                      'p-3 rounded-xl text-left flex flex-col gap-1.5 cursor-pointer select-none',
+                      selectedRole === 'reviewer' ? 'surface-selectable-active' : 'surface-selectable'
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold text-text-primary">🛡️ 3. Audit</span>
-                      <span className="text-[8.5px] font-mono text-sky-400 bg-sky-400/10 px-1 rounded">AST Skill</span>
+                      <span className="text-[8.5px] font-mono text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded-md font-semibold">AST</span>
                     </div>
-                    <span className="text-[9.5px] text-text-muted leading-tight">AST security auditor. Reviews git diffs, OWASP leaks, and invariants.</span>
+                    <span className="text-[9.5px] text-text-muted leading-snug">AST security auditor. Reviews diffs, OWASP & invariants.</span>
                   </button>
                 </div>
               </div>
 
-              {/* Task Directive / Goal input */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary flex items-center justify-between">
-                  <span>3. Task Directive / Scope</span>
-                  <span className="text-[9px] text-text-dim lowercase">optional</span>
+              {/* 3. Task Directive / Scope */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted flex items-center justify-between">
+                  <span>3. Initial Task Directive</span>
+                  <span className="text-[9.5px] text-text-dim lowercase font-mono">optional</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Run test suite on auth endpoints, implement JWT rotation"
+                  placeholder="e.g. Build auth endpoints with rate limiting, write unit tests"
                   value={taskDirective}
                   onChange={(e) => setTaskDirective(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleCreateAgent();
                   }}
-                  className="px-3 py-2 rounded-xl bg-panel-elevated border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-hidden focus:border-border-hover transition-colors"
+                  className="px-3.5 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-hidden focus:border-border-hover transition-colors"
                 />
               </div>
 
-              {/* Account Profile Context */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
+              {/* 4. Account Profile / Sandbox */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
                   4. Account Profile / Sandbox
                 </span>
                 {!isCreatingNewProfile ? (
-                  <div className="relative">
-                    <select
-                      value={customProfile}
-                      onChange={(e) => {
-                        if (e.target.value === '__NEW__') {
-                          setIsCreatingNewProfile(true);
-                          setCustomProfile('');
-                        } else {
-                          setCustomProfile(e.target.value);
-                        }
-                      }}
-                      className="w-full appearance-none px-3 py-2 rounded-xl bg-[#0e0f13] border border-white/[0.12] hover:border-white/[0.2] text-[#ededed] font-mono text-xs focus:outline-hidden cursor-pointer pr-8 shadow-inner"
-                      style={{ color: '#ededed', backgroundColor: '#0e0f13' }}
-                    >
-                      {existingProfiles.map((p) => (
-                        <option key={p} value={p} style={{ backgroundColor: '#14151b', color: '#f3f4f8' }}>
-                          {p === 'default' ? 'default (Main Global Auth)' : `Profile: ${p}`}
-                        </option>
-                      ))}
-                      <option value="__NEW__" style={{ backgroundColor: '#14151b', color: '#fbbf24', fontWeight: 'bold' }}>
-                        + Create New Account Profile…
-                      </option>
-                    </select>
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
-                      <ChevronDown size={12} />
-                    </div>
-                  </div>
+                  <CustomSelect
+                    value={customProfile}
+                    onChange={(val) => {
+                      if (val === '__NEW__') {
+                        setIsCreatingNewProfile(true);
+                        setCustomProfile('');
+                      } else {
+                        setCustomProfile(val);
+                      }
+                    }}
+                    options={[
+                      ...existingProfiles.map((p) => ({
+                        value: p,
+                        label: p === 'default' ? 'default (Global Auth)' : `Profile: ${p}`,
+                        sublabel: p === 'default' ? 'Shared API keys & auth token' : 'Isolated sandbox credentials',
+                      })),
+                      {
+                        value: '__NEW__',
+                        label: '+ Create New Account Profile…',
+                        isAction: true,
+                      },
+                    ]}
+                  />
                 ) : (
                   <div className="flex items-center gap-2">
                     <input
@@ -363,8 +457,7 @@ export const AddAgentModal: React.FC = () => {
                       value={customProfile}
                       onChange={(e) => setCustomProfile(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
                       autoFocus
-                      className="flex-1 px-3 py-2 rounded-xl bg-[#0e0f13] border border-white/[0.15] text-[#ededed] font-mono text-xs focus:outline-hidden"
-                      style={{ color: '#ededed', backgroundColor: '#0e0f13' }}
+                      className="flex-1 px-3.5 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-xs focus:outline-hidden"
                     />
                     <button
                       type="button"
@@ -372,7 +465,7 @@ export const AddAgentModal: React.FC = () => {
                         setIsCreatingNewProfile(false);
                         setCustomProfile('default');
                       }}
-                      className="px-2.5 py-1.5 rounded-lg text-text-muted hover:text-text-primary text-xs font-mono"
+                      className="px-3 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-well text-xs font-mono cursor-pointer transition-colors"
                     >
                       Cancel
                     </button>
@@ -381,36 +474,38 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {/* Footer Actions */}
-              <div className="flex items-center justify-between pt-2 border-t border-border mt-auto">
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center justify-between pt-3 border-t border-border mt-auto">
+                <div className="flex items-center gap-2">
                   {detectedAgents.length > 0 && !detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable && (
-                    <span className="text-[10px] font-mono text-rose-400 font-bold flex items-center gap-1">
-                      ⚠️ Binary not installed on host
+                    <span className="text-[10.5px] font-mono text-amber-400 font-medium flex items-center gap-1.5">
+                      💡 Click "1-Click Install" above to setup
                     </span>
                   )}
                   {detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable !== false && (
                     <span className="text-[10px] font-mono text-text-dim">
-                      Press <kbd className="px-1.5 py-0.5 rounded bg-well text-text-secondary font-mono">Enter</kbd>
+                      Press <kbd className="px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono text-[9.5px]">Enter ↵</kbd>
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <Button
                     variant="ghost"
+                    size="sm"
                     onClick={() => setAddAgentOpen(false)}
-                    className="font-mono text-xs"
+                    className="font-mono text-xs px-3 py-1.5 h-8.5 rounded-xl"
                   >
                     Cancel
                   </Button>
                   <Button
                     variant="primary"
+                    size="sm"
                     onClick={handleCreateAgent}
                     isLoading={isSubmitting}
                     disabled={detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false}
-                    className="gap-1.5 font-mono text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="gap-2 font-mono text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed px-4.5 py-1.5 h-8.5 rounded-xl"
                   >
                     <span>Spawn Worker</span>
-                    <ArrowRight size={13} />
+                    <ArrowRight size={13} strokeWidth={2.5} />
                   </Button>
                 </div>
               </div>

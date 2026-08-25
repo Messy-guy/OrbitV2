@@ -287,8 +287,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
         }));
 
-        // Automatically equip the mode's configured custom skills into the skill store
+        // Mount native progressive-disclosure skills into .agents/skills or .claude/skills
         if (customModeSkills.length > 0) {
+          try {
+            const { ProviderSkillAdapterService } = await import('../services/providerSkillAdapter.service');
+            await ProviderSkillAdapterService.mountSkillsForProvider(
+              projectPath,
+              newAgent.provider,
+              customModeSkills
+            );
+          } catch (mountErr) {
+            console.warn('Native progressive disclosure skill mounting notice:', mountErr);
+          }
+
           const skillStore = useSkillStore.getState();
           for (const skill of customModeSkills) {
             await skillStore.equipSkillToAgent(newAgent.id, skill);
