@@ -23,7 +23,7 @@ import { desktopRelayService } from './services/desktopRelay.service';
 export const App: React.FC = () => {
   const { activeWorkspaceId, loadWorkspaces } = useWorkspaceStore();
   const { theme, accent } = useSettingsStore();
-  const { isAuthenticated, user, tokens } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { isProUpgradeModalOpen, setProUpgradeModalOpen } = useUIStore();
   const { agents } = useAgentStore();
 
@@ -37,12 +37,12 @@ export const App: React.FC = () => {
   }, [loadWorkspaces, theme, accent]);
 
   useEffect(() => {
-    if (isAuthenticated && tokens?.accessToken) {
-      desktopRelayService.connect();
-    } else {
+    // Automatically connect desktop to relay whenever the app is active
+    desktopRelayService.connect();
+    return () => {
       desktopRelayService.disconnect();
-    }
-  }, [isAuthenticated, tokens?.accessToken]);
+    };
+  }, []);
 
   // Mandatory Authentication Gatekeeper
   if (!isAuthenticated) {

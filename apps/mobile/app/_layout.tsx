@@ -21,8 +21,12 @@ export default function RootLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: '#0A0B0E' },
+          contentStyle: { backgroundColor: '#08090C' },
           animation: 'slide_from_right',
+          presentation: 'card',
+          gestureEnabled: true,
+          fullScreenGestureEnabled: true,
+          animationDuration: 220,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -31,6 +35,9 @@ export default function RootLayout() {
           options={{
             headerShown: false,
             animation: 'slide_from_right',
+            presentation: 'card',
+            gestureEnabled: true,
+            fullScreenGestureEnabled: true,
           }}
         />
       </Stack>

@@ -22,6 +22,19 @@ export interface MobileProjectSummary {
   updatedAt: number;
 }
 
+export interface MobileAgentChatMessage {
+  id: string;
+  agentId: string;
+  sender: 'user' | 'agent' | 'system';
+  content: string;
+  thought?: string;
+  toolCall?: {
+    toolName: string;
+    summary?: string;
+  };
+  timestamp: number;
+}
+
 export interface MobileAgentDetail {
   id: string;
   name: string;
@@ -29,12 +42,23 @@ export interface MobileAgentDetail {
   profileId?: string;
   status: AgentStatus;
   currentTaskDescription?: string;
+  terminalLogs?: string[];
+  chatHistory?: MobileAgentChatMessage[];
   tokensUsed: number;
   filesTouchedCount: number;
   runtimeSeconds: number;
   requiresAttention: boolean;
   attentionPrompt?: string;
   updatedAt: number;
+}
+
+export interface MobileSwarmStats {
+  totalActiveAgents: number;
+  totalTokensBurned: number;
+  burnRatePerMinute: number;
+  activeWorkspacesCount: number;
+  cpuPercent?: number;
+  ramPercent?: number;
 }
 
 export interface MobileWhatsHappeningBrief {

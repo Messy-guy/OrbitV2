@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, Modal, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Modal, Pressable, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { MobileWhatsHappeningBrief } from '../../types/orbit';
-import { Sparkles, X, Check, AlertTriangle, Lightbulb, ArrowRight } from 'lucide-react-native';
+import { OrbitTokens } from '../../design-system/tokens';
+import { Sparkles, X, Check, AlertTriangle, ArrowRight } from 'lucide-react-native';
 
 interface WhatsHappeningModalProps {
   isOpen: boolean;
@@ -23,129 +24,207 @@ export const WhatsHappeningModal: React.FC<WhatsHappeningModalProps> = ({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View className="flex-1 justify-end bg-black/70">
-        <View className="bg-[#121318] border-t border-white/10 rounded-t-3xl p-5 max-h-[85%]">
-          
+      <View style={styles.overlay}>
+        <View style={styles.sheetContainer}>
           {/* Header Bar */}
-          <View className="flex-row justify-between items-center mb-4 pb-3 border-b border-white/[0.06]">
-            <View className="flex-row items-center gap-2">
-              <View className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                <Sparkles size={13} color="#10B981" />
-              </View>
-              <Text className="text-white font-mono font-bold text-sm tracking-wider uppercase">
-                What's Happening?
-              </Text>
+          <View style={styles.headerBar}>
+            <View style={styles.headerTitleBox}>
+              <Sparkles size={18} color="#818CF8" />
+              <Text style={styles.headerTitle}>What's Happening?</Text>
             </View>
 
-            <Pressable
-              onPress={onClose}
-              className="p-1 rounded-lg bg-white/[0.06] active:opacity-75"
-            >
-              <X size={15} color="#A1A1AA" />
+            <Pressable onPress={onClose} style={styles.closeBtn}>
+              <X size={16} color="#FFFFFF" />
             </Pressable>
           </View>
 
           {isLoading ? (
-            <View className="py-12 items-center justify-center">
-              <ActivityIndicator size="large" color="#10B981" />
-              <Text className="text-zinc-400 font-mono text-xs mt-3">
-                Distilling recent agent memory & diffs...
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="large" color="#6366F1" />
+              <Text style={styles.loadingText}>
+                Distilling agent memory & diffs...
               </Text>
             </View>
           ) : brief ? (
-            <ScrollView showsVerticalScrollIndicator={false} className="space-y-4">
-              
-              {/* Executive Headline & Summary */}
-              <View className="p-3.5 bg-white/[0.04] border border-white/[0.06] rounded-2xl">
-                <Text className="text-emerald-400 font-mono font-bold text-xs uppercase mb-1">
-                  Executive Brief
-                </Text>
-                <Text className="text-white font-mono text-xs leading-relaxed font-semibold mb-2">
-                  {brief.headline}
-                </Text>
-                <Text className="text-zinc-300 font-mono text-xs leading-relaxed">
-                  {brief.executiveSummary}
-                </Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
+              {/* Headline & Summary */}
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionHeading}>Executive Summary</Text>
+                <Text style={styles.headlineText}>{brief.headline}</Text>
+                <Text style={styles.summaryText}>{brief.executiveSummary}</Text>
               </View>
 
-              {/* Completed Tasks */}
+              {/* Accomplished */}
               {brief.accomplished.length > 0 && (
-                <View className="p-3.5 bg-white/[0.04] border border-white/[0.06] rounded-2xl">
-                  <Text className="text-zinc-400 font-mono text-[11px] uppercase tracking-wider font-bold mb-2">
-                    Accomplished in this Turn
-                  </Text>
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionHeading}>Accomplished this turn</Text>
                   {brief.accomplished.map((item, idx) => (
-                    <View key={idx} className="flex-row items-start gap-2 mb-1.5 last:mb-0">
-                      <Check size={13} color="#10B981" className="mt-0.5 shrink-0" />
-                      <Text className="text-zinc-300 font-mono text-xs flex-1">{item}</Text>
+                    <View key={idx} style={styles.itemRow}>
+                      <Check size={14} color="#10B981" style={{ marginTop: 2 }} />
+                      <Text style={styles.itemText}>{item}</Text>
                     </View>
                   ))}
                 </View>
               )}
 
-              {/* Blockers & Errors */}
+              {/* Blockers */}
               {brief.blockersAndErrors.length > 0 && (
-                <View className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
-                  <View className="flex-row items-center gap-1.5 mb-2">
-                    <AlertTriangle size={13} color="#F59E0B" />
-                    <Text className="text-amber-400 font-mono text-[11px] uppercase font-bold">
-                      Blockers & Failures
+                <View style={[styles.sectionCard, styles.blockerCard]}>
+                  <View style={styles.blockerTitleRow}>
+                    <AlertTriangle size={15} color="#F59E0B" />
+                    <Text style={[styles.sectionHeading, { color: '#F59E0B', marginBottom: 0 }]}>
+                      Issues & Blockers
                     </Text>
                   </View>
                   {brief.blockersAndErrors.map((err, idx) => (
-                    <Text key={idx} className="text-amber-200 font-mono text-xs mb-1 last:mb-0">
-                      • {err}
-                    </Text>
+                    <Text key={idx} style={styles.blockerText}>• {err}</Text>
                   ))}
                 </View>
               )}
 
-              {/* Key Decisions */}
-              {brief.keyDecisions.length > 0 && (
-                <View className="p-3.5 bg-white/[0.04] border border-white/[0.06] rounded-2xl">
-                  <View className="flex-row items-center gap-1.5 mb-2">
-                    <Lightbulb size={13} color="#60A5FA" />
-                    <Text className="text-blue-400 font-mono text-[11px] uppercase font-bold">
-                      Architectural Decisions
-                    </Text>
-                  </View>
-                  {brief.keyDecisions.map((dec, idx) => (
-                    <Text key={idx} className="text-zinc-300 font-mono text-xs mb-1 last:mb-0">
-                      • {dec}
-                    </Text>
-                  ))}
+              {/* Next Step */}
+              {brief.recommendedNextStep ? (
+                <View style={[styles.sectionCard, styles.nextStepCard]}>
+                  <Text style={styles.nextStepHeading}>Recommended Next Step</Text>
+                  <Text style={styles.nextStepText}>{brief.recommendedNextStep}</Text>
                 </View>
-              )}
-
-              {/* Recommended Next Step */}
-              {brief.recommendedNextStep && (
-                <View className="p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl mb-4">
-                  <Text className="text-indigo-400 font-mono text-[11px] uppercase font-bold mb-1">
-                    Recommended Next Step
-                  </Text>
-                  <Text className="text-indigo-200 font-mono text-xs leading-relaxed">
-                    {brief.recommendedNextStep}
-                  </Text>
-                </View>
-              )}
-
+              ) : null}
             </ScrollView>
-          ) : (
-            <View className="py-8 items-center justify-center">
-              <Text className="text-zinc-400 font-mono text-xs">No active summary available.</Text>
-            </View>
-          )}
-
-          {/* Dismiss Button */}
-          <Pressable
-            onPress={onClose}
-            className="w-full py-3 bg-white rounded-xl items-center justify-center active:opacity-90 mt-3"
-          >
-            <Text className="text-black font-mono font-bold text-xs">Close Brief</Text>
-          </Pressable>
-
+          ) : null}
         </View>
       </View>
     </Modal>
   );
 };
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'flex-end',
+  },
+  sheetContainer: {
+    backgroundColor: '#111726',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.15)',
+    borderTopLeftRadius: OrbitTokens.radii.lg,
+    borderTopRightRadius: OrbitTokens.radii.lg,
+    maxHeight: '85%',
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  headerTitleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  loadingBox: {
+    padding: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13.5,
+    color: '#94A3B8',
+  },
+  scrollBody: {
+    padding: 20,
+    gap: 14,
+    paddingBottom: 40,
+  },
+  sectionCard: {
+    backgroundColor: 'rgba(23, 31, 51, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: OrbitTokens.radii.md,
+    padding: 16,
+  },
+  sectionHeading: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#818CF8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  headlineText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 6,
+    lineHeight: 21,
+  },
+  summaryText: {
+    fontSize: 13.5,
+    color: '#CBD5E1',
+    lineHeight: 20,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 8,
+  },
+  itemText: {
+    fontSize: 13.5,
+    color: '#E2E8F0',
+    flex: 1,
+    lineHeight: 19,
+  },
+  blockerCard: {
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+  },
+  blockerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  blockerText: {
+    fontSize: 13,
+    color: '#FDE68A',
+    lineHeight: 19,
+    marginBottom: 4,
+  },
+  nextStepCard: {
+    borderColor: 'rgba(99, 102, 241, 0.45)',
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+  },
+  nextStepHeading: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#A5B4FC',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  nextStepText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+});

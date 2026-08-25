@@ -1,86 +1,95 @@
 import React from 'react';
-import { View, Text, FlatList, Pressable, ActivityIndicator, RefreshControl } from 'react-native';
+import {
+  View, Text, FlatList, RefreshControl, StyleSheet,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePendingApprovals, useAgentControls } from '../../src/hooks/useAgentControls';
-import { Check, X, ShieldAlert, Terminal, MessageSquare, ShieldCheck } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Check, X, Terminal, ShieldCheck } from 'lucide-react-native';
+import { AstryxSkeleton } from '../../src/design-system/primitives/AstryxSkeleton';
+import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
+import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
+import { GlassCard } from '../../src/design-system/primitives/GlassCard';
+import { OrbitTokens } from '../../src/design-system/tokens';
 
 export default function ApprovalsScreen() {
   const { data: approvals, isLoading, isRefetching, refetch } = usePendingApprovals();
   const { approveAction, isApproving } = useAgentControls();
 
   return (
-    <View className="flex-1 bg-[#090A0F] px-4 pt-12">
+    <SafeAreaView style={styles.root} edges={['top']}>
       {/* Header */}
-      <View className="flex-row items-center justify-between mb-6">
+      <View style={styles.header}>
         <View>
-          <Text className="text-white font-mono font-bold text-lg">TERMINAL APPROVALS</Text>
-          <Text className="text-zinc-400 font-mono text-xs">
-            Approve or reject CLI commands requested by your agents
-          </Text>
+          <Text style={styles.appGreeting}>Gatekeeper</Text>
+          <Text style={styles.pageTitle}>Approvals</Text>
         </View>
 
-        <View className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30">
-          <Text className="text-amber-400 font-mono text-xs font-bold">
-            {approvals?.length || 0} Waiting
-          </Text>
-        </View>
+        {approvals && approvals.length > 0 && (
+          <AstryxBadge
+            label={`${approvals.length} Pending`}
+            variant="warning"
+            showDot
+          />
+        )}
       </View>
 
+      {/* Content */}
       {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#10B981" />
+        <View style={styles.skeletonContainer}>
+          <AstryxSkeleton height={180} borderRadius={24} style={{ marginBottom: 14 }} />
+          <AstryxSkeleton height={180} borderRadius={24} style={{ marginBottom: 14 }} />
         </View>
       ) : !approvals || approvals.length === 0 ? (
-        <View className="flex-1 items-center justify-center p-6">
-          <View className="w-14 h-14 rounded-3xl bg-[#141620] border border-white/10 flex items-center justify-center mb-3.5 shadow-lg">
-            <ShieldCheck size={24} color="#10B981" />
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconCircle}>
+            <ShieldCheck size={28} color="#10B981" />
           </View>
-          <Text className="text-white font-mono font-bold text-sm mb-1">No Actions Pending</Text>
-          <Text className="text-zinc-400 font-mono text-xs text-center max-w-xs leading-relaxed">
-            When an agent (like Claude Code or AGY) asks to run a sensitive command (e.g. `git push` or `rm -rf`), it will appear here for 1-tap mobile approval.
+          <Text style={styles.emptyTitle}>All Clear</Text>
+          <Text style={styles.emptySubtitle}>
+            When an agent requests authorization for terminal commands or destructive changes, it will appear here.
           </Text>
         </View>
       ) : (
         <FlatList
           data={approvals}
           keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor="#2563EB"
+            />
+          }
           renderItem={({ item }) => (
-            <LinearGradient
-              colors={['#161822', '#0E1017']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              className="p-4.5 border border-white/[0.08] rounded-3xl mb-3.5"
-            >
-              {/* Agent Identifier */}
-              <View className="flex-row justify-between items-center mb-2.5">
-                <View className="flex-row items-center gap-2">
-                  <ShieldAlert size={14} color="#F59E0B" />
-                  <Text className="text-amber-400 font-mono font-bold text-xs">
-                    @{item.agentName}
-                  </Text>
+            <GlassCard>
+              {/* Agent Tag Row */}
+              <View style={styles.cardHeader}>
+                <View style={styles.agentTag}>
+                  <Text style={styles.agentName}>@{item.agentName}</Text>
+                  <Text style={styles.providerName}>{item.provider.toUpperCase()}</Text>
                 </View>
-                <Text className="text-zinc-400 font-mono text-[10px] uppercase font-bold">
-                  {item.provider}
-                </Text>
+                <AstryxBadge label="Requires Approval" variant="danger" />
               </View>
 
-              {/* Action Question */}
-              <Text className="text-white font-mono text-xs font-semibold mb-2.5 leading-relaxed">
-                {item.question}
-              </Text>
+              {/* Question */}
+              <Text style={styles.questionText}>{item.question}</Text>
 
-              {/* Command Preview if any */}
+              {/* Command Block */}
               {item.commandSnippet && (
-                <View className="p-3 bg-black/60 border border-white/[0.06] rounded-2xl mb-3.5">
-                  <Text className="text-emerald-400 font-mono text-xs font-semibold">
-                    $ {item.commandSnippet}
-                  </Text>
+                <View style={styles.codeBlock}>
+                  <Terminal size={14} color="#60A5FA" style={{ marginTop: 2 }} />
+                  <Text style={styles.codeText}>{item.commandSnippet}</Text>
                 </View>
               )}
 
-              {/* Quick Approval Buttons */}
-              <View className="flex-row items-center gap-2.5 pt-3 border-t border-white/[0.06]">
-                <Pressable
+              {/* Authorization Actions */}
+              <View style={styles.actionsRow}>
+                <AstryxButton
+                  label="Authorize"
+                  variant="primary"
+                  size="md"
                   onPress={() =>
                     approveAction({
                       agentId: item.agentId,
@@ -88,14 +97,14 @@ export default function ApprovalsScreen() {
                       decision: 'APPROVE',
                     })
                   }
-                  disabled={isApproving}
-                  className="flex-1 py-3 rounded-2xl bg-emerald-500 items-center justify-center flex-row gap-1.5 active:opacity-85 shadow-sm"
-                >
-                  <Check size={14} color="#000000" strokeWidth={3} />
-                  <Text className="text-black font-mono font-bold text-xs">Approve Command</Text>
-                </Pressable>
-
-                <Pressable
+                  isLoading={isApproving}
+                  icon={<Check size={16} color="#FFFFFF" />}
+                  style={{ flex: 1 }}
+                />
+                <AstryxButton
+                  label="Deny"
+                  variant="danger"
+                  size="md"
                   onPress={() =>
                     approveAction({
                       agentId: item.agentId,
@@ -103,24 +112,127 @@ export default function ApprovalsScreen() {
                       decision: 'REJECT',
                     })
                   }
-                  disabled={isApproving}
-                  className="flex-1 py-3 rounded-2xl bg-white/[0.06] border border-white/10 items-center justify-center flex-row gap-1.5 active:opacity-85"
-                >
-                  <X size={14} color="#EF4444" strokeWidth={3} />
-                  <Text className="text-red-400 font-mono font-bold text-xs">Reject</Text>
-                </Pressable>
+                  isLoading={isApproving}
+                  icon={<X size={16} color={OrbitTokens.colors.accent.danger} />}
+                  style={{ flex: 1 }}
+                />
               </View>
-            </LinearGradient>
+            </GlassCard>
           )}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              tintColor="#10B981"
-            />
-          }
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#070B14',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 16,
+  },
+  appGreeting: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#60A5FA',
+    letterSpacing: -0.2,
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.6,
+    marginTop: 2,
+  },
+  skeletonContainer: {
+    paddingHorizontal: 20,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 36,
+    gap: 8,
+  },
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#F8FAFC',
+  },
+  emptySubtitle: {
+    fontSize: 13.5,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  agentTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  agentName: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  providerName: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  questionText: {
+    fontSize: 14,
+    color: '#F1F5F9',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  codeBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(11, 17, 32, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: OrbitTokens.radii.sm,
+    padding: 12,
+    marginBottom: 16,
+  },
+  codeText: {
+    fontSize: 12.5,
+    color: '#93C5FD',
+    fontFamily: 'monospace',
+    flex: 1,
+    lineHeight: 18,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+});

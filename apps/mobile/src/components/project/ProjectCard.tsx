@@ -1,94 +1,156 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { MobileProjectSummary } from '../../types/orbit';
-import { FolderGit2, ShieldCheck, ChevronRight, Activity, GitBranch, Cpu } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { OrbitTokens } from '../../design-system/tokens';
+import { GlassCard } from '../../design-system/primitives/GlassCard';
+import { AstryxBadge } from '../../design-system/primitives/AstryxBadge';
+import { ChevronRight, FolderGit2, GitBranch, Activity } from 'lucide-react-native';
 
-interface ProjectCardProps {
+interface Props {
   project: MobileProjectSummary;
   onPress: () => void;
 }
 
-export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onPress }) => {
-  const isHealthy = project.failingTestsCount === 0;
+export const ProjectCard: React.FC<Props> = ({ project, onPress }) => {
+  const isActive = project.activeAgentsCount > 0;
+  const hasErrors = project.failingTestsCount > 0;
 
   return (
-    <Pressable
-      onPress={onPress}
-      className="mb-3.5 rounded-3xl overflow-hidden active:opacity-85"
-      style={{
-        shadowColor: '#10B981',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 16,
-        elevation: 4,
-      }}
-    >
-      <LinearGradient
-        colors={['#161822', '#0E1017']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        className="p-5 border border-white/[0.08] rounded-3xl"
-      >
-        {/* Top Glow Ambient Strip */}
-        <View className="flex-row justify-between items-center mb-3">
-          <View className="flex-row items-center gap-2.5 flex-1 min-w-0 pr-2">
-            <View className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <FolderGit2 size={16} color="#10B981" />
-            </View>
-            <View className="flex-1 min-w-0">
-              <Text className="text-white font-mono font-bold text-base tracking-tight truncate">
-                {project.name}
-              </Text>
-              <Text className="text-zinc-400 font-mono text-[10.5px] truncate">
-                {project.projectPath}
-              </Text>
-            </View>
-          </View>
+    <GlassCard onPress={onPress} active={isActive}>
+      {/* Top Identity & Status Row */}
+      <View style={styles.topRow}>
+        <View style={styles.iconBox}>
+          <FolderGit2 size={20} color={isActive ? '#38BDF8' : '#94A3B8'} />
+        </View>
 
-          {/* Active Agents Capsule */}
-          <View className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex-row items-center gap-1.5 shadow-sm">
-            <View className="w-2 h-2 rounded-full bg-emerald-400" />
-            <Text className="text-emerald-300 font-mono font-bold text-[11px]">
-              {project.activeAgentsCount} {project.activeAgentsCount === 1 ? 'Agent' : 'Agents'}
-            </Text>
+        <View style={styles.nameBlock}>
+          <Text style={styles.projectName} numberOfLines={1}>
+            {project.name}
+          </Text>
+          <View style={styles.branchBox}>
+            <GitBranch size={12} color="#94A3B8" />
+            <Text style={styles.branchText}>{project.gitBranch || 'main'}</Text>
           </View>
         </View>
 
-        {/* Middle: AI Last Turn Digest Card */}
-        <View className="p-3 bg-black/40 border border-white/[0.05] rounded-2xl mb-3.5 flex-row items-start gap-2">
-          <Activity size={13} color="#A1A1AA" className="mt-0.5 shrink-0" />
-          <Text className="text-zinc-300 font-mono text-xs leading-relaxed flex-1" numberOfLines={2}>
-            {project.lastActivitySummary || 'Ready for multi-agent dispatch'}
+        <View style={styles.badgeGroup}>
+          {isActive && (
+            <AstryxBadge
+              label={`${project.activeAgentsCount} Active`}
+              variant="primary"
+              showDot
+            />
+          )}
+          {hasErrors && (
+            <AstryxBadge
+              label={`${project.failingTestsCount} Failing`}
+              variant="danger"
+            />
+          )}
+        </View>
+      </View>
+
+      {/* Activity Digest */}
+      {project.lastActivitySummary ? (
+        <View style={styles.activityBox}>
+          <Activity size={13} color="#38BDF8" style={{ marginTop: 2 }} />
+          <Text style={styles.activityText} numberOfLines={2}>
+            {project.lastActivitySummary}
           </Text>
         </View>
+      ) : null}
 
-        {/* Bottom Metrics Bar */}
-        <View className="flex-row items-center justify-between pt-3 border-t border-white/[0.06]">
-          <View className="flex-row items-center gap-2">
-            <View className="flex-row items-center gap-1 bg-white/[0.06] px-2.5 py-1 rounded-lg border border-white/[0.08]">
-              <GitBranch size={11} color="#A1A1AA" />
-              <Text className="text-zinc-300 font-mono text-[11px] font-semibold">
-                {project.gitBranch || 'main'}
-              </Text>
-            </View>
-
-            <Text className="text-zinc-400 font-mono text-[11px]">
-              {project.filesModifiedCount} files edited
-            </Text>
-          </View>
-
-          <View className="flex-row items-center gap-1">
-            <View className="flex-row items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <ShieldCheck size={12} color="#10B981" />
-              <Text className="text-emerald-400 font-mono text-[11px] font-bold">
-                {project.contextFreshnessPercentage}% Fresh
-              </Text>
-            </View>
-            <ChevronRight size={14} color="#71717A" />
-          </View>
+      {/* Footer Metrics */}
+      <View style={styles.footerRow}>
+        <Text style={styles.metaText}>
+          {project.filesModifiedCount} modified files
+        </Text>
+        <View style={styles.freshnessBox}>
+          <Text style={[styles.metaText, { color: '#38BDF8', fontWeight: '600' }]}>
+            {project.contextFreshnessPercentage}% Fresh
+          </Text>
+          <ChevronRight size={15} color="#94A3B8" />
         </View>
-      </LinearGradient>
-    </Pressable>
+      </View>
+    </GlassCard>
   );
 };
+
+const styles = StyleSheet.create({
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  iconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  nameBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  projectName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  branchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  branchText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  badgeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activityBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    padding: 12,
+    borderRadius: OrbitTokens.radii.sm,
+    borderWidth: 1,
+    borderColor: OrbitTokens.border.glassHairline,
+    marginBottom: 12,
+  },
+  activityText: {
+    fontSize: 12.5,
+    color: '#CBD5E1',
+    flex: 1,
+    lineHeight: 18,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    paddingTop: 10,
+  },
+  metaText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  freshnessBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+});

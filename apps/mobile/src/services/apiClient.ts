@@ -1,7 +1,7 @@
 import { secureStorage } from './secureStorage';
 import { ENDPOINTS } from '../constants/endpoints';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.60:3000';
+const DEFAULT_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.60:3000';
 
 export class ApiError extends Error {
   status: number;
@@ -17,7 +17,9 @@ export class ApiError extends Error {
 
 export async function secureFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = await secureStorage.getAccessToken();
-  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+  const customRelayUrl = await secureStorage.getRelayUrl();
+  const baseUrl = customRelayUrl || DEFAULT_API_URL;
+  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -36,7 +38,6 @@ export async function secureFetch<T>(endpoint: string, options: RequestInit = {}
     });
 
     if (response.status === 401) {
-      // Clear credentials on unauthorized response
       await secureStorage.clearTokens();
       throw new ApiError('Session expired. Please re-authenticate.', 401);
     }
@@ -55,14 +56,16 @@ export async function secureFetch<T>(endpoint: string, options: RequestInit = {}
       );
     }
 
-    // Handle 204 No Content
     if (response.status === 204) {
       return {} as T;
     }
 
-    return (await response.json()) as T;
+    return await response.json();
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError((error as Error).message || 'Network connection failed', 0);
+    throw new ApiError(
+      error instanceof Error ? error.message : 'Network connection failed',
+      0
+    );
   }
 }

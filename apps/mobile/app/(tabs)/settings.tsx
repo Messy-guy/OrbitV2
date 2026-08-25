@@ -1,272 +1,408 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, ScrollView, TextInput, Alert, Platform, Modal, StyleSheet } from 'react-native';
+import {
+  View, Text, ScrollView, TextInput, Alert,
+  Modal, StyleSheet, Platform, Pressable,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { secureStorage } from '../../src/services/secureStorage';
 import { mobileRelayService } from '../../src/services/mobileRelay.service';
-import { QrCode, Wifi, LogOut, Laptop, Check, Key, X, Camera } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { OrbitTokens } from '../../src/design-system/tokens';
+import { GlassCard } from '../../src/design-system/primitives/GlassCard';
+import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
+import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
+import { Radio, QrCode, Key, LogOut, Check, X, Laptop } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
-export default function DeviceSyncScreen() {
+export default function SyncScreen() {
   const router = useRouter();
-  const [manualPayload, setManualPayload] = useState('');
+  const [manualToken, setManualToken] = useState('');
   const [isPairing, setIsPairing] = useState(false);
   const [pairingSuccess, setPairingSuccess] = useState(false);
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const [isDesktopConnected, setIsDesktopConnected] = useState(mobileRelayService.latestState.isDesktopOnline);
+  const [connected, setConnected] = useState(mobileRelayService.latestState.isDesktopOnline);
 
   useEffect(() => {
     mobileRelayService.connect();
-    const unsubscribe = mobileRelayService.subscribe(() => {
-      setIsDesktopConnected(mobileRelayService.latestState.isDesktopOnline);
-    });
-    return unsubscribe;
+    const unsub = mobileRelayService.subscribe(() => setConnected(mobileRelayService.latestState.isDesktopOnline));
+    return unsub;
   }, []);
 
-  const handleApplyPairing = async (rawPayload: string) => {
-    if (!rawPayload || isPairing) return;
+  const applyPairing = async (raw: string) => {
+    if (!raw || isPairing) return;
+    setIsPairing(true);
     try {
-      setIsPairing(true);
       let token = '';
+      let relayUrl = '';
 
-      const trimmed = rawPayload.trim();
-      if (trimmed.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          token = parsed.token || parsed.accessToken || '';
-        } catch {}
+      if (raw.trim().startsWith('{')) {
+        const parsed = JSON.parse(raw.trim());
+        token = parsed.token || parsed.accessToken || '';
+        relayUrl = parsed.relayUrl || '';
       } else {
-        token = trimmed;
+        token = raw.trim();
       }
 
-      if (token) {
-        await secureStorage.setAccessToken(token);
-        await mobileRelayService.connect();
-        try {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {}
-        setPairingSuccess(true);
-        setIsScannerOpen(false);
-        setManualPayload('');
-        setTimeout(() => {
-          setPairingSuccess(false);
-          router.replace('/(tabs)');
-        }, 800);
-      } else {
-        throw new Error('No valid token found in scanned QR');
+      if (!token) throw new Error('No token found in payload');
+
+      await secureStorage.setAccessToken(token);
+      if (relayUrl) {
+        await secureStorage.setRelayUrl(relayUrl);
       }
-    } catch (e) {
+
+      await mobileRelayService.connect();
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {}
+      setPairingSuccess(true);
+      setScannerOpen(false);
+      setManualToken('');
+      setTimeout(() => {
+        setPairingSuccess(false);
+        router.replace('/(tabs)');
+      }, 900);
+    } catch {
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       } catch {}
-      Alert.alert('Pairing Error', 'Invalid QR code. Please ensure you are scanning the QR code from Orbit Desktop.');
+      Alert.alert('Pairing Failed', 'Invalid pairing secret or workstation QR token.');
     } finally {
       setIsPairing(false);
     }
   };
 
-  const handleOpenScanner = async () => {
+  const openScanner = async () => {
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert('Camera Permission Required', 'Please enable camera access to scan your desktop QR code.');
+        Alert.alert('Camera Access', 'Please allow camera permission to scan the pairing QR code.');
         return;
       }
     }
-    setIsScannerOpen(true);
+    setScannerOpen(true);
   };
 
   return (
-    <ScrollView className="flex-1 bg-[#090A0F] px-4 pt-12" contentContainerStyle={{ paddingBottom: 40 }}>
+    <SafeAreaView style={styles.root} edges={['top']}>
       {/* Header */}
-      <View className="mb-6">
-        <Text className="text-white font-mono font-bold text-lg">DEVICE SYNC</Text>
-        <Text className="text-zinc-400 font-mono text-xs">Pair your mobile cockpit with your desktop workstation</Text>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.appGreeting}>Workstation</Text>
+          <Text style={styles.pageTitle}>Sync & Connect</Text>
+        </View>
+
+        <AstryxBadge
+          label={connected ? 'Connected' : 'Offline'}
+          variant={connected ? 'success' : 'neutral'}
+          showDot={connected}
+        />
       </View>
 
-      {/* Live Workstation Connection Card */}
-      <LinearGradient
-        colors={['#161822', '#0E1017']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        className="p-4.5 border border-white/[0.08] rounded-3xl mb-4"
-      >
-        <View className="flex-row items-center justify-between mb-3">
-          <View className="flex-row items-center gap-2">
-            <View className={`w-7 h-7 rounded-xl ${isDesktopConnected ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-zinc-800 border-zinc-700'} border flex items-center justify-center`}>
-              <Wifi size={14} color={isDesktopConnected ? '#10B981' : '#71717A'} />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Connection Status Card */}
+        <GlassCard active={connected}>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconCircle}>
+              <Laptop size={20} color="#60A5FA" />
             </View>
-            <Text className="text-white font-mono font-bold text-xs">WORKSTATION LINK</Text>
-          </View>
-          <View className={`px-2.5 py-0.5 rounded-full ${isDesktopConnected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-zinc-800 border-zinc-700'} border`}>
-            <Text className={`font-mono text-[10px] font-bold uppercase ${isDesktopConnected ? 'text-emerald-400' : 'text-zinc-400'}`}>
-              {isDesktopConnected ? 'Connected' : 'Waiting for Desktop'}
-            </Text>
-          </View>
-        </View>
-
-        <Text className="text-zinc-400 font-mono text-xs leading-relaxed mb-3.5">
-          {isDesktopConnected
-            ? 'Your laptop is connected and streaming live terminal progress directly to your phone.'
-            : 'Open Orbit on your computer to automatically establish the local connection.'}
-        </Text>
-
-        <View className="p-3 bg-black/40 border border-white/[0.06] rounded-2xl flex-row items-center justify-between">
-          <View className="flex-row items-center gap-2">
-            <Laptop size={14} color="#A1A1AA" />
-            <Text className="text-zinc-300 font-mono text-xs font-semibold">
-              Host Workstation ({Platform.OS === 'android' ? 'Linux / PC' : 'Dev Laptop'})
-            </Text>
-          </View>
-          <Text className="text-zinc-500 font-mono text-[11px]">
-            {isDesktopConnected ? 'Live' : 'Standby'}
-          </Text>
-        </View>
-      </LinearGradient>
-
-      {/* QR Code Workstation Pairing Card */}
-      <LinearGradient
-        colors={['#161822', '#0E1017']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        className="p-4.5 border border-white/[0.08] rounded-3xl mb-4"
-      >
-        <View className="flex-row items-center gap-2 mb-2">
-          <QrCode size={16} color="#FFFFFF" />
-          <Text className="text-white font-mono font-bold text-xs uppercase tracking-wider">
-            Pair with Desktop
-          </Text>
-        </View>
-
-        <Text className="text-zinc-400 font-mono text-xs leading-relaxed mb-4">
-          Click the <Text className="text-white font-bold">📱 Mobile icon</Text> in your Orbit Desktop header to display the QR Code.
-        </Text>
-
-        {pairingSuccess ? (
-          <View className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex-row items-center justify-center gap-2 mb-2">
-            <Check size={16} color="#10B981" />
-            <Text className="text-emerald-400 font-mono text-xs font-bold">
-              Paired Successfully! Syncing Workspaces...
-            </Text>
-          </View>
-        ) : (
-          <View className="flex-col gap-3">
-            {/* Primary Action: 1-Tap Camera QR Scanner */}
-            <Pressable
-              onPress={handleOpenScanner}
-              className="w-full py-3.5 rounded-2xl bg-emerald-500 flex-row items-center justify-center gap-2 active:opacity-85 shadow-md"
-            >
-              <Camera size={16} color="#000000" />
-              <Text className="text-black font-mono font-bold text-xs">
-                Scan Desktop QR Code
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Primary Computer</Text>
+              <Text style={styles.cardSubtitle}>
+                {connected ? 'Live relay streaming • 12ms latency' : 'Offline or awaiting desktop launch'}
               </Text>
-            </Pressable>
+            </View>
+          </View>
 
-            {/* Fallback Action: Manual Paste */}
-            <View className="flex-col gap-2 pt-2 border-t border-white/[0.06]">
-              <Text className="text-zinc-500 font-mono text-[10.5px]">
-                Or paste pairing token manually:
+          <View style={styles.detailsRow}>
+            <Text style={styles.detailLabel}>Tunnel Protocol</Text>
+            <Text style={styles.detailValue}>Socket.IO WebSocket</Text>
+          </View>
+          <View style={styles.detailsRow}>
+            <Text style={styles.detailLabel}>Encryption</Text>
+            <Text style={styles.detailValue}>End-to-End TLS</Text>
+          </View>
+        </GlassCard>
+
+        {/* Pairing Actions Card */}
+        <GlassCard>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconCircle}>
+              <QrCode size={20} color="#60A5FA" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Pair New Device</Text>
+              <Text style={styles.cardSubtitle}>
+                Scan QR from Orbit Desktop to connect this phone
               </Text>
-              <TextInput
-                value={manualPayload}
-                onChangeText={setManualPayload}
-                placeholder="Paste pairing code here..."
-                placeholderTextColor="#52525B"
-                className="p-3 bg-black/50 border border-white/10 rounded-2xl font-mono text-xs text-white"
+            </View>
+          </View>
+
+          {pairingSuccess ? (
+            <View style={styles.successBanner}>
+              <Check size={16} color="#10B981" />
+              <Text style={styles.successText}>Paired Successfully! Redirecting...</Text>
+            </View>
+          ) : (
+            <View style={styles.pairingContainer}>
+              <AstryxButton
+                label="Scan Desktop QR Code"
+                variant="primary"
+                size="lg"
+                onPress={openScanner}
+                icon={<QrCode size={20} color="#FFFFFF" />}
+                style={styles.scanButton}
               />
 
-              {manualPayload.trim().length > 0 && (
-                <Pressable
-                  onPress={() => handleApplyPairing(manualPayload)}
+              <View style={styles.orDivider}>
+                <View style={styles.line} />
+                <Text style={styles.orText}>or enter token</Text>
+                <View style={styles.line} />
+              </View>
+
+              <TextInput
+                value={manualToken}
+                onChangeText={setManualToken}
+                placeholder="Paste pairing token..."
+                placeholderTextColor="#64748B"
+                style={styles.textInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              {manualToken.trim().length > 0 && (
+                <AstryxButton
+                  label={isPairing ? 'Linking...' : 'Connect Workstation'}
+                  variant="glass"
+                  size="md"
+                  onPress={() => applyPairing(manualToken)}
                   disabled={isPairing}
-                  className="w-full py-3 rounded-2xl bg-white/[0.08] border border-white/10 flex-row items-center justify-center gap-2 active:opacity-90"
-                >
-                  <Key size={14} color="#FFFFFF" />
-                  <Text className="text-white font-mono font-bold text-xs">
-                    {isPairing ? 'Linking...' : 'Apply Token'}
-                  </Text>
-                </Pressable>
+                  isLoading={isPairing}
+                  icon={<Key size={16} color="#FFFFFF" />}
+                  style={{ marginTop: 12 }}
+                />
               )}
             </View>
+          )}
+        </GlassCard>
+
+        {/* Disconnect Option */}
+        <GlassCard>
+          <View style={styles.cardHeader}>
+            <View style={[styles.iconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+              <LogOut size={20} color={OrbitTokens.colors.accent.danger} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardTitle, { color: '#FCA5A5' }]}>Unlink Workstation</Text>
+              <Text style={styles.cardSubtitle}>
+                Clear saved authentication keys on this mobile app
+              </Text>
+            </View>
           </View>
-        )}
-      </LinearGradient>
 
-      {/* Disconnect Action */}
-      <Pressable
-        onPress={async () => {
-          await secureStorage.clearTokens();
-          try {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          } catch {}
-          router.replace('/(tabs)');
-        }}
-        className="w-full py-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex-row items-center justify-center gap-2 active:opacity-75"
-      >
-        <LogOut size={13} color="#EF4444" />
-        <Text className="text-red-400 font-mono font-bold text-xs">Disconnect & Unlink</Text>
-      </Pressable>
-
-      {/* Native Camera QR Scanner Modal */}
-      <Modal
-        visible={isScannerOpen}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setIsScannerOpen(false)}
-      >
-        <View className="flex-1 bg-black">
-          <CameraView
-            style={StyleSheet.absoluteFillObject}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ['qr'],
+          <AstryxButton
+            label="Disconnect Device"
+            variant="danger"
+            size="md"
+            onPress={async () => {
+              await secureStorage.clearTokens();
+              try {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              } catch {}
+              router.replace('/(tabs)');
             }}
+            icon={<LogOut size={16} color={OrbitTokens.colors.accent.danger} />}
+          />
+        </GlassCard>
+      </ScrollView>
+
+      {/* QR Scanner Modal */}
+      <Modal visible={scannerOpen} animationType="slide" presentationStyle="fullScreen">
+        <SafeAreaView style={styles.scannerRoot} edges={['top', 'bottom']}>
+          <View style={styles.scannerNav}>
+            <Text style={styles.scannerTitle}>Scan QR Code</Text>
+            <Pressable onPress={() => setScannerOpen(false)} style={styles.scannerClose}>
+              <X size={18} color="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          <CameraView
+            style={{ flex: 1 }}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
             onBarcodeScanned={({ data }) => {
-              if (data && !isPairing) {
-                handleApplyPairing(data);
-              }
+              if (data && !isPairing) applyPairing(data);
             }}
           />
 
-          {/* Scanner Overlay UI */}
-          <View className="flex-1 justify-between p-6 pt-16 bg-black/40">
-            <View className="flex-row justify-between items-center">
-              <View>
-                <Text className="text-white font-mono font-bold text-base">SCAN DESKTOP QR</Text>
-                <Text className="text-zinc-300 font-mono text-xs">Point camera at the QR on your laptop</Text>
-              </View>
-              <Pressable
-                onPress={() => setIsScannerOpen(false)}
-                className="w-9 h-9 rounded-full bg-white/20 items-center justify-center active:opacity-75"
-              >
-                <X size={18} color="#FFFFFF" />
-              </Pressable>
-            </View>
-
-            {/* Viewfinder Target Box */}
-            <View className="self-center w-64 h-64 border-2 border-emerald-400 rounded-3xl bg-transparent relative justify-center items-center">
-              <View className="w-12 h-12 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl absolute top-0 left-0" />
-              <View className="w-12 h-12 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl absolute top-0 right-0" />
-              <View className="w-12 h-12 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl absolute bottom-0 left-0" />
-              <View className="w-12 h-12 border-b-4 border-r-4 border-emerald-400 rounded-br-xl absolute bottom-0 right-0" />
-              <Text className="text-emerald-300 font-mono text-[11px] font-bold bg-black/60 px-3 py-1 rounded-full">
-                Align QR Code Here
-              </Text>
-            </View>
-
-            <View className="items-center mb-8">
-              <Pressable
-                onPress={() => setIsScannerOpen(false)}
-                className="px-5 py-2.5 rounded-full bg-white/20 active:opacity-85"
-              >
-                <Text className="text-white font-mono font-bold text-xs">Cancel</Text>
-              </Pressable>
-            </View>
+          <View style={styles.scannerFooter}>
+            <Text style={styles.scannerHint}>
+              Point camera at the QR code displayed in the Orbit Desktop header
+            </Text>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#070B14',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 16,
+  },
+  appGreeting: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#60A5FA',
+    letterSpacing: -0.2,
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.6,
+    marginTop: 2,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+    gap: 6,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 16,
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(37, 99, 235, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  cardSubtitle: {
+    fontSize: 12.5,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#94A3B8',
+  },
+  detailValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E2E8F0',
+  },
+  pairingContainer: {
+    paddingTop: 4,
+  },
+  scanButton: {
+    marginBottom: 16,
+    height: 52,
+    borderRadius: OrbitTokens.radii.pill,
+    ...OrbitTokens.shadows.subtle,
+  },
+  orDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  orText: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  textInput: {
+    backgroundColor: 'rgba(11, 17, 32, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: OrbitTokens.radii.pill,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    fontSize: 13.5,
+    color: '#FFFFFF',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: OrbitTokens.radii.pill,
+    padding: 14,
+  },
+  successText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#34D399',
+  },
+  scannerRoot: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  scannerNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  scannerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  scannerClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerFooter: {
+    padding: 24,
+    alignItems: 'center',
+    backgroundColor: '#070B14',
+  },
+  scannerHint: {
+    fontSize: 13.5,
+    color: '#94A3B8',
+    textAlign: 'center',
+  },
+});

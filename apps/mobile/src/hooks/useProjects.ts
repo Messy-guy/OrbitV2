@@ -10,7 +10,7 @@ export const useProjects = () => {
   useEffect(() => {
     mobileRelayService.connect();
     const unsubscribe = mobileRelayService.subscribe((data) => {
-      if (data.projects && data.projects.length > 0) {
+      if (data.projects && data.projects.length >= 0) {
         queryClient.setQueryData(QUERY_KEYS.PROJECTS.LIST, data.projects);
       }
     });
@@ -20,7 +20,7 @@ export const useProjects = () => {
   return useQuery({
     queryKey: QUERY_KEYS.PROJECTS.LIST,
     queryFn: projectsModule.getProjects,
-    staleTime: 1000 * 30,
+    staleTime: 0,
     gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: true,
   });
@@ -46,6 +46,6 @@ export const useProjectDetail = (projectId: string) => {
     queryKey: QUERY_KEYS.PROJECTS.DETAIL(projectId),
     queryFn: () => projectsModule.getProjectDetail(projectId),
     enabled: !!projectId,
-    staleTime: 1000 * 15,
+    staleTime: 0,
   });
 };

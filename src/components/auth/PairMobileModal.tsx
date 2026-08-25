@@ -3,17 +3,19 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
-import { Smartphone, Wifi, ShieldCheck, Copy, Check } from 'lucide-react';
+import { desktopRelayService } from '../../services/desktopRelay.service';
+import { Wifi, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 
 export const PairMobileModal: React.FC = () => {
   const { isPairMobileOpen, setPairMobileOpen } = useUIStore();
-  const { tokens, user } = useAuthStore();
+  const { user } = useAuthStore();
   const [hasCopied, setHasCopied] = useState(false);
 
   if (!isPairMobileOpen) return null;
 
-  const token = tokens?.accessToken || (user ? `orbit_dev_${user.id}_${Date.now()}` : 'orbit_dev_master_token');
+  // Use the exact static token that desktopRelayService uses
+  const token = desktopRelayService.getRelayToken();
   const pairingPayload = JSON.stringify({
     type: 'orbit_pair',
     version: '1.0',
@@ -56,10 +58,10 @@ export const PairMobileModal: React.FC = () => {
               <Wifi size={12} className="animate-pulse" />
               <span>END-TO-END ENCRYPTED RELAY</span>
             </div>
-            <span className="text-[10px] font-mono text-text-dim">TLS 1.3</span>
+            <span className="text-[10px] font-mono text-text-dim">Socket.IO</span>
           </div>
           <p className="text-text-muted font-mono text-[11px] leading-relaxed">
-            Your phone connects via an outbound authenticated cloud tunnel. No open ports or firewall rules required.
+            Your phone connects directly to your desktop workspace over the local relay tunnel.
           </p>
         </div>
 

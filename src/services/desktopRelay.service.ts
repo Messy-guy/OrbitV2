@@ -6,14 +6,22 @@ import { useWorkspaceStore } from '../stores/workspace.store';
 class DesktopRelayService {
   private socket: Socket | null = null;
   private isConnecting = false;
+  private unsubscribeWorkspaceStore: (() => void) | null = null;
+  private unsubscribeAgentStore: (() => void) | null = null;
+
+  getRelayToken(): string {
+    const { tokens, user } = useAuthStore.getState();
+    return tokens?.accessToken || (user ? `orbit_dev_${user.id}` : 'orbit_dev_master_token');
+  }
 
   connect() {
-    const { tokens, isAuthenticated, user } = useAuthStore.getState();
-    const token = tokens?.accessToken || (user ? `orbit_dev_${user.id}` : 'orbit_dev_master_token');
-    if (!isAuthenticated || this.socket?.connected || this.isConnecting) return;
+    const token = this.getRelayToken();
+    if (this.socket?.connected || this.isConnecting) return;
 
     this.isConnecting = true;
-    const relayUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
+    const relayUrl = (import.meta as any).env?.VITE_API_URL || 'http://192.168.18.60:3000';
+
+    console.log(`🔗 [Orbit Desktop Relay] Connecting to ${relayUrl}/relay...`);
 
     this.socket = io(`${relayUrl}/relay`, {
       auth: { token: `Bearer ${token}` },
@@ -26,11 +34,13 @@ class DesktopRelayService {
 
     this.socket.on('connect', () => {
       this.isConnecting = false;
-      console.log('🔗 [Orbit Desktop Relay] Connected to Cloud Relay');
+      console.log('✅ [Orbit Desktop Relay] Connected to Cloud Relay! Socket ID:', this.socket?.id);
       this.syncFullTelemetry();
+      this.setupStoreSubscribers();
     });
 
     this.socket.on('desktop:request_telemetry', () => {
+      console.log('📡 [Orbit Desktop Relay] Telemetry requested by mobile client');
       this.syncFullTelemetry();
     });
 
@@ -48,9 +58,19 @@ class DesktopRelayService {
       const activeWs = workspaceStore.getActiveWorkspace();
 
       if (payload.action === 'PAUSE' && payload.agentId) {
-        agentStore.setAgentStatus(payload.agentId, 'paused').catch(() => {});
+        await agentStore.setAgentStatus(payload.agentId, 'paused').catch(() => {});
+        this.syncFullTelemetry();
       } else if (payload.action === 'STOP' && payload.agentId) {
-        agentStore.setAgentStatus(payload.agentId, 'ready').catch(() => {});
+        await agentStore.setAgentStatus(payload.agentId, 'ready').catch(() => {});
+        this.syncFullTelemetry();
+      } else if (payload.action === 'EMERGENCY_STOP_ALL') {
+        const { agents } = agentStore;
+        for (const a of agents) {
+          if (a.status === 'working') {
+            await agentStore.setAgentStatus(a.id, 'paused').catch(() => {});
+          }
+        }
+        this.syncFullTelemetry();
       } else if (payload.action === 'SEND_INPUT' && payload.agentId && payload.data?.input) {
         agentStore.sendTerminalCommand(
           payload.agentId,
@@ -62,7 +82,32 @@ class DesktopRelayService {
     });
   }
 
+  setupStoreSubscribers() {
+    if (this.unsubscribeWorkspaceStore) this.unsubscribeWorkspaceStore();
+    if (this.unsubscribeAgentStore) this.unsubscribeAgentStore();
+
+    this.unsubscribeWorkspaceStore = useWorkspaceStore.subscribe((state, prevState) => {
+      if (state.workspaces !== prevState.workspaces || state.activeWorkspaceId !== prevState.activeWorkspaceId) {
+        this.syncFullTelemetry();
+      }
+    });
+
+    this.unsubscribeAgentStore = useAgentStore.subscribe((state, prevState) => {
+      if (state.agents !== prevState.agents) {
+        this.syncFullTelemetry();
+      }
+    });
+  }
+
   disconnect() {
+    if (this.unsubscribeWorkspaceStore) {
+      this.unsubscribeWorkspaceStore();
+      this.unsubscribeWorkspaceStore = null;
+    }
+    if (this.unsubscribeAgentStore) {
+      this.unsubscribeAgentStore();
+      this.unsubscribeAgentStore = null;
+    }
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
@@ -73,7 +118,7 @@ class DesktopRelayService {
   syncFullTelemetry() {
     if (!this.socket?.connected) return;
 
-    const { agents } = useAgentStore.getState();
+    const { agents, terminalLogs } = useAgentStore.getState();
     const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState();
 
     const telemetryPacket = {
@@ -88,25 +133,35 @@ class DesktopRelayService {
         filesModifiedCount: 0,
         failingTestsCount: 0,
         contextFreshnessPercentage: 95,
-        lastActivitySummary: `${agents.filter((a) => a.workspaceId === w.id).length} agents configured`,
+        lastActivitySummary: `${agents.filter((a) => a.workspaceId === w.id).length} agents active in workspace`,
         updatedAt: Date.now(),
       })),
-      agents: agents.map((a) => ({
-        id: a.id,
-        name: a.name,
-        provider: a.provider,
-        profileId: a.profileId,
-        role: a.role || 'raw',
-        status: a.status,
-        currentTaskDescription: a.status === 'working' ? 'Processing active instructions' : 'Idle and ready',
-        tokensUsed: 1200,
-        filesTouchedCount: 2,
-        runtimeSeconds: 320,
-        requiresAttention: false,
-        updatedAt: Date.now(),
-      })),
+      agents: agents.map((a) => {
+        const logs = terminalLogs?.[a.id] || [];
+        const recentLogs = logs.slice(-30).map((line) => line.text || '');
+
+        return {
+          id: a.id,
+          name: a.name,
+          provider: a.provider,
+          profileId: a.profileId,
+          role: a.role || 'raw',
+          status: a.status,
+          currentTaskDescription: a.status === 'working' ? 'Processing instructions' : 'Idle and ready',
+          terminalLogs: recentLogs,
+          tokensUsed: 1200,
+          filesTouchedCount: 2,
+          runtimeSeconds: 320,
+          requiresAttention: false,
+          updatedAt: Date.now(),
+        };
+      }),
     };
 
+    console.log('📡 [Orbit Desktop Relay] Pushing live telemetry:', {
+      projectsCount: telemetryPacket.projects.length,
+      agentsCount: telemetryPacket.agents.length,
+    });
     this.socket.emit('desktop:telemetry', telemetryPacket);
   }
 }
