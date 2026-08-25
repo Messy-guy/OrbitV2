@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AgentRoleType } from '../../types/orbit';
 import { AGENT_ROLE_CONFIGS } from '../../constants/roles';
 import { Terminal, Compass, Zap, ShieldCheck, Palette, Wrench, ChevronDown, Check } from 'lucide-react';
+import { clsx } from 'clsx';
 
 interface AgentRoleCapsuleProps {
   currentRole?: AgentRoleType;
@@ -55,8 +56,7 @@ export const AgentRoleCapsule: React.FC<AgentRoleCapsuleProps> = ({
       case 'architect': return 'Alt+1';
       case 'implementer': return 'Alt+2';
       case 'reviewer': return 'Alt+3';
-      case 'designer': return 'Alt+4';
-      case 'raw': return 'Alt+5';
+      case 'raw': return 'Alt+4';
       default: return '';
     }
   };
@@ -70,30 +70,31 @@ export const AgentRoleCapsule: React.FC<AgentRoleCapsuleProps> = ({
           e.stopPropagation();
           setIsOpen(!isOpen);
         }}
-        className={`h-5 px-2 rounded-md border flex items-center gap-1.5 transition-all duration-100 select-none cursor-pointer active:scale-95 ${
+        className={clsx(
+          "h-5 px-2 rounded-md border flex items-center gap-1.5 transition-all select-none cursor-pointer active:scale-95",
           isOpen
-            ? 'bg-[#1e2029] border-white/20 text-white shadow-sm'
-            : 'bg-[#14151b] hover:bg-[#1b1d24] border-white/[0.08] hover:border-white/[0.16] text-zinc-300'
-        }`}
+            ? "bg-panel-elevated border-border-hover text-text-primary shadow-sm"
+            : "bg-well hover:bg-panel border-border text-text-secondary hover:text-text-primary"
+        )}
         title={`Active Mode: ${activeConfig.name} (Click to switch)`}
       >
         <span className="font-mono font-bold text-[10px] tracking-wider uppercase">
           {compact ? activeConfig.shortLabel : activeConfig.name}
         </span>
-        <ChevronDown size={10} className={`text-zinc-400 transition-transform duration-150 ${isOpen ? 'rotate-180 text-white' : ''}`} />
+        <ChevronDown size={10} className={clsx("text-text-muted transition-transform duration-150", isOpen && "rotate-180 text-text-primary")} />
       </button>
 
       {/* Ultra-Refined Raycast / JetBrains Command Menu */}
       {isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute top-full left-0 mt-1.5 w-52 py-1 rounded-lg bg-[#0F1015] border border-white/[0.12] shadow-[0_16px_36px_rgba(0,0,0,0.6)] z-[9999] animate-in fade-in zoom-in-95 duration-100 flex flex-col divide-y divide-white/[0.04]"
+          className="absolute top-full left-0 mt-1.5 w-52 py-1 rounded-xl bg-panel-elevated border border-border shadow-2xl z-[9999] animate-in fade-in zoom-in-95 duration-100 flex flex-col divide-y divide-border/40"
         >
           <div className="px-2.5 py-1 flex items-center justify-between">
-            <span className="text-[9.5px] font-mono uppercase font-semibold text-zinc-500 tracking-wider">
+            <span className="text-[9.5px] font-mono uppercase font-semibold text-text-muted tracking-wider">
               Terminal Mode
             </span>
-            <span className="text-[9px] font-mono text-zinc-600">Hotkeys</span>
+            <span className="text-[9px] font-mono text-text-dim">Hotkeys</span>
           </div>
 
           <div className="p-1 flex flex-col gap-0.5">
@@ -111,11 +112,12 @@ export const AgentRoleCapsule: React.FC<AgentRoleCapsuleProps> = ({
                     onSelectRole(roleKey);
                     setIsOpen(false);
                   }}
-                  className={`w-full text-left px-2 py-1.5 rounded-md transition-all flex items-center justify-between group ${
+                  className={clsx(
+                    "w-full text-left px-2 py-1.5 rounded-lg transition-all flex items-center justify-between group cursor-pointer",
                     isSelected
-                      ? 'bg-white/[0.08] text-white font-medium'
-                      : 'hover:bg-white/[0.04] text-zinc-400 hover:text-zinc-200'
-                  }`}
+                      ? "bg-well text-text-primary font-medium border border-border/80"
+                      : "hover:bg-panel text-text-muted hover:text-text-primary"
+                  )}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="shrink-0 flex items-center justify-center">
@@ -128,7 +130,7 @@ export const AgentRoleCapsule: React.FC<AgentRoleCapsuleProps> = ({
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     {shortcut && (
-                      <kbd className="px-1 py-0.2 rounded bg-black/40 border border-white/[0.08] text-[9px] font-mono text-zinc-500 group-hover:text-zinc-400">
+                      <kbd className="px-1 py-0.2 rounded bg-well border border-border text-[9px] font-mono text-text-dim group-hover:text-text-muted">
                         {shortcut}
                       </kbd>
                     )}

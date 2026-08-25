@@ -11,6 +11,7 @@ import { DiffViewerModal } from './components/git/DiffViewerModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { PairMobileModal } from './components/auth/PairMobileModal';
 import { ProUpgradeModal } from './components/agent/ProUpgradeModal';
+import { SkillBrowserModal } from './components/skills/SkillBrowserModal';
 import { UpdateNotifier } from './components/layout/UpdateNotifier';
 import { useSettingsStore, applyThemeTokens } from './stores/settings.store';
 import { useUIStore } from './stores/ui.store';
@@ -66,6 +67,7 @@ export const App: React.FC = () => {
       <DiffViewerModal />
       <AuthModal />
       <PairMobileModal />
+      <SkillBrowserModal />
       <ProUpgradeModal
         isOpen={isProUpgradeModalOpen}
         onClose={() => setProUpgradeModalOpen(false)}

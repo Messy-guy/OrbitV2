@@ -301,11 +301,10 @@ export const AgentCanvas: React.FC = () => {
         if (!focusedAgent) return;
 
         const roleMap: Record<string, import('../../types/orbit').AgentRoleType> = {
-          '1': 'architect', // Alt+1: Plan
+          '1': 'architect',   // Alt+1: Plan
           '2': 'implementer', // Alt+2: Code
-          '3': 'reviewer',    // Alt+3: Review
-          '4': 'designer',    // Alt+4: Design
-          '5': 'raw',         // Alt+5: Shell
+          '3': 'reviewer',    // Alt+3: Audit / Review
+          '4': 'raw',         // Alt+4: Shell
         };
 
         if (e.key.toLowerCase() === 'n') {

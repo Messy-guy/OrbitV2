@@ -51,6 +51,10 @@ export interface SettingsState {
   // 7. Global Multi-Account Profiles
   savedProfiles: string[];
 
+  // 8. Operating Modes & Default Bound Skills
+  modeCustomSkills: Record<string, import('./skills').SkillItem[]>;
+  modeCustomDirectives: Record<string, string>;
+
   // Actions
   setTheme: (theme: ThemeId) => void;
   setAccent: (accent: AccentId) => void;
@@ -60,7 +64,13 @@ export interface SettingsState {
   setDefaultHandoffMode: (mode: 'safe' | 'autonomous') => void;
   setMaxTokenBudget: (budget: number) => void;
   setAutoIncludeDiffs: (include: boolean) => void;
+  updateTerminalSettings: (settings: Partial<SettingsState>) => void;
   addSavedProfile: (profile: string) => void;
+  removeSavedProfile: (profile: string) => void;
+  setModeCustomSkills: (mode: string, skills: import('./skills').SkillItem[]) => void;
+  setModeCustomDirective: (mode: string, directive: string) => void;
+  addSkillToMode: (mode: string, skill: import('./skills').SkillItem) => void;
+  removeSkillFromMode: (mode: string, skillId: string) => void;
   setTerminalFontFamily: (font: string) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalLineHeight: (lineHeight: number) => void;

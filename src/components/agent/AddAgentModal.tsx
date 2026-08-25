@@ -248,7 +248,7 @@ export const AddAgentModal: React.FC = () => {
               {/* Purpose & Mode Selector */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-secondary">
-                  2. Operating Mode
+                  2. Operating Mode (Auto-Binds Invariant Skills)
                 </span>
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -261,8 +261,11 @@ export const AddAgentModal: React.FC = () => {
                         : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
                     )}
                   >
-                    <span className="font-mono text-xs font-bold text-text-primary">📐 1. Plan</span>
-                    <span className="text-[9.5px] text-text-muted leading-tight">Native --mode plan. Read-only spec.</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-text-primary">📐 1. Plan</span>
+                      <span className="text-[8.5px] font-mono text-amber-400 bg-amber-400/10 px-1 rounded">Spec Skill</span>
+                    </div>
+                    <span className="text-[9.5px] text-text-muted leading-tight">Strict plan only. Forbids raw edits; produces architecture & tests.</span>
                   </button>
 
                   <button
@@ -275,8 +278,11 @@ export const AddAgentModal: React.FC = () => {
                         : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
                     )}
                   >
-                    <span className="font-mono text-xs font-bold text-text-primary">⚡ 2. Code</span>
-                    <span className="text-[9.5px] text-text-muted leading-tight">Native --mode accept-edits. Builder.</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-text-primary">⚡ 2. Code</span>
+                      <span className="text-[8.5px] font-mono text-emerald-400 bg-emerald-400/10 px-1 rounded">TDD Skill</span>
+                    </div>
+                    <span className="text-[9.5px] text-text-muted leading-tight">TDD implementer. Writes clean, type-safe minimal code to pass tests.</span>
                   </button>
 
                   <button
@@ -289,8 +295,11 @@ export const AddAgentModal: React.FC = () => {
                         : 'bg-panel-elevated hover:bg-panel-hover border-border text-text-muted'
                     )}
                   >
-                    <span className="font-mono text-xs font-bold text-text-primary">🛡️ 3. Audit</span>
-                    <span className="text-[9.5px] text-text-muted leading-tight">Diff review & security audit.</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-text-primary">🛡️ 3. Audit</span>
+                      <span className="text-[8.5px] font-mono text-sky-400 bg-sky-400/10 px-1 rounded">AST Skill</span>
+                    </div>
+                    <span className="text-[9.5px] text-text-muted leading-tight">AST security auditor. Reviews git diffs, OWASP leaks, and invariants.</span>
                   </button>
                 </div>
               </div>

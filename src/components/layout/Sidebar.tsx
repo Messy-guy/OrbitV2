@@ -1,8 +1,9 @@
 import React from 'react';
-import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder, Star } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
+import { useSkillStore } from '../../stores/skill.store';
 import { tauriService } from '../../services';
 import { clsx } from 'clsx';
 
@@ -18,6 +19,7 @@ export const Sidebar: React.FC = () => {
 
   const { agents } = useAgentStore();
   const { isSidebarCollapsed, toggleSidebar, setCreateWorkspaceOpen, setAddAgentOpen, setMaximizedAgentId } = useUIStore();
+  const { installedSkills, favoriteSkills, setBrowserModalOpen, setDraggedSkill } = useSkillStore();
 
   const handlePickAndCreateProject = async () => {
     try {
@@ -43,176 +45,210 @@ export const Sidebar: React.FC = () => {
       case 'opencode':
         return <Code2 size={11} className="text-cyan-500" />;
       default:
-        return <Terminal size={11} className="text-text-muted" />;
+        return <Terminal size={11} className="text-emerald-500" />;
     }
   };
 
-  // Collapsed Sidebar View (Thin Icon Strip)
+  // Merge installed skills and favorite skills to display in sidebar rack
+  const rackSkills = React.useMemo(() => {
+    const map = new Map<string, typeof installedSkills[0]>();
+    for (const fav of favoriteSkills) map.set(fav.id, fav);
+    for (const inst of installedSkills) {
+      if (!map.has(inst.id)) map.set(inst.id, inst);
+    }
+    return Array.from(map.values());
+  }, [installedSkills, favoriteSkills]);
+
   if (isSidebarCollapsed) {
     return (
-      <aside className="w-12 border-r border-border flex flex-col items-center justify-between py-3 select-none z-20 font-sans transition-all duration-200 bg-chrome">
-        <div className="flex flex-col items-center gap-3">
-          {/* Expand Sidebar Trigger Button */}
-          <button
-            onClick={toggleSidebar}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-panel transition-colors cursor-pointer"
-            title="Expand Sidebar"
-          >
-            <PanelLeft size={15} />
-          </button>
-
-          <div className="w-6 h-[1px] bg-border my-1" />
-
-          {/* Quick Project Icons */}
-          {workspaces.map((project) => {
-            const isProjectActive = project.id === activeWorkspaceId;
-            return (
-              <button
-                key={project.id}
-                onClick={() => setActiveWorkspace(project.id)}
-                className={clsx(
-                  "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-mono font-bold transition-all cursor-pointer",
-                  isProjectActive
-                    ? "bg-text-primary text-background shadow-sm"
-                    : "text-text-muted hover:text-text-primary hover:bg-panel"
-                )}
-                title={project.name}
-              >
-                {project.name.charAt(0).toUpperCase()}
-              </button>
-            );
-          })}
-
-          <button
-            onClick={handlePickAndCreateProject}
-            className="w-8 h-8 rounded-lg border border-dashed border-border flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-panel transition-colors cursor-pointer"
-            title="Add Project (+)"
-          >
-            <Plus size={13} />
-          </button>
-        </div>
+      <aside className="w-10 bg-panel border-r border-border flex flex-col items-center py-2 flex-shrink-0 z-20">
+        <button
+          onClick={toggleSidebar}
+          className="p-1.5 text-text-muted hover:text-text-primary hover:bg-well rounded-md transition-colors cursor-pointer"
+          title="Expand Sidebar"
+        >
+          <PanelLeft size={14} />
+        </button>
       </aside>
     );
   }
 
-  // Expanded Sidebar View (Full Tree)
   return (
-    <aside 
-      className="w-56 border-r border-border flex flex-col justify-between select-none relative z-20 font-sans transition-all duration-200 bg-chrome"
-    >
-      {/* Top section: Projects & Agents */}
-      <div className="p-3 flex flex-col gap-3 overflow-y-auto flex-1">
-        <div className="flex items-center justify-between px-1 pt-0.5">
+    <aside className="w-56 bg-panel border-r border-border flex flex-col flex-shrink-0 select-none z-20 font-sans">
+      {/* Sidebar Header */}
+      <div className="h-9 px-3 border-b border-border flex items-center justify-between">
+        <span className="text-[11px] font-mono font-bold text-text-primary tracking-wider uppercase">
+          WORKSPACE
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handlePickAndCreateProject}
+            className="p-1 text-text-muted hover:text-text-primary hover:bg-well rounded-md transition-colors cursor-pointer"
+            title="Open Local Folder / New Project"
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            onClick={toggleSidebar}
+            className="p-1 text-text-muted hover:text-text-primary hover:bg-well rounded-md transition-colors cursor-pointer"
+            title="Collapse Sidebar"
+          >
+            <PanelLeftClose size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Project & Agent Tree */}
+      <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1 custom-scroll">
+        <div className="flex items-center justify-between px-1 mb-1">
           <span className="text-[10px] font-mono uppercase tracking-widest text-text-muted font-bold">
             PROJECTS
           </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handlePickAndCreateProject}
-              className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-panel transition-colors cursor-pointer"
-              title="Open Local Folder / Project (+)"
-            >
-              <Plus size={13} strokeWidth={2.5} />
-            </button>
-            <button
-              onClick={toggleSidebar}
-              className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-panel transition-colors cursor-pointer"
-              title="Collapse Sidebar"
-            >
-              <PanelLeftClose size={13} />
-            </button>
-          </div>
+          <button
+            onClick={handlePickAndCreateProject}
+            className="text-[10px] font-mono text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          >
+            + Open
+          </button>
         </div>
 
-        {/* Clean Line-Separated Project & Agent Tree */}
-        <div className="flex flex-col divide-y divide-border">
-          {workspaces.map((project) => {
-            const isProjectActive = project.id === activeWorkspaceId;
-            const isCollapsed = collapsedProjects[project.id] ?? false;
-            const projectAgents = agents.filter((a) => a.workspaceId === project.id);
+        {workspaces.map((project) => {
+          const isActive = project.id === activeWorkspaceId;
+          const isCollapsed = collapsedProjects[project.id] ?? false;
+          const projectAgents = agents.filter(
+            (a) => a.workspaceId === project.id || (!a.workspaceId && project.id === activeWorkspaceId)
+          );
 
-            return (
-              <div key={project.id} className="py-2.5 first:pt-1 last:pb-1 flex flex-col gap-1.5">
-                {/* Workspace / Project Title Bar */}
-                <div
-                  onClick={() => setActiveWorkspace(project.id)}
-                  className={clsx(
-                    'w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-mono font-medium transition-all group cursor-pointer select-none',
-                    isProjectActive
-                      ? 'bg-panel-elevated text-text-primary shadow-sm border border-border-hover/60 font-bold'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-panel'
-                  )}
-                >
-                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleProjectCollapsed(project.id);
-                      }}
-                      className="text-text-dim group-hover:text-text-primary p-0.5 rounded hover:bg-well transition-colors cursor-pointer shrink-0"
-                    >
-                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                    </button>
-
-                    <FolderGit2 size={13} className={isProjectActive ? "text-emerald-500 shrink-0" : "text-text-muted shrink-0"} />
-                    <span className="truncate text-xs font-semibold">{project.name}</span>
-                  </div>
-
-                  <span className="text-[10px] font-mono text-text-muted px-1.5 py-0.2 rounded bg-well border border-border shrink-0 ml-1">
-                    {projectAgents.length}
-                  </span>
+          return (
+            <div key={project.id} className="flex flex-col">
+              {/* Project Header Row */}
+              <div
+                onClick={() => setActiveWorkspace(project.id)}
+                className={clsx(
+                  'flex items-center justify-between px-2 py-1 rounded-md text-xs font-mono transition-colors group cursor-pointer',
+                  isActive
+                    ? 'bg-well text-text-primary font-semibold border border-border/80'
+                    : 'text-text-muted hover:text-text-primary hover:bg-well/50 border border-transparent'
+                )}
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleProjectCollapsed(project.id);
+                    }}
+                    className="text-text-dim hover:text-text-primary"
+                  >
+                    {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                  </button>
+                  <FolderGit2 size={12} className={clsx(isActive ? 'text-text-primary' : 'text-text-muted')} />
+                  <span className="truncate">{project.name}</span>
                 </div>
 
-                {/* Sub-Agents under this Project */}
-                {!isCollapsed && (
-                  <div className="pl-4 pr-1 flex flex-col gap-0.5 border-l border-border ml-3 mt-1">
-                    {projectAgents.length === 0 ? (
-                      <div className="px-2 py-1 text-[11px] font-mono text-text-dim flex items-center justify-between">
-                        <span>No agents active</span>
-                        {isProjectActive && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAddAgentOpen(true);
-                            }}
-                            className="text-[10px] font-mono text-text-primary hover:underline cursor-pointer"
-                          >
-                            + Spawn
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      projectAgents.map((agent) => (
-                        <div
-                          key={agent.id}
-                          onClick={() => {
-                            if (!isProjectActive) {
-                              setActiveWorkspace(project.id);
-                            }
-                            setMaximizedAgentId(agent.id);
-                          }}
-                          className="flex items-center justify-between px-2 py-1 rounded-md text-xs transition-all text-text-secondary hover:text-text-primary hover:bg-panel group cursor-pointer"
-                          title="Click to Fullscreen Terminal"
-                        >
-                          <div className="flex items-center gap-2 truncate flex-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                            <div className="shrink-0">{getProviderIcon(agent.provider)}</div>
-                            <span className="font-mono text-[11px] truncate font-medium text-text-primary">
-                              {agent.name}
-                            </span>
-                          </div>
-
-                          <span className="text-[9.5px] font-mono text-text-dim group-hover:text-text-muted uppercase">
-                            {agent.provider}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveWorkspace(project.id);
+                      setAddAgentOpen(true);
+                    }}
+                    className="p-0.5 hover:text-text-primary text-text-muted rounded cursor-pointer"
+                    title="Add Agent CLI to this project"
+                  >
+                    <Plus size={11} />
+                  </button>
+                </div>
               </div>
-            );
-          })}
+
+              {/* Sub-tree: Agents running in this project */}
+              {!isCollapsed && (
+                <div className="pl-4 pr-1 py-0.5 flex flex-col gap-0.5 border-l border-border/50 ml-2.5 my-0.5">
+                  {projectAgents.length === 0 ? (
+                    <div className="text-[10px] font-mono text-text-dim px-2 py-0.5 italic">
+                      No active agents
+                    </div>
+                  ) : (
+                    projectAgents.map((agent) => (
+                      <div
+                        key={agent.id}
+                        onClick={() => {
+                          setActiveWorkspace(project.id);
+                          setMaximizedAgentId(agent.id);
+                        }}
+                        className="flex items-center justify-between px-2 py-1 rounded text-[11px] font-mono text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          {getProviderIcon(agent.provider)}
+                          <span className="truncate">{agent.name}</span>
+                        </div>
+                        <span className="text-[9px] font-mono text-text-dim uppercase">
+                          {agent.provider}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* 🧩 SKILL RACK (Draggable Skills for Live PTY Terminal Equipping) */}
+        <div className="mt-4 pt-3 border-t border-border flex flex-col gap-1.5">
+          <div className="flex items-center justify-between px-1 mb-0.5">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-text-muted font-bold">
+              SKILLS
+            </span>
+            <button
+              onClick={() => setBrowserModalOpen(true)}
+              className="text-[10px] font-mono text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+            >
+              + Add
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            {rackSkills.length === 0 ? (
+              <div
+                onClick={() => setBrowserModalOpen(true)}
+                className="text-[10.5px] font-mono text-text-dim px-2 py-2 border border-dashed border-border rounded-md text-center hover:text-text-primary hover:bg-well/50 cursor-pointer transition-colors"
+              >
+                + Browse & Star Skills
+              </div>
+            ) : (
+              rackSkills.map((skill) => (
+                <div
+                  key={skill.id}
+                  draggable={true}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/x-orbit-skill', JSON.stringify({
+                      id: skill.id,
+                      name: skill.name,
+                      directive: skill.directive,
+                    }));
+                    setDraggedSkill({
+                      id: skill.id,
+                      name: skill.name,
+                      source: skill.source,
+                      directive: skill.directive,
+                    });
+                  }}
+                  onDragEnd={() => {
+                    setDraggedSkill(null);
+                  }}
+                  className="px-2 py-1.5 rounded-md hover:bg-panel-elevated border border-transparent hover:border-border transition-all flex items-center justify-between group cursor-grab active:cursor-grabbing select-none"
+                  title="Drag onto any terminal to equip"
+                >
+                  <span className="font-mono text-[11px] font-medium text-text-secondary group-hover:text-text-primary truncate">
+                    {skill.shortLabel || skill.name}
+                  </span>
+                  <span className="text-[9px] font-mono text-text-dim uppercase">
+                    {skill.sourceLabel || skill.author || 'Open'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </aside>

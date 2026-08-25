@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Agent, AgentProvider, AgentStatus, Message, Session, AgentGridTileLayout, TerminalLine } from '../types/orbit';
 import { agentService, sessionService, tauriService, isTauriAvailable } from '../services';
+import { useSettingsStore } from './settings.store';
+import { useSkillStore } from './skill.store';
 
 interface AgentState {
   agents: Agent[];
@@ -253,15 +255,28 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
     }
 
-    // Start real PTY process for the agent with isolated profile
+    // Start real PTY process for the agent with isolated profile and initial taskDirective
     if (isTauriAvailable() && projectPath) {
       try {
+        // Inherit custom skills configured in Settings for this mode
+        const settings = useSettingsStore.getState();
+        const customModeSkills = (initialRole && settings.modeCustomSkills[initialRole]) || [];
+        const customModeDirective = (initialRole && settings.modeCustomDirectives[initialRole]) || '';
+
+        // Combine taskDirective with settings custom directive if present
+        let combinedDirective = taskDirective?.trim() || '';
+        if (customModeDirective.trim()) {
+          combinedDirective = combinedDirective 
+            ? `${combinedDirective}\n[MODE SETTINGS RULE]: ${customModeDirective.trim()}`
+            : `[MODE SETTINGS RULE]: ${customModeDirective.trim()}`;
+        }
+
         const realPid = await agentService.startAgentProcess(
           projectPath,
           newAgent.id,
           newSession.id,
           newAgent.provider,
-          undefined,
+          combinedDirective || undefined,
           workspaceId,
           undefined,
           undefined,
@@ -271,6 +286,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set((state) => ({
           agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
         }));
+
+        // Automatically equip the mode's configured custom skills into the skill store
+        if (customModeSkills.length > 0) {
+          const skillStore = useSkillStore.getState();
+          for (const skill of customModeSkills) {
+            await skillStore.equipSkillToAgent(newAgent.id, skill);
+          }
+        }
       } catch (e) {
         console.warn('Real PTY agent process launch error:', e);
       }
@@ -337,11 +360,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       agents: state.agents.map((a) => (a.id === agentId ? { ...a, role } : a)),
     }));
 
-    // Synchronize role state to Rust backend for physical PTY mutation guard & MCP tool-gating out-of-band
+    // Synchronize role state to Rust backend & stream live mode invariant transition into PTY
     if (isTauriAvailable()) {
       tauriService.setAgentRole(agentId, role).catch((err) => {
         console.warn('Failed to set agent role in Tauri PTY manager:', err);
       });
+
+      const roleDirectives: Record<string, string> = {
+        architect: 'PLAN ARCHITECT (STRICT PLAN ONLY: You must only produce specifications, plans, and test contracts. Writing source code is forbidden).',
+        implementer: 'TDD IMPLEMENTER (STRICT BUILDER: Write minimal, type-safe code to make failing tests turn green).',
+        reviewer: 'CODE AUDITOR (STRICT AUDITOR: Audit git diffs, security vulnerabilities, and memory leaks).',
+        raw: 'SHELL TERMINAL (Raw unconstrained mode).',
+      };
+
+      const directive = roleDirectives[role] || role;
+      const transitionText = `\n[ORBIT OPERATING MODE SWITCHED TO: ${directive}]\n`;
+      const activeSess = get().activeSessionIdByAgent[agentId] || 'default';
+      tauriService.sendAgentInput(agentId, activeSess, transitionText).catch(() => {});
     }
   },
 

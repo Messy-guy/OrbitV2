@@ -1,10 +1,12 @@
 /**
- * Orbit Knowledge Graph DSA Engine
- * Models workspace activities as an Adjacency List graph with BFS traversal,
- * Degree Centrality scoring, Topological ordering, and 0/1 Knapsack token budget optimization.
+ * Orbit Knowledge Graph & DSA Optimization Engine V2
+ * Models workspace activities as an Adjacency List graph with:
+ * 1. TF-IDF Symbol Scoring & Stop-word filtering
+ * 2. PageRank Centrality with exponential time decay
+ * 3. 0/1 Knapsack Dynamic Programming ($O(N \times W)$) Token Budget Optimizer
  */
 
-export type NodeType = 'task' | 'file' | 'decision' | 'issue' | 'turn';
+export type NodeType = 'task' | 'file' | 'decision' | 'issue' | 'turn' | 'timelens';
 
 export interface GraphNode {
   id: string;
@@ -48,9 +50,12 @@ export class OrbitKnowledgeGraph {
     return this.nodes.get(id);
   }
 
+  public getAllNodes(): GraphNode[] {
+    return Array.from(this.nodes.values());
+  }
+
   /**
    * Bounded Breadth-First Search (BFS) Subgraph Extraction
-   * Traverses outward from rootTaskId up to maxDepth and collects all reachable vertices
    */
   public extractSubgraph(rootId: string, maxDepth = 2): GraphNode[] {
     if (!this.nodes.has(rootId)) {
@@ -83,41 +88,80 @@ export class OrbitKnowledgeGraph {
   }
 
   /**
-   * Calculates Degree Centrality with exponential time decay
-   * Score(n) = degree(n) * e^(-lambda * dt)
+   * PageRank Power Iteration with Exponential Time Decay
+   * PR(u) = (1-d)/N + d * sum(PR(v) / Out(v) * e^(-lambda * dt))
    */
-  public computeCentralityScores(decayLambda = 0.0000001): void {
-    const inDegree: Map<string, number> = new Map();
-    const outDegree: Map<string, number> = new Map();
+  public computePageRank(iterations = 15, damping = 0.85, decayLambda = 0.0000001): void {
+    const N = this.nodes.size;
+    if (N === 0) return;
+
+    const nodeIds = Array.from(this.nodes.keys());
+    let pr: Map<string, number> = new Map();
+    nodeIds.forEach((id) => pr.set(id, 1.0 / N));
+
     const now = Date.now();
+    const inEdges: Map<string, string[]> = new Map();
+    const outDegrees: Map<string, number> = new Map();
+
+    nodeIds.forEach((id) => {
+      inEdges.set(id, []);
+      outDegrees.set(id, 0);
+    });
 
     for (const [from, edges] of this.adjacencyList.entries()) {
-      outDegree.set(from, edges.length);
+      outDegrees.set(from, edges.length);
       for (const edge of edges) {
-        inDegree.set(edge.to, (inDegree.get(edge.to) || 0) + 1);
+        const ins = inEdges.get(edge.to) || [];
+        ins.push(from);
+        inEdges.set(edge.to, ins);
       }
     }
 
-    for (const [id, node] of this.nodes.entries()) {
-      const degree = (inDegree.get(id) || 0) * 1.5 + (outDegree.get(id) || 0);
-      const deltaMs = Math.max(0, now - node.timestamp);
-      const timeDecay = Math.exp(-decayLambda * deltaMs);
+    // Power Iteration
+    for (let iter = 0; iter < iterations; iter++) {
+      const nextPr: Map<string, number> = new Map();
+      let sinkSum = 0;
 
-      // Node base weight modulated by connectivity and recency
-      node.weight = Math.max(1, (10 + degree * 15) * timeDecay);
+      nodeIds.forEach((id) => {
+        if ((outDegrees.get(id) || 0) === 0) {
+          sinkSum += pr.get(id) || 0;
+        }
+      });
+
+      for (const id of nodeIds) {
+        const node = this.nodes.get(id)!;
+        const deltaMs = Math.max(0, now - node.timestamp);
+        const timeDecay = Math.exp(-decayLambda * deltaMs);
+
+        let incomingPr = 0;
+        const ins = inEdges.get(id) || [];
+        for (const inId of ins) {
+          const inOutDeg = outDegrees.get(inId) || 1;
+          incomingPr += (pr.get(inId) || 0) / inOutDeg;
+        }
+
+        const calculated = ((1 - damping) / N) + damping * (incomingPr + sinkSum / N) * timeDecay;
+        nextPr.set(id, calculated);
+      }
+
+      pr = nextPr;
+    }
+
+    // Update node weights based on converged PageRank
+    for (const [id, node] of this.nodes.entries()) {
+      const rankScore = pr.get(id) || 0.01;
+      node.weight = Math.max(1, rankScore * N * 50);
     }
   }
 
   /**
    * 0/1 Knapsack Dynamic Programming Token Budget Optimizer
-   * Optimally selects items to pack into maxTokenBudget with maximum information value.
+   * Maximize information value under maxTokenBudget ceiling: O(N * W)
    */
   public optimizeTokenBudget(candidateNodes: GraphNode[], maxTokenBudget: number): GraphNode[] {
     const n = candidateNodes.length;
     if (n === 0 || maxTokenBudget <= 0) return [];
 
-    // DP Table: dp[i][w] = max value using first i items with token budget w
-    // Scale token budget down by chunk of 10 to keep DP grid compact & instant
     const SCALE = 10;
     const W = Math.floor(maxTokenBudget / SCALE);
     const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(W + 1).fill(0));
@@ -137,7 +181,7 @@ export class OrbitKnowledgeGraph {
       }
     }
 
-    // Backtrack to extract chosen nodes
+    // Backtrack optimal solution
     const chosen: GraphNode[] = [];
     let currW = W;
     for (let i = n; i > 0 && currW > 0; i--) {

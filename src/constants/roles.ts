@@ -64,23 +64,6 @@ export const AGENT_ROLE_CONFIGS: Record<AgentRoleType, AgentRoleConfig> = {
       'Check for dead code and dependency additions',
     ],
   },
-  designer: {
-    id: 'designer',
-    name: 'Design',
-    shortLabel: 'DESIGN',
-    icon: 'Palette',
-    color: '#E5E7EB',
-    bgColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    description: 'Enforces project typography scales, theme tokens, and layout craft.',
-    systemDirective:
-      'ROLE: DESIGN SYSTEM SPECIALIST.\nObjective: Ensure components adhere strictly to project theme tokens, typography scales, accessibility (a11y), and tactile micro-interactions.\nRule: Reject raw inline hex colors or non-standard Tailwind utilities.',
-    invariants: [
-      'Strict design token adherence',
-      'Zero arbitrary hex colors or rogue font sizes',
-      'Ensure accessible keyboard navigation & contrast',
-    ],
-  },
   custom: {
     id: 'custom',
     name: 'Custom',

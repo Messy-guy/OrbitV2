@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Cohesive Obsidian-Graphite Dark Material System (Default) */
+    /* Obsidian-Graphite Dark Material System (Default) */
     --bg-canvas: #0b0c0e;
     --bg-chrome: #101114;
     --bg-panel: rgba(18, 19, 23, 0.88);
@@ -24,28 +24,33 @@
     --text-muted: #7A7E8F;
     --text-dim: #4E5262;
     --accent-primary: #10b981;
+    --accent-glow: rgba(16, 185, 129, 0.25);
   }
 
   body {
     background-color: var(--bg-canvas);
     color: var(--text-primary);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     margin: 0;
     padding: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
     overflow: hidden;
-    transition: background-color 200ms ease, color 200ms ease;
+    transition: background-color 150ms ease, color 150ms ease;
   }
 
   ::selection {
     background-color: rgba(255, 255, 255, 0.25);
     color: #FFFFFF;
   }
+
+  button, input, textarea, select {
+    font-family: inherit;
+  }
 }
 
-/* Precision Dynamic Surface System */
+/* Precision Dynamic Surface & Button System */
 @layer utilities {
   /* Main Agent Tile / Container Surface */
   .surface-panel {
@@ -61,7 +66,7 @@
     box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.35);
   }
 
-  /* Recessed Well (Conversation Canvas, Inputs, Code Blocks, Tool Logs) */
+  /* Recessed Well */
   .surface-well {
     background-color: var(--bg-well);
     border: 1px solid var(--border-subtle);
@@ -77,7 +82,7 @@
     background: var(--bg-panel-elevated);
     border: 1px solid var(--border-base);
     color: var(--text-primary);
-    transition: all 140ms cubic-bezier(0.2, 0, 0, 1);
+    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .btn-base:hover {
@@ -88,7 +93,7 @@
 
   .btn-base:active {
     background: var(--bg-well);
-    transform: translateY(0.5px);
+    transform: scale(0.98);
   }
 
   /* Primary Accent Button */
@@ -96,32 +101,37 @@
     background-color: var(--text-primary);
     color: var(--bg-canvas);
     font-weight: 700;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   .btn-primary:hover {
-    opacity: 0.92;
+    opacity: 0.94;
     transform: translateY(-0.5px);
   }
 
   .btn-primary:active {
-    transform: translateY(0.5px);
+    transform: scale(0.98);
     opacity: 1;
   }
 }
 
-/* Custom Scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Custom Scrollbars */
+.custom-scrollbar::-webkit-scrollbar,
+.custom-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
-.custom-scrollbar::-webkit-scrollbar-track {
+.custom-scrollbar::-webkit-scrollbar-track,
+.custom-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--border-hover);
-  border-radius: 3px;
+.custom-scrollbar::-webkit-scrollbar-thumb,
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: 4px;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }

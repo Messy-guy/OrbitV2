@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { SettingsState, ThemeId, AccentId, CanvasGridStyle, TerminalCursorStyle } from '../types/settings';
+import { SettingsState, ThemeId, AccentId, CanvasGridStyle, TerminalCursorStyle, AgentSettingsConfig } from '../types/settings';
+import { SkillItem } from '../types/skills';
 
 const STORAGE_KEY = 'orbit_user_settings_v1';
 
@@ -60,22 +61,21 @@ export const ACCENTS: Record<AccentId, { name: string; hex: string; glow: string
   emerald: { name: 'Emerald', hex: '#10b981', glow: 'rgba(16, 185, 129, 0.25)' },
   cyan: { name: 'Cyan', hex: '#06b6d4', glow: 'rgba(6, 182, 212, 0.25)' },
   violet: { name: 'Violet', hex: '#8b5cf6', glow: 'rgba(139, 92, 246, 0.25)' },
-  blue: { name: 'Electric Blue', hex: '#3b82f6', glow: 'rgba(59, 130, 246, 0.25)' },
+  blue: { name: 'Blue', hex: '#3b82f6', glow: 'rgba(59, 130, 246, 0.25)' },
   amber: { name: 'Amber', hex: '#f59e0b', glow: 'rgba(245, 158, 11, 0.25)' },
 };
 
-// Real-time CSS Variable Injector
 export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
   const root = document.documentElement;
-
+  
   if (theme === 'light') {
     root.style.setProperty('--bg-canvas', '#f8fafc');
     root.style.setProperty('--bg-chrome', '#f1f5f9');
     root.style.setProperty('--bg-panel', '#ffffff');
     root.style.setProperty('--bg-panel-elevated', '#ffffff');
     root.style.setProperty('--bg-panel-hover', '#f1f5f9');
-    root.style.setProperty('--bg-well', '#e2e8f0');
-    root.style.setProperty('--bg-well-secondary', '#cbd5e1');
+    root.style.setProperty('--bg-well', '#f1f5f9');
+    root.style.setProperty('--bg-well-secondary', '#e2e8f0');
     root.style.setProperty('--text-primary', '#0f172a');
     root.style.setProperty('--text-secondary', '#334155');
     root.style.setProperty('--text-muted', '#64748b');
@@ -139,10 +139,10 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
   } else {
     // Default Obsidian Dark
     root.style.setProperty('--bg-canvas', '#0b0c0e');
-    root.style.setProperty('--bg-chrome', '#090a0d');
-    root.style.setProperty('--bg-panel', '#121319');
-    root.style.setProperty('--bg-panel-elevated', '#181920');
-    root.style.setProperty('--bg-panel-hover', '#22242d');
+    root.style.setProperty('--bg-chrome', '#101114');
+    root.style.setProperty('--bg-panel', 'rgba(18, 19, 23, 0.88)');
+    root.style.setProperty('--bg-panel-elevated', 'rgba(24, 25, 30, 0.95)');
+    root.style.setProperty('--bg-panel-hover', 'rgba(34, 36, 44, 0.7)');
     root.style.setProperty('--bg-well', '#060709');
     root.style.setProperty('--bg-well-secondary', '#0a0b0d');
     root.style.setProperty('--text-primary', '#EDEDED');
@@ -156,18 +156,36 @@ export const applyThemeTokens = (theme: ThemeId, accent: AccentId) => {
     document.body.style.color = '#EDEDED';
   }
 
-  // Accent Color injection
   const acc = ACCENTS[accent] || ACCENTS.emerald;
   root.style.setProperty('--accent-primary', acc.hex);
   root.style.setProperty('--accent-glow', acc.glow);
 };
 
-const DEFAULT_SETTINGS: Omit<SettingsState, 
-  'setTheme' | 'setAccent' | 'setCanvasGridStyle' | 'setEnableGlassmorphism' | 
-  'updateAgentConfig' | 'setDefaultHandoffMode' | 'setMaxTokenBudget' | 
-  'setAutoIncludeDiffs' | 'addSavedProfile' | 'setTerminalFontFamily' | 'setTerminalFontSize' | 
-  'setTerminalLineHeight' | 'setTerminalCursorStyle' | 'setTerminalCursorBlink' | 
-  'setEnableDesktopNotifications' | 'setEnableSoundAlerts' | 'resetToDefaults'> = {
+export const DEFAULT_SETTINGS: Omit<SettingsState, 
+  | 'setTheme' 
+  | 'setAccent' 
+  | 'setCanvasGridStyle' 
+  | 'setEnableGlassmorphism' 
+  | 'updateAgentConfig' 
+  | 'setDefaultHandoffMode' 
+  | 'setMaxTokenBudget' 
+  | 'setAutoIncludeDiffs' 
+  | 'updateTerminalSettings'
+  | 'addSavedProfile'
+  | 'removeSavedProfile'
+  | 'setModeCustomSkills'
+  | 'setModeCustomDirective'
+  | 'addSkillToMode'
+  | 'removeSkillFromMode'
+  | 'setTerminalFontFamily'
+  | 'setTerminalFontSize'
+  | 'setTerminalLineHeight'
+  | 'setTerminalCursorStyle'
+  | 'setTerminalCursorBlink'
+  | 'setEnableDesktopNotifications'
+  | 'setEnableSoundAlerts'
+  | 'resetToDefaults'
+> = {
   theme: 'obsidian',
   accent: 'emerald',
   canvasGridStyle: 'dots',
@@ -175,16 +193,16 @@ const DEFAULT_SETTINGS: Omit<SettingsState,
 
   agentConfigs: {
     antigravity: {
-      defaultModel: 'gemini-2.0-flash',
+      defaultModel: 'Gemini 2.5 Pro (Deep Research)',
       autoRestartOnCrash: true,
     },
     claude: {
-      defaultModel: 'claude-3-7-sonnet',
+      defaultModel: 'Claude 3.7 Sonnet (Hybrid Thinking)',
       autoRestartOnCrash: true,
     },
     opencode: {
-      defaultModel: 'default-local',
-      autoRestartOnCrash: false,
+      defaultModel: 'OpenCode Interpreter (Local/Host)',
+      autoRestartOnCrash: true,
     },
   },
   maxConcurrentAgents: 4,
@@ -209,6 +227,17 @@ const DEFAULT_SETTINGS: Omit<SettingsState,
   defaultProjectsPath: '~/Desktop/personal_projects',
   autoCheckpointOnHandoff: true,
   savedProfiles: ['default'],
+
+  modeCustomSkills: {
+    architect: [],
+    implementer: [],
+    reviewer: [],
+  },
+  modeCustomDirectives: {
+    architect: '',
+    implementer: '',
+    reviewer: '',
+  },
 };
 
 const loadInitialSettings = () => {
@@ -216,7 +245,18 @@ const loadInitialSettings = () => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      return { 
+        ...DEFAULT_SETTINGS, 
+        ...parsed,
+        modeCustomSkills: {
+          ...DEFAULT_SETTINGS.modeCustomSkills,
+          ...(parsed.modeCustomSkills || {})
+        },
+        modeCustomDirectives: {
+          ...DEFAULT_SETTINGS.modeCustomDirectives,
+          ...(parsed.modeCustomDirectives || {})
+        }
+      };
     }
   } catch (e) {
     console.warn('Failed to load settings from localStorage', e);
@@ -257,87 +297,45 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch {}
   },
 
-  updateAgentConfig: (provider, config) => {
-    set(state => {
-      const current = state.agentConfigs[provider];
-      const updated = {
-        ...state.agentConfigs,
-        [provider]: { ...current, ...config },
-      };
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, agentConfigs: updated }));
-      } catch {}
-      return { agentConfigs: updated };
-    });
+  updateAgentConfig: (provider: 'antigravity' | 'claude' | 'opencode', config: Partial<AgentSettingsConfig>) => {
+    const agentConfigs = {
+      ...get().agentConfigs,
+      [provider]: {
+        ...get().agentConfigs[provider],
+        ...config,
+      },
+    };
+    set({ agentConfigs });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), agentConfigs }));
+    } catch {}
   },
 
-  setDefaultHandoffMode: (defaultHandoffMode) => {
+  setDefaultHandoffMode: (defaultHandoffMode: 'safe' | 'autonomous') => {
     set({ defaultHandoffMode });
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), defaultHandoffMode }));
     } catch {}
   },
 
-  setMaxTokenBudget: (maxTokenBudget) => {
+  setMaxTokenBudget: (maxTokenBudget: number) => {
     set({ maxTokenBudget });
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), maxTokenBudget }));
     } catch {}
   },
 
-  setAutoIncludeDiffs: (autoIncludeDiffs) => {
+  setAutoIncludeDiffs: (autoIncludeDiffs: boolean) => {
     set({ autoIncludeDiffs });
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), autoIncludeDiffs }));
     } catch {}
   },
 
-  setTerminalFontFamily: (terminalFontFamily) => {
-    set({ terminalFontFamily });
+  updateTerminalSettings: (settings: Partial<SettingsState>) => {
+    set((state) => ({ ...state, ...settings }));
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalFontFamily }));
-    } catch {}
-  },
-
-  setTerminalFontSize: (terminalFontSize) => {
-    set({ terminalFontSize });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalFontSize }));
-    } catch {}
-  },
-
-  setTerminalLineHeight: (terminalLineHeight) => {
-    set({ terminalLineHeight });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalLineHeight }));
-    } catch {}
-  },
-
-  setTerminalCursorStyle: (terminalCursorStyle) => {
-    set({ terminalCursorStyle });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalCursorStyle }));
-    } catch {}
-  },
-
-  setTerminalCursorBlink: (terminalCursorBlink) => {
-    set({ terminalCursorBlink });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalCursorBlink }));
-    } catch {}
-  },
-
-  setEnableDesktopNotifications: (enableDesktopNotifications) => {
-    set({ enableDesktopNotifications });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), enableDesktopNotifications }));
-    } catch {}
-  },
-
-  setEnableSoundAlerts: (enableSoundAlerts) => {
-    set({ enableSoundAlerts });
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), enableSoundAlerts }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(get()));
     } catch {}
   },
 
@@ -352,6 +350,99 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
       } catch {}
     }
+  },
+
+  removeSavedProfile: (profile: string) => {
+    if (profile === 'default') return;
+    const updated = get().savedProfiles.filter((p) => p !== profile);
+    set({ savedProfiles: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
+    } catch {}
+  },
+
+  setModeCustomSkills: (mode: string, skills: SkillItem[]) => {
+    const updated = {
+      ...get().modeCustomSkills,
+      [mode]: skills,
+    };
+    set({ modeCustomSkills: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), modeCustomSkills: updated }));
+    } catch {}
+  },
+
+  setModeCustomDirective: (mode: string, directive: string) => {
+    const updated = {
+      ...get().modeCustomDirectives,
+      [mode]: directive,
+    };
+    set({ modeCustomDirectives: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), modeCustomDirectives: updated }));
+    } catch {}
+  },
+
+  addSkillToMode: (mode: string, skill: SkillItem) => {
+    const current = get().modeCustomSkills[mode] || [];
+    if (current.some((s) => s.id === skill.id)) return;
+    const updatedSkills = [...current, skill];
+    get().setModeCustomSkills(mode, updatedSkills);
+  },
+
+  removeSkillFromMode: (mode: string, skillId: string) => {
+    const current = get().modeCustomSkills[mode] || [];
+    const updatedSkills = current.filter((s) => s.id !== skillId);
+    get().setModeCustomSkills(mode, updatedSkills);
+  },
+
+  setTerminalFontFamily: (terminalFontFamily: string) => {
+    set({ terminalFontFamily });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalFontFamily }));
+    } catch {}
+  },
+
+  setTerminalFontSize: (terminalFontSize: number) => {
+    set({ terminalFontSize });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalFontSize }));
+    } catch {}
+  },
+
+  setTerminalLineHeight: (terminalLineHeight: number) => {
+    set({ terminalLineHeight });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalLineHeight }));
+    } catch {}
+  },
+
+  setTerminalCursorStyle: (terminalCursorStyle: TerminalCursorStyle) => {
+    set({ terminalCursorStyle });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalCursorStyle }));
+    } catch {}
+  },
+
+  setTerminalCursorBlink: (terminalCursorBlink: boolean) => {
+    set({ terminalCursorBlink });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), terminalCursorBlink }));
+    } catch {}
+  },
+
+  setEnableDesktopNotifications: (enableDesktopNotifications: boolean) => {
+    set({ enableDesktopNotifications });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), enableDesktopNotifications }));
+    } catch {}
+  },
+
+  setEnableSoundAlerts: (enableSoundAlerts: boolean) => {
+    set({ enableSoundAlerts });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), enableSoundAlerts }));
+    } catch {}
   },
 
   resetToDefaults: () => {

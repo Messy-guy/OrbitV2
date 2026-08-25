@@ -171,7 +171,6 @@ impl PtyManager {
             "architect" => "ROLE: SYSTEM ARCHITECT. You are in PLAN ONLY mode. You must ONLY produce specifications, architecture docs, and failing test contracts. You are STRICTLY FORBIDDEN from creating or modifying source code in this mode.",
             "reviewer" => "ROLE: CODE REVIEWER. You are in AUDIT ONLY mode. You must ONLY inspect git diffs, security vulnerabilities, and code quality. You are STRICTLY FORBIDDEN from creating or modifying source code in this mode.",
             "implementer" | "code" => "ROLE: TDD IMPLEMENTER. Write minimal, type-safe code to make failing tests turn green without adding unapproved packages.",
-            "designer" => "ROLE: UI/UX DESIGNER. Enforce project typography scales, theme tokens, and accessible component layouts.",
             _ => "",
         };
 
@@ -368,8 +367,22 @@ impl PtyManager {
         let _master_arc = session.master.clone(); // for reader + resize
         let writer_for_initial_prompt = session.writer.clone();
 
-        // Feed initial prompt into stdin after a short delay so the CLI process initializes its terminal/event loop
-        if let Some(p) = prompt_to_send {
+        // Feed initial prompt and mode-tied skill directives into stdin after a short delay so the CLI process initializes its terminal/event loop
+        let mode_prelude = if !role_directive.is_empty() {
+            if let Some(ref p) = prompt_to_send {
+                if !p.trim().is_empty() {
+                    Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]\nTask: {}", role_directive, p.trim()))
+                } else {
+                    Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]", role_directive))
+                }
+            } else {
+                Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]", role_directive))
+            }
+        } else {
+            prompt_to_send
+        };
+
+        if let Some(p) = mode_prelude {
             if !p.trim().is_empty() {
                 let p_clone = p.clone();
                 let delay = if prov == "opencode" { 2200 } else { 800 };

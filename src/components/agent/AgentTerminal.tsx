@@ -224,7 +224,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
           agentRef.current.id,
           sessionId,
           agentRef.current.provider,
-          undefined,
+          agentRef.current.taskDirective?.trim() || undefined,
           ws?.id || 'ws-orbit',
           rows,
           cols,

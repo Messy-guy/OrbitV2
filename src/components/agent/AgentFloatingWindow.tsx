@@ -26,6 +26,8 @@ import { AgentChat } from './AgentChat';
 import { WorkAreaRoleBadge } from './WorkAreaRoleBadge';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
+import { useSkillStore } from '../../stores/skill.store';
+import { SkillItem } from '../../types/skills';
 import { tauriService } from '../../services';
 import { clsx } from 'clsx';
 
@@ -53,35 +55,66 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
   onFocus,
   onPositionChange,
 }) => {
-  const { removeAgent, setAgentRole, activeSessionIdByAgent, forkWorker, agents } = useAgentStore();
+  const { agents, removeAgent, setAgentRole } = useAgentStore();
+  const { activeSessionIdByAgent } = useAgentStore();
+  const { setShareContextOpen, maximizedAgentId, setMaximizedAgentId } = useUIStore();
+  const { equipSkillToAgent, getEquippedSkills, unequipSkillFromAgent } = useSkillStore();
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isForkMenuOpen, setIsForkMenuOpen] = useState(false);
-  const { 
-    setShareContextOpen, 
-    setCreateCheckpointOpen, 
-    maximizedAgentId, 
-    setMaximizedAgentId 
-  } = useUIStore();
+  const [dragOverType, setDragOverType] = useState<'role' | 'skill' | null>(null);
 
+  const equippedSkills = getEquippedSkills(agent.id);
   const parentAgent = agent.parentId ? agents.find(a => a.id === agent.parentId) : null;
   const isMaximized = maximizedAgentId === agent.id;
   const [prevBounds, setPrevBounds] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/x-orbit-role')) {
+    if (e.dataTransfer.types.includes('application/x-orbit-skill')) {
       e.preventDefault();
       setIsDragOver(true);
+      setDragOverType('skill');
+    } else if (e.dataTransfer.types.includes('application/x-orbit-role')) {
+      e.preventDefault();
+      setIsDragOver(true);
+      setDragOverType('role');
     }
   };
 
   const handleDragLeave = () => {
     setIsDragOver(false);
+    setDragOverType(null);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    setDragOverType(null);
+
+    // 1. Skill Drop Handling (Equip & Live Stream to PTY)
+    const skillDataStr = e.dataTransfer.getData('application/x-orbit-skill');
+    if (skillDataStr) {
+      try {
+        const skillData = JSON.parse(skillDataStr);
+        const allInstalled = useSkillStore.getState().installedSkills;
+        const matchingSkill = allInstalled.find(s => s.id === skillData.id) || {
+          id: skillData.id,
+          name: skillData.name,
+          shortLabel: skillData.name,
+          description: '',
+          source: 'custom',
+          sourceLabel: 'Custom',
+          category: 'workflow',
+          tags: [],
+          directive: skillData.directive || `Follow rules for ${skillData.name}`,
+        };
+        await equipSkillToAgent(agent.id, matchingSkill as any);
+        return;
+      } catch (err) {
+        console.warn('Skill drop parse notice:', err);
+      }
+    }
+
+    // 2. Role Drop Handling
     const droppedRole = e.dataTransfer.getData('application/x-orbit-role') as import('../../types/orbit').AgentRoleType;
     if (droppedRole) {
       setAgentRole(agent.id, droppedRole);
@@ -189,13 +222,12 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Visual Role Drop Highlight Overlay */}
+      {/* Minimal Visual Drop Highlight Overlay */}
       {isDragOver && (
-        <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-xs z-50 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/80 rounded-2xl">
-          <div className="px-3 py-1.5 rounded-full bg-[#10121A] border border-emerald-400 shadow-xl flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-mono font-bold text-xs text-emerald-400 uppercase tracking-wider">
-              Drop to Assign Role
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-xs z-50 pointer-events-none flex items-center justify-center border-2 border-dashed border-text-muted rounded-2xl">
+          <div className="px-3 py-1 rounded-md bg-panel-elevated border border-border shadow-xl flex items-center gap-2">
+            <span className="font-mono font-medium text-xs text-text-primary">
+              {dragOverType === 'skill' ? '+ Equip Skill' : 'Assign Role'}
             </span>
           </div>
         </div>
@@ -206,14 +238,30 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
         className="floating-window-header h-8 px-3 border-b border-border flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated transition-colors"
         onDoubleClick={handleToggleMaximize}
       >
-        {/* Left: Provider Icon + Agent Name + Work Area Badge + Next-Stage Chain Button */}
+        {/* Left: Provider Icon + Agent Name + Work Area Badge + Active Skill Badges */}
         <div className="flex items-center gap-2 overflow-hidden">
           <div className="flex items-center justify-center w-4 h-4 shrink-0">
             {getProviderIcon()}
           </div>
-          <span className="text-[12px] font-bold font-mono text-text-primary tracking-tight truncate max-w-[140px]">
+          <span className="text-[12px] font-bold font-mono text-text-primary tracking-tight truncate max-w-[130px]">
             {getProviderLabel()}
           </span>
+
+          {/* Active Equipped Skills Chips */}
+          {equippedSkills.map((skill) => (
+            <span
+              key={skill.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                unequipSkillFromAgent(agent.id, skill.id);
+              }}
+              className="group flex items-center gap-1 px-1.5 py-0.5 rounded bg-well hover:bg-well/80 border border-border text-text-secondary hover:text-text-primary font-mono text-[9.5px] font-medium transition-all cursor-pointer no-drag shrink-0"
+              title={`Equipped: ${skill.name}. Click to remove.`}
+            >
+              <span className="truncate max-w-[80px]">{skill.shortLabel || skill.name}</span>
+              <span className="text-[8px] opacity-40 group-hover:opacity-100">✕</span>
+            </span>
+          ))}
 
           {/* Clean Work Area Responsibility Badge */}
           <WorkAreaRoleBadge role={agent.role || 'raw'} />
@@ -221,27 +269,13 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
           {/* Child Worker Subtitle Link */}
           {parentAgent && (
             <span 
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-400 font-mono text-[9px] font-bold"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-400 font-mono text-[9px] font-bold shrink-0"
               title={`Child worker attached to ${parentAgent.name}`}
             >
               <CornerDownRight size={9} />
               <span className="truncate max-w-[80px]">{parentAgent.name}</span>
             </span>
           )}
-
-          {/* User-Governed Spawn Worker Button (AgentGrid Model) */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              useUIStore.getState().openWorkerSpawner(agent.id);
-            }}
-            className="h-5 px-1.5 rounded bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.12] text-zinc-200 font-mono text-[9.5px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs active:scale-95 no-drag"
-            title={`Spawn worker for ${agent.name}`}
-          >
-            <Plus size={10} className="text-amber-400" strokeWidth={3} />
-            <span>+ Spawn Worker</span>
-          </button>
         </div>
 
         {/* Right: Quick Actions (Copy, Checkpoint, Handoff) + Window Controls */}
@@ -281,11 +315,11 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
               e.stopPropagation();
               setShareContextOpen(true, agent.id);
             }}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-mono text-text-primary hover:text-white bg-well hover:bg-panel-elevated border border-border hover:border-border-hover rounded-md transition-all cursor-pointer shadow-sm active:scale-95"
-            title="Handoff context & chat memory to another agent"
+            className="flex items-center gap-1.5 px-2 py-0.5 text-[10.5px] font-mono text-text-primary hover:text-white bg-well hover:bg-panel-elevated border border-border hover:border-border-hover rounded-md transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+            title="Continue this task with another agent"
           >
             <ArrowLeftRight size={11} className="text-emerald-400" />
-            <span>Handoff</span>
+            <span>Continue with...</span>
           </button>
 
           <div className="h-3 w-px bg-border mx-0.5" />

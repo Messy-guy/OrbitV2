@@ -4,7 +4,7 @@ export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'g
 
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error';
 
-export type AgentRoleType = 'raw' | 'architect' | 'implementer' | 'reviewer' | 'designer' | 'custom';
+export type AgentRoleType = 'raw' | 'architect' | 'implementer' | 'reviewer' | 'custom';
 
 export interface AgentRoleConfig {
   id: AgentRoleType;
