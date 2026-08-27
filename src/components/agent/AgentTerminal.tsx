@@ -208,7 +208,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
       // 5. Spawn or Reattach PTY session
       const ws = workspaceRef.current;
-      const projPath = ws?.projectPath || '/home/leo/Desktop/personal_projects/OrbitV2';
+      const projPath = ws?.projectPath || '';
       const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
 
       // Check if session is already running in Rust before starting

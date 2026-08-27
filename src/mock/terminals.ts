@@ -3,7 +3,7 @@ import { TerminalLine } from '../types/orbit';
 export const INITIAL_TERMINAL_LOGS: Record<string, TerminalLine[]> = {
   'agent-agy-1': [
     { id: 't-agy-1', type: 'system', text: '\x1b[1;37m[Orbit Harness]\x1b[0m Spawning Antigravity Agent runtime (v2.4.0)...', timestamp: Date.now() - 3600000 },
-    { id: 't-agy-2', type: 'system', text: '\x1b[38;5;244mConnecting to workspace:\x1b[0m /home/leo/projects/music-app', timestamp: Date.now() - 3590000 },
+    { id: 't-agy-2', type: 'system', text: '\x1b[38;5;244mConnecting to workspace:\x1b[0m ~/projects/music-app', timestamp: Date.now() - 3590000 },
     { id: 't-agy-3', type: 'stdout', text: '\x1b[32m✔\x1b[0m Workspace context synchronized (14 files, 3 decisions)', timestamp: Date.now() - 3580000 },
     { id: 't-agy-4', type: 'stdin', text: '$ agy "Implement playlist synchronization between connected peers"', timestamp: Date.now() - 3500000 },
     { id: 't-agy-5', type: 'tool', text: '\x1b[36m[TOOL:read_file]\x1b[0m src/store/playlist.store.ts', timestamp: Date.now() - 3400000 },

@@ -1,17 +1,17 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { MobileAgentDetail } from '../../types/orbit';
-import { OrbitTokens } from '../../design-system/tokens';
 import { GlassCard } from '../../design-system/primitives/GlassCard';
 import { AstryxBadge } from '../../design-system/primitives/AstryxBadge';
 import { AstryxButton } from '../../design-system/primitives/AstryxButton';
-import { Play, Pause, Square, Terminal, Cpu, Sparkles } from 'lucide-react-native';
+import { Play, Pause, Bot, MessageSquare } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 
 interface AgentTileProps {
   agent: MobileAgentDetail;
   onPause: () => void;
   onStop: () => void;
-  onHandoff: () => void;
+  onHandoff?: () => void;
   onOpenTerminal?: () => void;
   isPausing?: boolean;
 }
@@ -19,56 +19,63 @@ interface AgentTileProps {
 export const AgentTile: React.FC<AgentTileProps> = ({
   agent,
   onPause,
-  onStop,
-  onHandoff,
   onOpenTerminal,
   isPausing = false,
 }) => {
   const isWorking = agent.status === 'working';
   const isPaused = agent.status === 'paused';
 
+  const preview = agent.preview || agent.currentTaskDescription || 'Standing by for conversation...';
+
   return (
     <GlassCard active={isWorking}>
       {/* Header */}
       <View style={styles.topRow}>
         <View style={styles.iconBox}>
-          <Cpu size={18} color={isWorking ? '#38BDF8' : '#94A3B8'} />
+          <Bot size={18} color={isWorking ? '#FB923C' : '#94A3B8'} />
         </View>
 
         <View style={styles.identity}>
-          <Text style={styles.agentName}>@{agent.name}</Text>
+          <Text style={styles.agentName}>{agent.title || `@${agent.name}`}</Text>
           <Text style={styles.providerText}>
-            {agent.provider.toUpperCase()} • {Math.floor(agent.runtimeSeconds / 60)}m active
+            {agent.provider.toUpperCase()} • {agent.name.toUpperCase()}
           </Text>
         </View>
 
-        <AstryxBadge
-          label={agent.status}
-          variant={isWorking ? 'primary' : isPaused ? 'warning' : 'neutral'}
-          showDot={isWorking}
-        />
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          <AstryxBadge
+            label={agent.status}
+            variant={isWorking ? 'primary' : isPaused ? 'warning' : 'neutral'}
+            showDot={isWorking}
+          />
+          {agent.fidelity?.conversation && (
+            <View style={styles.fidelityPill}>
+              <Text style={[styles.fidelityText, agent.fidelity.conversation === 'STRUCTURED' ? styles.fidelityStructured : styles.fidelityFallback]}>
+                {agent.fidelity.conversation === 'STRUCTURED' ? 'STRUCTURED' : 'TERMINAL'}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* Task Preview */}
+      {/* Conversation Preview Box */}
       <Pressable
-        onPress={onOpenTerminal}
+        onPress={() => {
+          try {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          } catch {}
+          onOpenTerminal?.();
+        }}
         style={({ pressed }) => [styles.taskBox, pressed && styles.taskBoxPressed]}
       >
         <View style={styles.taskHeader}>
-          <Sparkles size={12} color="#38BDF8" />
-          <Text style={styles.taskHeaderLabel}>Current Task</Text>
+          <MessageSquare size={12} color="#FB923C" />
+          <Text style={styles.taskHeaderLabel}>Latest Conversation</Text>
         </View>
         <Text style={styles.taskDescription} numberOfLines={2}>
-          {agent.currentTaskDescription || 'Standing by for new task instructions'}
+          {preview}
         </Text>
       </Pressable>
-
-      {/* Telemetry Row */}
-      <View style={styles.metricsRow}>
-        <Text style={styles.metaText}>{agent.tokensUsed.toLocaleString()} tokens</Text>
-        <Text style={styles.bullet}>•</Text>
-        <Text style={styles.metaText}>{agent.filesTouchedCount} files touched</Text>
-      </View>
 
       {/* Actions Row */}
       <View style={styles.actionsRow}>
@@ -85,23 +92,15 @@ export const AgentTile: React.FC<AgentTileProps> = ({
               <Pause size={12} color="#FFFFFF" />
             )
           }
-          style={{ flex: 1 }}
+          style={{ width: 90 }}
         />
         <AstryxButton
-          label="Inspect Logs"
-          variant="glass"
+          label="Open Chat"
+          variant="primary"
           size="sm"
           onPress={onOpenTerminal || (() => {})}
-          icon={<Terminal size={12} color="#FFFFFF" />}
+          icon={<MessageSquare size={12} color="#FFFFFF" />}
           style={{ flex: 1 }}
-        />
-        <AstryxButton
-          label=""
-          variant="danger"
-          size="sm"
-          onPress={onStop}
-          icon={<Square size={12} color={OrbitTokens.colors.accent.danger} />}
-          style={{ width: 40 }}
         />
       </View>
     </GlassCard>
@@ -115,41 +114,43 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.25)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   identity: {
     flex: 1,
-    gap: 2,
   },
   agentName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#FFF7ED',
     letterSpacing: -0.2,
   },
   providerText: {
-    fontSize: 11.5,
-    fontWeight: '500',
+    fontSize: 10,
+    fontWeight: '600',
     color: '#94A3B8',
+    letterSpacing: 0.2,
+    marginTop: 1,
   },
   taskBox: {
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    borderRadius: OrbitTokens.radii.sm,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 8,
+    padding: 10,
     borderWidth: 1,
-    borderColor: OrbitTokens.border.glassHairline,
-    padding: 12,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
     marginBottom: 12,
   },
   taskBoxPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(251, 146, 60, 0.06)',
+    borderColor: 'rgba(251, 146, 60, 0.2)',
   },
   taskHeader: {
     flexDirection: 'row',
@@ -158,31 +159,39 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   taskHeaderLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
-    color: '#38BDF8',
+    color: '#FB923C',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   taskDescription: {
-    fontSize: 13,
-    color: '#E2E8F0',
-    lineHeight: 18,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
-  },
-  metaText: {
     fontSize: 12,
-    color: '#94A3B8',
-  },
-  bullet: {
-    color: '#64748B',
+    color: '#E2E8F0',
+    lineHeight: 16,
   },
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  fidelityPill: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  fidelityText: {
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  fidelityStructured: {
+    color: '#34d399',
+  },
+  fidelityFallback: {
+    color: '#a1a1aa',
   },
 });

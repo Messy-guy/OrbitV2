@@ -1,14 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, Modal, Pressable, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StyleSheet,
 } from 'react-native';
-import { Terminal, X, Send, Play, Pause, Square } from 'lucide-react-native';
+import {
+  X, Send, Play, Pause, Bot, AlertCircle,
+} from 'lucide-react-native';
 import { MobileAgentDetail } from '../../types/orbit';
+import { useLiveRelayStore } from '../../stores/liveRelay.store';
 import { mobileRelayService } from '../../services/mobileRelay.service';
-import { OrbitTokens } from '../../design-system/tokens';
-import { AstryxBadge } from '../../design-system/primitives/AstryxBadge';
-import { AstryxButton } from '../../design-system/primitives/AstryxButton';
+import { ConversationTimeline } from '../conversation/ConversationTimeline';
 import * as Haptics from 'expo-haptics';
 
 interface AgentTerminalModalProps {
@@ -20,24 +21,24 @@ interface AgentTerminalModalProps {
 const QUICK_COMMANDS = [
   'Continue & finish task',
   'Run test suite',
-  'Git diff summary',
-  'Show plan',
+  'Show git diff summary',
+  'Explain changes',
 ];
 
 export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
-  agent,
+  agent: initialAgent,
   isOpen,
   onClose,
 }) => {
   const [inputCommand, setInputCommand] = useState('');
-  const [autoScroll, setAutoScroll] = useState(true);
-  const scrollViewRef = useRef<ScrollView>(null);
 
-  useEffect(() => {
-    if (autoScroll && isOpen && scrollViewRef.current) {
-      scrollViewRef.current.scrollToEnd({ animated: true });
-    }
-  }, [agent?.terminalLogs, autoScroll, isOpen]);
+  // Directly subscribe to live store by agent ID to get streaming real-time updates
+  const liveAgent = useLiveRelayStore((s) =>
+    s.agents.find((a) => a.id === initialAgent?.id) || initialAgent
+  );
+
+  const agent = liveAgent;
+  const chatHistory = agent?.chatHistory || [];
 
   if (!agent) return null;
 
@@ -49,118 +50,124 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
-    mobileRelayService.sendAction('SEND_INPUT', agent.id, undefined, { input: textToSend });
+    // Send action with session ID
+    mobileRelayService.sendAction('SEND_INPUT', agent.id, agent.workspaceId, { input: textToSend });
     if (!cmd) setInputCommand('');
   };
 
+  const handleResumeSession = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } catch {}
+    mobileRelayService.sendAction('RESUME' as any, agent.id, agent.workspaceId);
+  };
+
+  const isRelayConnected = useLiveRelayStore((s) => s.isConnected);
   const isWorking = agent.status === 'working';
+  const isOffline = !isRelayConnected || agent.status === 'offline';
+  const isStopped = agent.status === 'ready' || agent.status === 'paused' || agent.status === 'stopped' || agent.status === 'offline';
+  const canResume = agent.capabilities?.resume ?? true;
 
   return (
-    <Modal visible={isOpen} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
+    <Modal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={styles.root}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.sheetContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
         >
-          {/* Header */}
-          <View style={styles.headerBar}>
-            <View style={styles.agentInfo}>
-              <View style={styles.iconCircle}>
-                <Terminal size={16} color="#818CF8" />
+          {/* Top Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.avatar}>
+                <Bot size={18} color="#f97316" />
               </View>
-              <View>
-                <Text style={styles.agentName}>@{agent.name}</Text>
-                <Text style={styles.agentProvider}>
-                  {agent.provider.toUpperCase()} • {agent.status}
+              <View style={styles.titleColumn}>
+                <Text style={styles.agentName} numberOfLines={1}>
+                  {agent.title || `@${agent.name.toUpperCase()}`}
                 </Text>
+                <View style={styles.statusRow}>
+                  <View style={[styles.statusDot, isOffline ? styles.dotOffline : isWorking ? styles.dotWorking : styles.dotIdle]} />
+                  <Text style={[styles.statusText, isOffline && { color: '#f59e0b' }]}>
+                    {isOffline ? 'OFFLINE • RUNTIME UNAVAILABLE' : `${agent.provider.toUpperCase()} • ${agent.status.toUpperCase()}`}
+                  </Text>
+                </View>
               </View>
             </View>
 
             <View style={styles.headerActions}>
-              <AstryxButton
-                label={isWorking ? 'Pause' : 'Resume'}
-                variant={isWorking ? 'glass' : 'primary'}
-                size="sm"
-                onPress={() => {
-                  if (isWorking) {
-                    mobileRelayService.sendAction('PAUSE', agent.id);
-                  } else {
-                    mobileRelayService.sendAction('SEND_INPUT', agent.id, undefined, { input: 'continue\r' });
-                  }
-                }}
-                icon={
-                  isWorking ? (
-                    <Pause size={12} color="#FFFFFF" />
-                  ) : (
-                    <Play size={12} color="#FFFFFF" />
-                  )
-                }
-              />
-              <Pressable onPress={onClose} style={styles.closeBtn}>
-                <X size={16} color="#FFFFFF" />
+              {isWorking && (
+                <Pressable
+                  style={styles.actionButton}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    mobileRelayService.sendAction('PAUSE', agent.id, agent.workspaceId);
+                  }}
+                >
+                  <Pause size={13} color="#f4f4f5" />
+                </Pressable>
+              )}
+
+              {isStopped && canResume && !isOffline && (
+                <Pressable style={[styles.actionButton, styles.resumeButton]} onPress={handleResumeSession}>
+                  <Play size={13} color="#10b981" />
+                </Pressable>
+              )}
+
+              <Pressable style={styles.closeButton} onPress={onClose}>
+                <X size={16} color="#a1a1aa" />
               </Pressable>
             </View>
           </View>
 
-          {/* Quick Prompts Strip */}
-          <View style={styles.quickCommandsStrip}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickScroll}>
-              {QUICK_COMMANDS.map((cmd, idx) => (
-                <Pressable
-                  key={idx}
-                  onPress={() => handleSendCommand(cmd)}
-                  style={({ pressed }) => [styles.quickChip, pressed && styles.quickChipPressed]}
-                >
-                  <Text style={styles.quickChipText}>{cmd}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
+          {/* Quick Directive Chips */}
+          {!isOffline && (
+            <View style={styles.topUtilityBar}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickScroll}>
+                {QUICK_COMMANDS.map((cmd) => (
+                  <Pressable key={cmd} style={styles.chip} onPress={() => handleSendCommand(cmd)}>
+                    <Text style={styles.chipText}>{cmd}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
-          {/* Terminal Console Output */}
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.terminalWindow}
-            contentContainerStyle={styles.terminalContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {agent.terminalLogs && agent.terminalLogs.length > 0 ? (
-              agent.terminalLogs.map((log, index) => (
-                <View key={index} style={styles.logRow}>
-                  <Text style={styles.logIndex}>{(index + 1).toString().padStart(2, '0')}</Text>
-                  <Text style={styles.logText}>{log}</Text>
-                </View>
-              ))
+          {/* MAIN CONVERSATION VIEWPORT */}
+          <ConversationTimeline
+            messages={chatHistory}
+            agentName={agent.name}
+            isWorking={isWorking}
+          />
+
+          {/* Bottom Input Bar / Offline Notice */}
+          <View style={styles.inputContainer}>
+            {isOffline ? (
+              <View style={styles.offlineBanner}>
+                <AlertCircle size={14} color="#f59e0b" />
+                <Text style={styles.offlineBannerText}>
+                  Desktop agent is offline · Reconnect your computer to continue conversation
+                </Text>
+              </View>
             ) : (
-              <View style={styles.emptyLogs}>
-                <Text style={styles.emptyLogsText}>Live Stream Active</Text>
-                <Text style={styles.emptyLogsSub}>Awaiting stdout / stderr buffer from workstation...</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={`Message @${agent.name}...`}
+                  placeholderTextColor="#71717a"
+                  value={inputCommand}
+                  onChangeText={setInputCommand}
+                  onSubmitEditing={() => handleSendCommand()}
+                  returnKeyType="send"
+                />
+                <Pressable
+                  style={[styles.sendButton, !inputCommand.trim() && styles.sendButtonDisabled]}
+                  onPress={() => handleSendCommand()}
+                  disabled={!inputCommand.trim()}
+                >
+                  <Send size={15} color={inputCommand.trim() ? '#f4f4f5' : '#52525b'} />
+                </Pressable>
               </View>
             )}
-          </ScrollView>
-
-          {/* Prompt / Input Bar */}
-          <View style={styles.inputBar}>
-            <View style={styles.inputBox}>
-              <TextInput
-                value={inputCommand}
-                onChangeText={setInputCommand}
-                placeholder="Send terminal instruction..."
-                placeholderTextColor="#64748B"
-                style={styles.textInput}
-                returnKeyType="send"
-                onSubmitEditing={() => handleSendCommand()}
-              />
-            </View>
-            <AstryxButton
-              label=""
-              variant="primary"
-              size="md"
-              onPress={() => handleSendCommand()}
-              disabled={!inputCommand.trim()}
-              icon={<Send size={15} color="#FFFFFF" />}
-              style={{ width: 44, height: 44 }}
-            />
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -169,151 +176,167 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  overlay: {
+  root: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'flex-end',
+    backgroundColor: '#09090b',
   },
-  sheetContainer: {
-    backgroundColor: '#111726',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.15)',
-    borderTopLeftRadius: OrbitTokens.radii.lg,
-    borderTopRightRadius: OrbitTokens.radii.lg,
-    height: '88%',
-  },
-  headerBar: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#121214',
   },
-  agentInfo: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    flex: 1,
+    paddingRight: 8,
   },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(249, 115, 22, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(249, 115, 22, 0.3)',
+  },
+  titleColumn: {
+    flex: 1,
   },
   agentName: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#f4f4f5',
+    letterSpacing: 0.3,
   },
-  agentProvider: {
-    fontSize: 11.5,
-    color: '#94A3B8',
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     marginTop: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  dotWorking: {
+    backgroundColor: '#f97316',
+  },
+  dotIdle: {
+    backgroundColor: '#10b981',
+  },
+  dotOffline: {
+    backgroundColor: '#71717a',
+  },
+  statusText: {
+    fontSize: 10,
+    color: '#71717a',
+    fontWeight: '600',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  quickCommandsStrip: {
-    backgroundColor: 'rgba(11, 15, 25, 0.6)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-    paddingVertical: 10,
-  },
-  quickScroll: {
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  quickChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: OrbitTokens.radii.pill,
-  },
-  quickChipPressed: {
-    backgroundColor: 'rgba(99, 102, 241, 0.25)',
-  },
-  quickChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#CBD5E1',
-  },
-  terminalWindow: {
-    flex: 1,
-    backgroundColor: '#080C14',
-  },
-  terminalContent: {
-    padding: 16,
-  },
-  logRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 6,
-  },
-  logIndex: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    color: '#475569',
-  },
-  logText: {
-    fontFamily: 'monospace',
-    fontSize: 12.5,
-    color: '#A5B4FC',
-    flex: 1,
-    lineHeight: 18,
-  },
-  emptyLogs: {
-    paddingVertical: 60,
-    alignItems: 'center',
     gap: 6,
   },
-  emptyLogsText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#818CF8',
+  actionButton: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  emptyLogsSub: {
-    fontSize: 12.5,
-    color: '#64748B',
+  resumeButton: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
   },
-  inputBar: {
+  closeButton: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  topUtilityBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#111726',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: '#0d0d10',
   },
-  inputBox: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+  quickScroll: {
+    gap: 6,
+    paddingRight: 8,
+  },
+  chip: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: OrbitTokens.radii.pill,
-    paddingHorizontal: 16,
-    height: 44,
-    justifyContent: 'center',
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  chipText: {
+    fontSize: 10,
+    color: '#a1a1aa',
+    fontWeight: '500',
+  },
+  inputContainer: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#121214',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181b',
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   textInput: {
-    fontSize: 13.5,
-    color: '#FFFFFF',
-    height: '100%',
+    flex: 1,
+    height: 38,
+    fontSize: 13,
+    color: '#f4f4f5',
+  },
+  sendButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#27272a',
+    opacity: 0.5,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.2)',
+  },
+  offlineBannerText: {
+    fontSize: 11,
+    color: '#f59e0b',
+    fontWeight: '500',
+    textAlign: 'center',
+    flex: 1,
   },
 });

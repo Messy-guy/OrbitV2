@@ -1,37 +1,34 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  View, Text, FlatList, Pressable, RefreshControl, StyleSheet,
+  View, Text, FlatList, Pressable, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useProjects } from '../../src/hooks/useProjects';
+import { useLiveRelayStore } from '../../src/stores/liveRelay.store';
 import { ProjectCard } from '../../src/components/project/ProjectCard';
 import { SwarmEmergencyBar } from '../../src/components/agent/SwarmEmergencyBar';
-import { mobileRelayService } from '../../src/services/mobileRelay.service';
-import { AstryxSkeleton } from '../../src/design-system/primitives/AstryxSkeleton';
+import { ApprovalsModal } from '../../src/components/approvals/ApprovalsModal';
+import { usePendingApprovals } from '../../src/hooks/useAgentControls';
 import { OrbitTokens } from '../../src/design-system/tokens';
-import { FolderGit2 } from 'lucide-react-native';
+import { FolderGit2, Bell, Radio } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 type FilterType = 'all' | 'active' | 'issues';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { data: projects, isLoading, isRefetching, refetch } = useProjects();
-  const [isDesktopConnected, setIsDesktopConnected] = useState(mobileRelayService.latestState.isDesktopOnline);
-  const [activeAgents, setActiveAgents] = useState(mobileRelayService.latestState.agents);
   const [filter, setFilter] = useState<FilterType>('all');
+  const [approvalsModalOpen, setApprovalsModalOpen] = useState(false);
 
-  useEffect(() => {
-    mobileRelayService.connect();
-    const unsub = mobileRelayService.subscribe(() => {
-      setIsDesktopConnected(mobileRelayService.latestState.isDesktopOnline);
-      setActiveAgents(mobileRelayService.latestState.agents);
-    });
-    return unsub;
-  }, []);
+  // Direct zero-cache reactive subscription to live store
+  const isConnected = useLiveRelayStore((s) => s.isConnected);
+  const projects = useLiveRelayStore((s) => s.projects);
+  const agents = useLiveRelayStore((s) => s.agents);
 
-  const runningCount = activeAgents.filter((a) => a.status === 'working').length;
+  const { data: approvals } = usePendingApprovals();
+  const pendingApprovalsCount = approvals?.length || 0;
+
+  const runningCount = agents.filter((a) => a.status === 'working').length;
 
   const filtered = useMemo(() => {
     if (!projects) return [];
@@ -45,28 +42,49 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Friendly Header */}
+      {/* Top Header Strip: Greeting + Notification Bell + Connection Indicator */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.appGreeting}>Orbit Studio</Text>
-          <Text style={styles.pageTitle}>Projects</Text>
+          <Text style={styles.appGreeting}>Orbit Cockpit</Text>
+          <Text style={styles.pageTitle}>Workspaces</Text>
         </View>
 
-        <Pressable
-          onPress={() => router.push('/(tabs)/settings')}
-          style={({ pressed }) => [styles.statusPill, pressed && styles.statusPillPressed]}
-        >
-          <View style={[styles.statusDot, isDesktopConnected ? styles.dotConnected : styles.dotOffline]} />
-          <Text style={styles.statusText}>
-            {isDesktopConnected ? 'Connected' : 'Offline'}
-          </Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          {/* Action Approvals Bell Icon */}
+          <Pressable
+            onPress={() => {
+              try {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              } catch {}
+              setApprovalsModalOpen(true);
+            }}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+          >
+            <Bell size={18} color={pendingApprovalsCount > 0 ? '#FB923C' : '#D6C7B8'} />
+            {pendingApprovalsCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{pendingApprovalsCount}</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Sync / Status Pill */}
+          <Pressable
+            onPress={() => router.push('/(tabs)/sync')}
+            style={({ pressed }) => [styles.statusPill, pressed && styles.statusPillPressed]}
+          >
+            <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotOffline]} />
+            <Text style={styles.statusText}>
+              {isConnected ? 'Connected' : 'Offline'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
-      {/* Active Agents Summary Bar */}
+      {/* Active Agents Emergency Bar */}
       <SwarmEmergencyBar
         activeAgentsCount={runningCount}
-        isDesktopOnline={isDesktopConnected}
+        isDesktopOnline={isConnected}
       />
 
       {/* Filter Tabs */}
@@ -74,7 +92,7 @@ export default function HomeScreen() {
         {(['all', 'active', 'issues'] as FilterType[]).map((tabKey) => {
           const isSelected = filter === tabKey;
           const label = tabKey === 'all' ? 'All Projects' : tabKey === 'active' ? 'Active' : 'Issues';
-          const count = tabKey === 'all' ? projects?.length || 0 : tabKey === 'active' ? activeCount : issuesCount;
+          const count = tabKey === 'all' ? projects.length : tabKey === 'active' ? activeCount : issuesCount;
 
           return (
             <Pressable
@@ -100,22 +118,19 @@ export default function HomeScreen() {
         })}
       </View>
 
-      {/* Project List */}
-      {isLoading ? (
-        <View style={styles.skeletonContainer}>
-          <AstryxSkeleton height={140} borderRadius={24} style={{ marginBottom: 14 }} />
-          <AstryxSkeleton height={140} borderRadius={24} style={{ marginBottom: 14 }} />
-        </View>
-      ) : filtered.length === 0 ? (
+      {/* Live Project Stream (Zero-Cache & Real Desktop Metadata) */}
+      {filtered.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
-            <FolderGit2 size={26} color="#60A5FA" />
+            <FolderGit2 size={26} color="#FB923C" />
           </View>
-          <Text style={styles.emptyTitle}>No Projects Found</Text>
+          <Text style={styles.emptyTitle}>
+            {isConnected ? 'No Workspaces Open' : 'Workstation Disconnected'}
+          </Text>
           <Text style={styles.emptySubtitle}>
-            {filter === 'all'
-              ? 'Pair your computer in the Sync tab to view your active projects.'
-              : `No projects match the "${filter}" filter.`}
+            {isConnected
+              ? 'Open a project in Orbit on your desktop to inspect spawned agents and conversation history.'
+              : 'Pair your computer in the Sync tab or open a cached workspace to read previous conversations.'}
           </Text>
         </View>
       ) : (
@@ -128,17 +143,16 @@ export default function HomeScreen() {
               onPress={() => router.push(`/project/${item.id}`)}
             />
           )}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              tintColor="#2563EB"
-            />
-          }
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />
       )}
+
+      {/* Approvals Notification Modal */}
+      <ApprovalsModal
+        isOpen={approvalsModalOpen}
+        onClose={() => setApprovalsModalOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -146,7 +160,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#070B14',
+    backgroundColor: '#0B0A0D',
   },
   header: {
     flexDirection: 'row',
@@ -159,15 +173,53 @@ const styles = StyleSheet.create({
   appGreeting: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#60A5FA',
+    color: '#FB923C',
     letterSpacing: -0.2,
   },
   pageTitle: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#F8FAFC',
+    color: '#FFF7ED',
     letterSpacing: -0.6,
     marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  iconButtonPressed: {
+    opacity: 0.75,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#F97316',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#0B0A0D',
+  },
+  notificationBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   statusPill: {
     flexDirection: 'row',
@@ -177,7 +229,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: OrbitTokens.radii.pill,
   },
   statusPillPressed: {
@@ -192,12 +244,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   dotOffline: {
-    backgroundColor: '#64748B',
+    backgroundColor: '#6E645D',
   },
   statusText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#E2E8F0',
+    color: '#FFF7ED',
   },
   filterRow: {
     flexDirection: 'row',
@@ -217,16 +269,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   filterChipSelected: {
-    backgroundColor: 'rgba(37, 99, 235, 0.18)',
-    borderColor: 'rgba(59, 130, 246, 0.35)',
+    backgroundColor: 'rgba(251, 146, 60, 0.2)',
+    borderColor: 'rgba(251, 146, 60, 0.45)',
   },
   filterChipText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: '#D6C7B8',
   },
   filterChipTextSelected: {
-    color: '#F8FAFC',
+    color: '#FFF7ED',
     fontWeight: '700',
   },
   chipBadge: {
@@ -236,18 +288,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   chipBadgeSelected: {
-    backgroundColor: '#2563EB',
+    backgroundColor: '#EA580C',
   },
   chipBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: '#D6C7B8',
   },
   chipBadgeTextSelected: {
     color: '#FFFFFF',
-  },
-  skeletonContainer: {
-    paddingHorizontal: 20,
   },
   emptyContainer: {
     flex: 1,
@@ -260,7 +309,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+    backgroundColor: 'rgba(251, 146, 60, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -268,11 +317,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#F8FAFC',
+    color: '#FFF7ED',
   },
   emptySubtitle: {
     fontSize: 13.5,
-    color: '#94A3B8',
+    color: '#D6C7B8',
     textAlign: 'center',
     lineHeight: 20,
   },

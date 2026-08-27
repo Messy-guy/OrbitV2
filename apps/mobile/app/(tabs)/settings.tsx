@@ -1,87 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, TextInput, Alert,
-  Modal, StyleSheet, Platform, Pressable,
+  View, Text, ScrollView, StyleSheet, Switch, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useLiveRelayStore } from '../../src/stores/liveRelay.store';
 import { secureStorage } from '../../src/services/secureStorage';
 import { mobileRelayService } from '../../src/services/mobileRelay.service';
-import { useRouter } from 'expo-router';
 import { OrbitTokens } from '../../src/design-system/tokens';
 import { GlassCard } from '../../src/design-system/primitives/GlassCard';
 import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
 import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
-import { Radio, QrCode, Key, LogOut, Check, X, Laptop } from 'lucide-react-native';
+import { User, Bell, Radio, Shield, LogOut, Cpu, HardDrive } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
-export default function SyncScreen() {
-  const router = useRouter();
-  const [manualToken, setManualToken] = useState('');
-  const [isPairing, setIsPairing] = useState(false);
-  const [pairingSuccess, setPairingSuccess] = useState(false);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [connected, setConnected] = useState(mobileRelayService.latestState.isDesktopOnline);
+export default function SettingsScreen() {
+  const isConnected = useLiveRelayStore((s) => s.isConnected);
+  const deviceMeta = useLiveRelayStore((s) => s.device);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [isUnpairing, setIsUnpairing] = useState(false);
 
-  useEffect(() => {
-    mobileRelayService.connect();
-    const unsub = mobileRelayService.subscribe(() => setConnected(mobileRelayService.latestState.isDesktopOnline));
-    return unsub;
-  }, []);
-
-  const applyPairing = async (raw: string) => {
-    if (!raw || isPairing) return;
-    setIsPairing(true);
+  const handleUnlink = async () => {
+    if (isUnpairing) return;
+    setIsUnpairing(true);
     try {
-      let token = '';
-      let relayUrl = '';
-
-      if (raw.trim().startsWith('{')) {
-        const parsed = JSON.parse(raw.trim());
-        token = parsed.token || parsed.accessToken || '';
-        relayUrl = parsed.relayUrl || '';
-      } else {
-        token = raw.trim();
-      }
-
-      if (!token) throw new Error('No token found in payload');
-
-      await secureStorage.setAccessToken(token);
-      if (relayUrl) {
-        await secureStorage.setRelayUrl(relayUrl);
-      }
-
-      await mobileRelayService.connect();
       try {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       } catch {}
-      setPairingSuccess(true);
-      setScannerOpen(false);
-      setManualToken('');
-      setTimeout(() => {
-        setPairingSuccess(false);
-        router.replace('/(tabs)');
-      }, 900);
-    } catch {
-      try {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      } catch {}
-      Alert.alert('Pairing Failed', 'Invalid pairing secret or workstation QR token.');
+      await mobileRelayService.unpairAndDisconnect();
+      Alert.alert('Unlinked', 'Your device pairing has been cleared.');
     } finally {
-      setIsPairing(false);
+      setIsUnpairing(false);
     }
-  };
-
-  const openScanner = async () => {
-    if (!permission?.granted) {
-      const { granted } = await requestPermission();
-      if (!granted) {
-        Alert.alert('Camera Access', 'Please allow camera permission to scan the pairing QR code.');
-        return;
-      }
-    }
-    setScannerOpen(true);
   };
 
   return (
@@ -89,160 +39,129 @@ export default function SyncScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.appGreeting}>Workstation</Text>
-          <Text style={styles.pageTitle}>Sync & Connect</Text>
+          <Text style={styles.appGreeting}>Preferences</Text>
+          <Text style={styles.pageTitle}>Settings</Text>
         </View>
-
-        <AstryxBadge
-          label={connected ? 'Connected' : 'Offline'}
-          variant={connected ? 'success' : 'neutral'}
-          showDot={connected}
-        />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Connection Status Card */}
-        <GlassCard active={connected}>
-          <View style={styles.cardHeader}>
-            <View style={styles.iconCircle}>
-              <Laptop size={20} color="#60A5FA" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Primary Computer</Text>
-              <Text style={styles.cardSubtitle}>
-                {connected ? 'Live relay streaming • 12ms latency' : 'Offline or awaiting desktop launch'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailLabel}>Tunnel Protocol</Text>
-            <Text style={styles.detailValue}>Socket.IO WebSocket</Text>
-          </View>
-          <View style={styles.detailsRow}>
-            <Text style={styles.detailLabel}>Encryption</Text>
-            <Text style={styles.detailValue}>End-to-End TLS</Text>
-          </View>
-        </GlassCard>
-
-        {/* Pairing Actions Card */}
+        {/* User Account / Workstation Profile Card */}
         <GlassCard>
           <View style={styles.cardHeader}>
             <View style={styles.iconCircle}>
-              <QrCode size={20} color="#60A5FA" />
+              <User size={22} color="#FB923C" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Pair New Device</Text>
+              <Text style={styles.cardTitle}>Orbit Cockpit</Text>
               <Text style={styles.cardSubtitle}>
-                Scan QR from Orbit Desktop to connect this phone
+                {isConnected ? `Linked to ${deviceMeta?.deviceName || 'Workstation'}` : 'Offline Mode'}
+              </Text>
+            </View>
+            <AstryxBadge
+              label={isConnected ? 'PRO' : 'FREE'}
+              variant={isConnected ? 'primary' : 'neutral'}
+            />
+          </View>
+        </GlassCard>
+
+        {/* Telemetry & Relay Diagnostics */}
+        <GlassCard>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconCircle}>
+              <Radio size={20} color="#FB923C" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Live Tunnel Diagnostics</Text>
+              <Text style={styles.cardSubtitle}>
+                Zero-cache websocket telemetry relay
               </Text>
             </View>
           </View>
 
-          {pairingSuccess ? (
-            <View style={styles.successBanner}>
-              <Check size={16} color="#10B981" />
-              <Text style={styles.successText}>Paired Successfully! Redirecting...</Text>
-            </View>
-          ) : (
-            <View style={styles.pairingContainer}>
-              <AstryxButton
-                label="Scan Desktop QR Code"
-                variant="primary"
-                size="lg"
-                onPress={openScanner}
-                icon={<QrCode size={20} color="#FFFFFF" />}
-                style={styles.scanButton}
-              />
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Host Platform</Text>
+            <Text style={styles.settingValue}>{deviceMeta?.os || 'Linux / macOS / Windows'}</Text>
+          </View>
 
-              <View style={styles.orDivider}>
-                <View style={styles.line} />
-                <Text style={styles.orText}>or enter token</Text>
-                <View style={styles.line} />
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Relay Architecture</Text>
+            <Text style={styles.settingValue}>Pure Memory Stream (0ms)</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Hardware Storage</Text>
+            <Text style={styles.settingValue}>iOS KeyStore / Android KeyStore</Text>
+          </View>
+        </GlassCard>
+
+        {/* Preferences Toggle */}
+        <GlassCard>
+          <View style={styles.cardHeader}>
+            <View style={styles.iconCircle}>
+              <Bell size={20} color="#FB923C" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Notifications & Haptics</Text>
+              <Text style={styles.cardSubtitle}>
+                Alerts when agents request action approval
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Approval Push Notifications</Text>
+              <Text style={styles.settingSubtext}>Get notified when an agent needs command approval</Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
+              trackColor={{ false: '#26212E', true: '#FB923C' }}
+              thumbColor="#FFF7ED"
+            />
+          </View>
+
+          <View style={[styles.toggleRow, { borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.06)', paddingTop: 12 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Tactile Haptics</Text>
+              <Text style={styles.settingSubtext}>Feedback on command approvals and taps</Text>
+            </View>
+            <Switch
+              value={hapticsEnabled}
+              onValueChange={setHapticsEnabled}
+              trackColor={{ false: '#26212E', true: '#FB923C' }}
+              thumbColor="#FFF7ED"
+            />
+          </View>
+        </GlassCard>
+
+        {/* Disconnect / Unpair Card */}
+        {isConnected && (
+          <GlassCard>
+            <View style={styles.cardHeader}>
+              <View style={[styles.iconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.14)' }]}>
+                <LogOut size={20} color="#EF4444" />
               </View>
-
-              <TextInput
-                value={manualToken}
-                onChangeText={setManualToken}
-                placeholder="Paste pairing token..."
-                placeholderTextColor="#64748B"
-                style={styles.textInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-
-              {manualToken.trim().length > 0 && (
-                <AstryxButton
-                  label={isPairing ? 'Linking...' : 'Connect Workstation'}
-                  variant="glass"
-                  size="md"
-                  onPress={() => applyPairing(manualToken)}
-                  disabled={isPairing}
-                  isLoading={isPairing}
-                  icon={<Key size={16} color="#FFFFFF" />}
-                  style={{ marginTop: 12 }}
-                />
-              )}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardTitle, { color: '#FCA5A5' }]}>Unlink Workstation</Text>
+                <Text style={styles.cardSubtitle}>
+                  Clear hardware credentials and disconnect live session
+                </Text>
+              </View>
             </View>
-          )}
-        </GlassCard>
 
-        {/* Disconnect Option */}
-        <GlassCard>
-          <View style={styles.cardHeader}>
-            <View style={[styles.iconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-              <LogOut size={20} color={OrbitTokens.colors.accent.danger} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.cardTitle, { color: '#FCA5A5' }]}>Unlink Workstation</Text>
-              <Text style={styles.cardSubtitle}>
-                Clear saved authentication keys on this mobile app
-              </Text>
-            </View>
-          </View>
-
-          <AstryxButton
-            label="Disconnect Device"
-            variant="danger"
-            size="md"
-            onPress={async () => {
-              await secureStorage.clearTokens();
-              try {
-                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-              } catch {}
-              router.replace('/(tabs)');
-            }}
-            icon={<LogOut size={16} color={OrbitTokens.colors.accent.danger} />}
-          />
-        </GlassCard>
+            <AstryxButton
+              label={isUnpairing ? 'Unlinking...' : 'Disconnect Workstation'}
+              variant="danger"
+              size="md"
+              onPress={handleUnlink}
+              disabled={isUnpairing}
+              isLoading={isUnpairing}
+              icon={<LogOut size={16} color="#EF4444" />}
+            />
+          </GlassCard>
+        )}
       </ScrollView>
-
-      {/* QR Scanner Modal */}
-      <Modal visible={scannerOpen} animationType="slide" presentationStyle="fullScreen">
-        <SafeAreaView style={styles.scannerRoot} edges={['top', 'bottom']}>
-          <View style={styles.scannerNav}>
-            <Text style={styles.scannerTitle}>Scan QR Code</Text>
-            <Pressable onPress={() => setScannerOpen(false)} style={styles.scannerClose}>
-              <X size={18} color="#FFFFFF" />
-            </Pressable>
-          </View>
-
-          <CameraView
-            style={{ flex: 1 }}
-            facing="back"
-            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-            onBarcodeScanned={({ data }) => {
-              if (data && !isPairing) applyPairing(data);
-            }}
-          />
-
-          <View style={styles.scannerFooter}>
-            <Text style={styles.scannerHint}>
-              Point camera at the QR code displayed in the Orbit Desktop header
-            </Text>
-          </View>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -250,7 +169,7 @@ export default function SyncScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#070B14',
+    backgroundColor: '#0B0A0D',
   },
   header: {
     flexDirection: 'row',
@@ -263,47 +182,47 @@ const styles = StyleSheet.create({
   appGreeting: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#60A5FA',
+    color: '#FB923C',
     letterSpacing: -0.2,
   },
   pageTitle: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#F8FAFC',
+    color: '#FFF7ED',
     letterSpacing: -0.6,
     marginTop: 2,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 100,
-    gap: 6,
+    paddingBottom: 120,
+    gap: 12,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   iconCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(37, 99, 235, 0.14)',
+    backgroundColor: 'rgba(251, 146, 60, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#FFF7ED',
     letterSpacing: -0.2,
   },
   cardSubtitle: {
     fontSize: 12.5,
-    color: '#94A3B8',
+    color: '#D6C7B8',
     marginTop: 2,
   },
-  detailsRow: {
+  settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -311,98 +230,26 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
-  detailLabel: {
+  settingLabel: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: '#D6C7B8',
+    fontWeight: '500',
   },
-  detailValue: {
-    fontSize: 13,
+  settingValue: {
+    fontSize: 12.5,
+    fontFamily: 'monospace',
+    color: '#FFF7ED',
     fontWeight: '600',
-    color: '#E2E8F0',
   },
-  pairingContainer: {
-    paddingTop: 4,
+  settingSubtext: {
+    fontSize: 11.5,
+    color: '#8C827A',
+    marginTop: 2,
   },
-  scanButton: {
-    marginBottom: 16,
-    height: 52,
-    borderRadius: OrbitTokens.radii.pill,
-    ...OrbitTokens.shadows.subtle,
-  },
-  orDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  line: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  orText: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  textInput: {
-    backgroundColor: 'rgba(11, 17, 32, 0.75)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: OrbitTokens.radii.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 13,
-    fontSize: 13.5,
-    color: '#FFFFFF',
-  },
-  successBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(16, 185, 129, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    borderRadius: OrbitTokens.radii.pill,
-    padding: 14,
-  },
-  successText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: '#34D399',
-  },
-  scannerRoot: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  scannerNav: {
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  scannerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  scannerClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scannerFooter: {
-    padding: 24,
-    alignItems: 'center',
-    backgroundColor: '#070B14',
-  },
-  scannerHint: {
-    fontSize: 13.5,
-    color: '#94A3B8',
-    textAlign: 'center',
+    paddingVertical: 8,
   },
 });

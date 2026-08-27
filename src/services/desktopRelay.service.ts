@@ -2,167 +2,321 @@ import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/auth.store';
 import { useAgentStore } from '../stores/agent.store';
 import { useWorkspaceStore } from '../stores/workspace.store';
+import { isTauriAvailable, tauriService } from './tauri.service';
+import { conversationStore } from './conversation/ConversationStore';
+import { conversationCaptureService } from './conversation/ConversationCaptureService';
 
 class DesktopRelayService {
   private socket: Socket | null = null;
   private isConnecting = false;
   private unsubscribeWorkspaceStore: (() => void) | null = null;
   private unsubscribeAgentStore: (() => void) | null = null;
+  private unsubscribeConversationStore: (() => void) | null = null;
+  private unlistenTauriOutput: (() => void) | null = null;
+  private unlistenTauriStatus: (() => void) | null = null;
+  private syncThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    this.unsubscribeConversationStore = conversationStore.subscribe(() => {
+      this.scheduleSync();
+    });
+  }
 
   getRelayToken(): string {
     const { tokens, user } = useAuthStore.getState();
     return tokens?.accessToken || (user ? `orbit_dev_${user.id}` : 'orbit_dev_master_token');
   }
 
-  connect() {
+  getPairingCode(): string {
     const token = this.getRelayToken();
-    if (this.socket?.connected || this.isConnecting) return;
-
-    this.isConnecting = true;
-    const relayUrl = (import.meta as any).env?.VITE_API_URL || 'http://192.168.18.60:3000';
-
-    console.log(`🔗 [Orbit Desktop Relay] Connecting to ${relayUrl}/relay...`);
-
-    this.socket = io(`${relayUrl}/relay`, {
-      auth: { token: `Bearer ${token}` },
-      query: { clientType: 'desktop' },
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 2000,
-      reconnectionDelayMax: 10000,
-    });
-
-    this.socket.on('connect', () => {
-      this.isConnecting = false;
-      console.log('✅ [Orbit Desktop Relay] Connected to Cloud Relay! Socket ID:', this.socket?.id);
-      this.syncFullTelemetry();
-      this.setupStoreSubscribers();
-    });
-
-    this.socket.on('desktop:request_telemetry', () => {
-      console.log('📡 [Orbit Desktop Relay] Telemetry requested by mobile client');
-      this.syncFullTelemetry();
-    });
-
-    this.socket.on('disconnect', () => {
-      this.isConnecting = false;
-      console.log('🔌 [Orbit Desktop Relay] Disconnected from Cloud Relay');
-    });
-
-    // Handle remote actions dispatched from mobile phone
-    this.socket.on('desktop:execute_action', async (payload: { action: string; agentId?: string; projectId?: string; data?: any }) => {
-      console.log('📱 [Orbit Desktop Relay] Received remote action from mobile:', payload);
-      const agentStore = useAgentStore.getState();
-      const workspaceStore = useWorkspaceStore.getState();
-
-      const activeWs = workspaceStore.getActiveWorkspace();
-
-      if (payload.action === 'PAUSE' && payload.agentId) {
-        await agentStore.setAgentStatus(payload.agentId, 'paused').catch(() => {});
-        this.syncFullTelemetry();
-      } else if (payload.action === 'STOP' && payload.agentId) {
-        await agentStore.setAgentStatus(payload.agentId, 'ready').catch(() => {});
-        this.syncFullTelemetry();
-      } else if (payload.action === 'EMERGENCY_STOP_ALL') {
-        const { agents } = agentStore;
-        for (const a of agents) {
-          if (a.status === 'working') {
-            await agentStore.setAgentStatus(a.id, 'paused').catch(() => {});
-          }
-        }
-        this.syncFullTelemetry();
-      } else if (payload.action === 'SEND_INPUT' && payload.agentId && payload.data?.input) {
-        agentStore.sendTerminalCommand(
-          payload.agentId,
-          `${payload.data.input}\r`,
-          activeWs?.projectPath,
-          activeWs?.id
-        );
-      }
-    });
+    let hash = 0;
+    for (let i = 0; i < token.length; i++) {
+      hash = ((hash << 5) - hash) + token.charCodeAt(i);
+      hash |= 0;
+    }
+    const code = Math.abs(hash % 900000) + 100000;
+    return code.toString();
   }
 
-  setupStoreSubscribers() {
-    if (this.unsubscribeWorkspaceStore) this.unsubscribeWorkspaceStore();
-    if (this.unsubscribeAgentStore) this.unsubscribeAgentStore();
+  getDeviceMetadata() {
+    const isMac = navigator.userAgent.includes('Mac');
+    const isWin = navigator.userAgent.includes('Win');
+    const osType = isMac ? 'macos' : isWin ? 'windows' : 'linux';
+    const osVersion = isMac ? 'macOS' : isWin ? 'Windows' : 'Linux';
 
-    this.unsubscribeWorkspaceStore = useWorkspaceStore.subscribe((state, prevState) => {
-      if (state.workspaces !== prevState.workspaces || state.activeWorkspaceId !== prevState.activeWorkspaceId) {
-        this.syncFullTelemetry();
-      }
-    });
-
-    this.unsubscribeAgentStore = useAgentStore.subscribe((state, prevState) => {
-      if (state.agents !== prevState.agents) {
-        this.syncFullTelemetry();
-      }
-    });
+    return {
+      deviceName: `${osVersion} Studio`,
+      platform: 'desktop' as const,
+      os: osVersion,
+      osType: osType as 'macos' | 'windows' | 'linux',
+      osVersion,
+      appVersion: '2.0.0',
+      activeWorkspaceName: useWorkspaceStore.getState().getActiveWorkspace()?.name,
+      activeWorkspacePath: useWorkspaceStore.getState().getActiveWorkspace()?.projectPath,
+      connectedAt: Date.now(),
+    };
   }
 
   disconnect() {
-    if (this.unsubscribeWorkspaceStore) {
-      this.unsubscribeWorkspaceStore();
-      this.unsubscribeWorkspaceStore = null;
-    }
-    if (this.unsubscribeAgentStore) {
-      this.unsubscribeAgentStore();
-      this.unsubscribeAgentStore = null;
-    }
     if (this.socket) {
-      this.socket.disconnect();
+      try {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+      } catch {}
       this.socket = null;
+    }
+    this.isConnecting = false;
+  }
+
+  connect(relayUrl?: string) {
+    if (this.socket?.connected || this.isConnecting) return;
+    this.isConnecting = true;
+
+    const targetUrl = relayUrl || (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
+
+    try {
+      this.socket = io(`${targetUrl}/relay`, {
+        auth: {
+          token: this.getRelayToken(),
+          clientType: 'desktop',
+          pairingCode: this.getPairingCode(),
+          device: this.getDeviceMetadata(),
+        },
+        query: {
+          clientType: 'desktop',
+          pairingCode: this.getPairingCode(),
+        },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 20,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+      });
+
+      this.socket.on('connect', () => {
+        this.isConnecting = false;
+        console.log('✅ [Desktop Relay] Connected to Live Relay! Socket ID:', this.socket?.id);
+        this.broadcastLiveTelemetry();
+      });
+
+      this.socket.on('desktop:request_telemetry', () => {
+        this.broadcastLiveTelemetry();
+      });
+
+      // Handle mobile remote commands and conversation messages
+      this.socket.on('desktop:execute_action', async (action: any) => {
+        const actionType = String(action.type || action.action || '');
+        const agentId = String(action.agentId || '');
+        const payload = action.payload || action.data;
+
+        if (actionType === 'SEND_INPUT' || actionType === 'SEND_MESSAGE') {
+          const input = payload?.input || payload?.text;
+          if (input !== undefined && agentId) {
+            await conversationCaptureService.submitUserMessage(agentId, String(input)).catch((e) => {
+              console.warn('Failed to submit user message via conversation capture:', e);
+            });
+          }
+        } else if (actionType === 'PAUSE' || actionType === 'KILL' || actionType === 'STOP') {
+          if (isTauriAvailable()) {
+            await tauriService.stopAgentSession(agentId).catch((e) => {
+              console.warn('Failed to stop agent session:', e);
+            });
+          }
+          conversationStore.setSessionStatus(agentId, actionType === 'PAUSE' ? 'waiting' : 'offline');
+          useAgentStore.getState().setAgentStatus(agentId, actionType === 'PAUSE' ? 'paused' : 'ready');
+        } else if (actionType === 'RESUME') {
+          const agent = useAgentStore.getState().agents.find((a) => a.id === agentId);
+          const activeWs = useWorkspaceStore.getState().getActiveWorkspace();
+          if (agent && isTauriAvailable()) {
+            const projPath = activeWs?.projectPath || '';
+            const sessionId = agent.currentSessionId || agent.id;
+            await tauriService.startAgentSession(
+              projPath,
+              agent.id,
+              sessionId,
+              agent.provider,
+              agent.taskDirective,
+              activeWs?.id,
+              24,
+              80,
+              agent.profileId,
+              agent.role
+            ).catch((e) => {
+              console.warn('Failed to resume agent session:', e);
+            });
+            conversationStore.setSessionStatus(agentId, 'working');
+            useAgentStore.getState().setAgentStatus(agentId, 'working');
+          }
+        }
+        this.scheduleSync();
+      });
+
+      this.socket.on('disconnect', () => {
+        this.isConnecting = false;
+      });
+
+      this.setupStoreSubscribers();
+    } catch (e) {
       this.isConnecting = false;
+      console.error('Failed to connect to relay:', e);
     }
   }
 
-  syncFullTelemetry() {
-    if (!this.socket?.connected) return;
+  private setupStoreSubscribers() {
+    this.unsubscribeWorkspaceStore = useWorkspaceStore.subscribe(() => {
+      this.scheduleSync();
+    });
 
-    const { agents, terminalLogs } = useAgentStore.getState();
-    const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState();
+    this.unsubscribeAgentStore = useAgentStore.subscribe(() => {
+      // Ensure all current desktop agents are bound in the conversation capture service
+      const { agents } = useAgentStore.getState();
+      const activeWs = useWorkspaceStore.getState().getActiveWorkspace();
+      for (const a of agents) {
+        conversationCaptureService.bindSession(
+          a.id,
+          a.workspaceId || activeWs?.id || 'default_project',
+          a.workspaceId || activeWs?.id || 'default_project',
+          {
+            id: a.id,
+            name: a.name,
+            provider: a.provider,
+          },
+          a.name
+        );
+      }
+      this.scheduleSync();
+    });
 
-    const telemetryPacket = {
-      workstations: [{ id: 'ws-main', name: 'Desktop Host' }],
-      activeWorkspaceId,
-      projects: workspaces.map((w) => ({
-        id: w.id,
-        name: w.name,
-        projectPath: w.projectPath,
-        gitBranch: 'main',
-        activeAgentsCount: agents.filter((a) => a.workspaceId === w.id && (a.status === 'working' || a.status === 'ready')).length,
-        filesModifiedCount: 0,
-        failingTestsCount: 0,
-        contextFreshnessPercentage: 95,
-        lastActivitySummary: `${agents.filter((a) => a.workspaceId === w.id).length} agents active in workspace`,
-        updatedAt: Date.now(),
-      })),
-      agents: agents.map((a) => {
-        const logs = terminalLogs?.[a.id] || [];
-        const recentLogs = logs.slice(-30).map((line) => line.text || '');
+    if (isTauriAvailable()) {
+      tauriService.onAgentOutput((payload) => {
+        // Feed into Conversation Capture Service
+        conversationCaptureService.handlePtyOutput(payload.agentId, payload.text);
+        this.scheduleSync();
+      }).then((unlisten) => {
+        this.unlistenTauriOutput = unlisten;
+      });
+
+      tauriService.onAgentStatus((payload) => {
+        conversationCaptureService.handleProcessStatus(payload.agentId, payload.status, payload.pid);
+        this.scheduleSync();
+      }).then((unlisten) => {
+        this.unlistenTauriStatus = unlisten;
+      });
+    }
+  }
+
+  private scheduleSync() {
+    if (this.syncThrottleTimer) return;
+    this.syncThrottleTimer = setTimeout(() => {
+      this.syncThrottleTimer = null;
+      this.broadcastLiveTelemetry();
+    }, 200);
+  }
+
+  async broadcastLiveTelemetry() {
+    if (!this.socket || !this.socket.connected) return;
+
+    try {
+      const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState();
+      const { agents } = useAgentStore.getState();
+      const canonicalSessions = conversationStore.getAllSessions();
+
+      const projects = workspaces.map((w) => {
+        const workspaceAgents = agents.filter((a) => a.workspaceId === w.id);
+        const workspaceSessions = canonicalSessions.filter((s) => s.workspaceId === w.id || s.projectId === w.id);
+        const activeCount = workspaceSessions.filter((s) => s.status === 'working').length;
 
         return {
-          id: a.id,
-          name: a.name,
-          provider: a.provider,
-          profileId: a.profileId,
-          role: a.role || 'raw',
-          status: a.status,
-          currentTaskDescription: a.status === 'working' ? 'Processing instructions' : 'Idle and ready',
-          terminalLogs: recentLogs,
-          tokensUsed: 1200,
-          filesTouchedCount: 2,
-          runtimeSeconds: 320,
-          requiresAttention: false,
+          id: w.id,
+          name: w.name,
+          projectPath: w.projectPath,
+          gitBranch: 'main',
+          spacesCount: 1,
+          spaces: [{ id: `space-${w.id}`, name: 'Primary Space', agentCount: workspaceAgents.length }],
+          activeAgentsCount: activeCount,
+          totalAgentsCount: workspaceSessions.length,
+          filesModifiedCount: 0,
+          failingTestsCount: 0,
+          contextFreshnessPercentage: 98,
+          lastActivitySummary: activeCount > 0 ? `${activeCount} agents actively working` : 'All agents ready',
           updatedAt: Date.now(),
         };
-      }),
-    };
+      });
 
-    console.log('📡 [Orbit Desktop Relay] Pushing live telemetry:', {
-      projectsCount: telemetryPacket.projects.length,
-      agentsCount: telemetryPacket.agents.length,
-    });
-    this.socket.emit('desktop:telemetry', telemetryPacket);
+      const deviceMeta = this.getDeviceMetadata();
+
+      // Map sessions to canonical mobile representation
+      const mappedAgents = canonicalSessions.map((session) => {
+        // Find matching live agent store if present
+        const liveAgent = agents.find((a) => a.id === session.id);
+
+        // Map canonical turns into flat message stream for backwards compat and UI rendering
+        const chatHistory: any[] = [];
+        let previewText = '';
+
+        for (const turn of session.conversation.turns) {
+          for (const msg of turn.messages) {
+            const rawContent = msg.content
+              .map((c) => (c.type === 'text' ? c.text : c.type === 'markdown' ? c.markdown : c.type === 'code' ? c.code : c.path))
+              .join('\n');
+
+            if (rawContent.trim()) {
+              previewText = rawContent.slice(0, 120);
+            }
+
+            const thoughtActivity = turn.activities?.find((a) => a.category === 'other');
+            const toolActivity = turn.activities?.find((a) => a.category !== 'other');
+
+            chatHistory.push({
+              id: msg.id,
+              agentId: session.id,
+              sender: msg.role === 'user' ? 'user' : 'agent',
+              content: rawContent,
+              thought: thoughtActivity?.summary,
+              toolCall: toolActivity
+                ? {
+                    toolName: toolActivity.summary,
+                    summary: toolActivity.category,
+                  }
+                : undefined,
+              activities: turn.activities,
+              streaming: msg.streaming,
+              timestamp: msg.createdAt,
+            });
+          }
+        }
+
+        return {
+          id: session.id,
+          name: session.engine.name || session.title,
+          provider: session.engine.provider,
+          role: liveAgent?.role || 'raw',
+          workspaceId: session.workspaceId,
+          projectId: session.projectId,
+          status: session.status,
+          title: session.title,
+          preview: previewText || 'Awaiting instructions...',
+          currentTaskDescription: session.status === 'working' ? 'Processing instructions...' : 'Idle & Ready',
+          chatHistory,
+          conversation: session.conversation,
+          capabilities: session.capabilities,
+          runtime: session.runtime,
+          terminalLogs: ['● Conversation mode active.'],
+          updatedAt: session.updatedAt,
+        };
+      });
+
+      const packet = {
+        projects,
+        agents: mappedAgents,
+        activeWorkspaceId,
+        device: deviceMeta,
+      };
+
+      this.socket.emit('desktop:telemetry', packet);
+    } catch (err) {
+      console.warn('Failed to broadcast telemetry packet:', err);
+    }
   }
 }
 

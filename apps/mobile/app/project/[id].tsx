@@ -1,22 +1,17 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
+  View, Text, ScrollView, Pressable, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useProjectDetail } from '../../src/hooks/useProjects';
-import { useAgentsByProject, useAgentControls } from '../../src/hooks/useAgentControls';
+import { useLiveRelayStore } from '../../src/stores/liveRelay.store';
+import { mobileRelayService } from '../../src/services/mobileRelay.service';
 import { AgentTile } from '../../src/components/agent/AgentTile';
 import { AgentTerminalModal } from '../../src/components/agent/AgentTerminalModal';
-import { WhatsHappeningModal } from '../../src/components/brief/WhatsHappeningModal';
-import { briefModule } from '../../src/modules/brief.module';
-import { MobileWhatsHappeningBrief, MobileAgentDetail } from '../../src/types/orbit';
-import { AstryxSkeleton } from '../../src/design-system/primitives/AstryxSkeleton';
+import { MobileAgentDetail } from '../../src/types/orbit';
 import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
-import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
 import { GlassCard } from '../../src/design-system/primitives/GlassCard';
-import { OrbitTokens } from '../../src/design-system/tokens';
-import { ArrowLeft, GitBranch, Sparkles, FolderGit2, Users } from 'lucide-react-native';
+import { ArrowLeft, GitBranch, LayoutGrid, Users, Zap, Clock, ShieldAlert } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 export default function ProjectDetailScreen() {
@@ -24,32 +19,18 @@ export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const projectId = id || '';
 
-  const { data: project, isLoading: isProjectLoading, refetch: refetchProject } = useProjectDetail(projectId);
-  const { data: agents, isLoading: isAgentsLoading, refetch: refetchAgents } = useAgentsByProject(projectId);
-  const { pauseAgent, stopAgent, isPausing } = useAgentControls(projectId);
+  // Direct Live Zero-Cache Subscription
+  const project = useLiveRelayStore((s) => s.projects.find((p) => p.id === projectId));
+  const allAgents = useLiveRelayStore((s) => s.agents);
 
-  const [activeAgent, setActiveAgent] = useState<MobileAgentDetail | null>(null);
-  const [briefOpen, setBriefOpen] = useState(false);
-  const [briefData, setBriefData] = useState<MobileWhatsHappeningBrief | undefined>();
-  const [briefLoading, setBriefLoading] = useState(false);
+  // Filter agents belonging to this project (or all if in single-workspace mode)
+  const projectAgents = allAgents.filter((a) => !a.workspaceId || a.workspaceId === projectId);
 
-  const openBrief = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    setBriefOpen(true);
-    setBriefLoading(true);
-    try {
-      const res = await briefModule.getWhatsHappeningSummary(projectId);
-      setBriefData(res);
-    } catch (e) {
-      console.warn(e);
-    } finally {
-      setBriefLoading(false);
-    }
-  };
+  const [activeTerminalAgent, setActiveTerminalAgent] = useState<MobileAgentDetail | null>(null);
 
-  const activeCount = agents?.filter((a) => a.status === 'working').length ?? 0;
+  // Categorize agents: Working Now vs Idle & Ready
+  const workingAgents = projectAgents.filter((a) => a.status === 'working');
+  const idleAgents = projectAgents.filter((a) => a.status !== 'working');
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -64,17 +45,17 @@ export default function ProjectDetailScreen() {
           }}
           style={styles.backButton}
         >
-          <ArrowLeft size={18} color="#FFFFFF" />
+          <ArrowLeft size={18} color="#FFF7ED" />
         </Pressable>
 
         <View style={styles.navTitleBox}>
           <Text style={styles.navTitle} numberOfLines={1}>
-            {project?.name || 'Workspace'}
+            {project?.name || 'Project Details'}
           </Text>
         </View>
 
         <View style={styles.branchPill}>
-          <GitBranch size={13} color="#38BDF8" />
+          <GitBranch size={12} color="#FB923C" />
           <Text style={styles.branchText}>{project?.gitBranch || 'main'}</Text>
         </View>
       </View>
@@ -82,108 +63,110 @@ export default function ProjectDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isProjectLoading || isAgentsLoading}
-            onRefresh={() => {
-              refetchProject();
-              refetchAgents();
-            }}
-            tintColor="#38BDF8"
-          />
-        }
       >
-        {/* Workspace Hero Card */}
+        {/* Workspace Hero Overview */}
         <GlassCard>
-          <Text style={styles.heroName}>{project?.name || 'Workspace'}</Text>
+          <View style={styles.heroTop}>
+            <Text style={styles.heroName}>{project?.name || 'Workspace'}</Text>
+            <AstryxBadge
+              label={`${workingAgents.length} Running`}
+              variant={workingAgents.length > 0 ? 'primary' : 'neutral'}
+              showDot={workingAgents.length > 0}
+            />
+          </View>
           <Text style={styles.projectPath} numberOfLines={1}>{project?.projectPath}</Text>
 
           <View style={styles.metricsRow}>
             <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Active Agents</Text>
-              <Text style={[styles.metricValue, activeCount > 0 && { color: '#38BDF8' }]}>
-                {activeCount}
+              <Text style={styles.metricLabel}>Total Agents</Text>
+              <Text style={[styles.metricValue, projectAgents.length > 0 && { color: '#FB923C' }]}>
+                {projectAgents.length}
               </Text>
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Modified</Text>
-              <Text style={styles.metricValue}>{project?.filesModifiedCount ?? 0} files</Text>
+              <Text style={styles.metricLabel}>Canvas Spaces</Text>
+              <Text style={styles.metricValue}>{project?.spacesCount || project?.spaces?.length || 1}</Text>
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Freshness</Text>
-              <Text style={[styles.metricValue, { color: '#38BDF8' }]}>
-                {project?.contextFreshnessPercentage ?? 0}%
-              </Text>
+              <Text style={styles.metricLabel}>Telemetry</Text>
+              <Text style={[styles.metricValue, { color: '#34D399' }]}>Live</Text>
             </View>
           </View>
         </GlassCard>
 
-        {/* AI Synthesis Brief Card */}
-        <GlassCard onPress={openBrief} active>
-          <View style={styles.briefRow}>
-            <View style={styles.briefIconCircle}>
-              <Sparkles size={18} color="#38BDF8" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.briefTitle}>What's Happening?</Text>
-              <Text style={styles.briefSubtitle}>
-                1-tap multi-agent memory synthesis & task digest
-              </Text>
-            </View>
-            <AstryxButton
-              label="View"
-              variant="primary"
-              size="sm"
-              onPress={openBrief}
-            />
-          </View>
-        </GlassCard>
-
-        {/* Agents Header */}
+        {/* Section 1: Working Now */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Workspace Agents</Text>
-          <AstryxBadge label={`${agents?.length || 0}`} variant="neutral" />
+          <View style={styles.sectionTitleGroup}>
+            <Zap size={15} color="#FB923C" />
+            <Text style={styles.sectionTitle}>Working Now</Text>
+          </View>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeText}>{workingAgents.length}</Text>
+          </View>
         </View>
 
-        {isAgentsLoading ? (
-          <View style={styles.skeletonBox}>
-            <AstryxSkeleton height={140} borderRadius={24} style={{ marginBottom: 14 }} />
+        {workingAgents.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Clock size={18} color="#8C827A" />
+            <Text style={styles.emptyCardText}>No agents currently running active tasks in this project.</Text>
           </View>
-        ) : !agents || agents.length === 0 ? (
-          <GlassCard>
-            <Text style={styles.emptyAgentsText}>No agents currently running in this workspace</Text>
-          </GlassCard>
         ) : (
-          agents.map((agent) => (
+          workingAgents.map((agent) => (
             <AgentTile
               key={agent.id}
               agent={agent}
-              onPause={() => pauseAgent(agent.id)}
-              onStop={() => stopAgent(agent.id)}
+              onPause={() => mobileRelayService.sendAction('PAUSE', agent.id, projectId)}
+              onStop={() => mobileRelayService.sendAction('STOP', agent.id, projectId)}
               onHandoff={() => {}}
-              onOpenTerminal={() => setActiveAgent(agent)}
-              isPausing={isPausing}
+              onOpenTerminal={() => setActiveTerminalAgent(agent)}
+            />
+          ))
+        )}
+
+        {/* Section 2: Idle & Ready */}
+        <View style={[styles.sectionHeader, { marginTop: 12 }]}>
+          <View style={styles.sectionTitleGroup}>
+            <Users size={15} color="#D6C7B8" />
+            <Text style={styles.sectionTitle}>Idle & Spawned Workers</Text>
+          </View>
+          <View style={[styles.countBadge, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <Text style={styles.countBadgeText}>{idleAgents.length}</Text>
+          </View>
+        </View>
+
+        {idleAgents.length === 0 && workingAgents.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <ShieldAlert size={18} color="#8C827A" />
+            <Text style={styles.emptyCardText}>No agents spawned for this project yet. Spawn a worker on Orbit Desktop to interact with it here.</Text>
+          </View>
+        ) : idleAgents.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyCardText}>All spawned workers are currently active.</Text>
+          </View>
+        ) : (
+          idleAgents.map((agent) => (
+            <AgentTile
+              key={agent.id}
+              agent={agent}
+              onPause={() => mobileRelayService.sendAction('PAUSE', agent.id, projectId)}
+              onStop={() => mobileRelayService.sendAction('STOP', agent.id, projectId)}
+              onHandoff={() => {}}
+              onOpenTerminal={() => setActiveTerminalAgent(agent)}
             />
           ))
         )}
       </ScrollView>
 
-      {/* Terminal & Brief Modals */}
-      {activeAgent && (
+      {/* Interactive Agent Terminal & Live Input Modal */}
+      {activeTerminalAgent && (
         <AgentTerminalModal
-          agent={activeAgent}
-          isOpen={!!activeAgent}
-          onClose={() => setActiveAgent(null)}
+          agent={activeTerminalAgent}
+          isOpen={!!activeTerminalAgent}
+          onClose={() => setActiveTerminalAgent(null)}
         />
       )}
-      <WhatsHappeningModal
-        isOpen={briefOpen}
-        onClose={() => setBriefOpen(false)}
-        brief={briefData}
-        isLoading={briefLoading}
-      />
     </SafeAreaView>
   );
 }
@@ -191,67 +174,75 @@ export default function ProjectDetailScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#0A0F1D',
+    backgroundColor: '#0B0A0D',
   },
   navBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   backButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   navTitleBox: {
     flex: 1,
-    paddingHorizontal: 12,
+    marginHorizontal: 12,
   },
   navTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
+    color: '#FFF7ED',
+    letterSpacing: -0.2,
   },
   branchPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    gap: 4,
+    backgroundColor: 'rgba(251, 146, 60, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderColor: 'rgba(251, 146, 60, 0.25)',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: OrbitTokens.radii.pill,
+    borderRadius: 9999,
   },
   branchText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#BAE6FD',
+    color: '#FB923C',
+    fontFamily: 'monospace',
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 60,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 110,
+    gap: 12,
+  },
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   heroName: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#FFF7ED',
     letterSpacing: -0.4,
-    marginBottom: 4,
   },
   projectPath: {
-    fontSize: 13,
-    color: '#94A3B8',
-    marginBottom: 16,
+    fontSize: 11.5,
+    fontFamily: 'monospace',
+    color: '#8C827A',
+    marginTop: 4,
+    marginBottom: 12,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -259,70 +250,68 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    paddingTop: 14,
+    paddingTop: 12,
   },
   metricItem: {
     alignItems: 'center',
   },
   metricLabel: {
-    fontSize: 11.5,
-    fontWeight: '500',
-    color: '#94A3B8',
+    fontSize: 11,
+    color: '#D6C7B8',
     marginBottom: 2,
   },
   metricValue: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#FFF7ED',
   },
   metricDivider: {
     width: 1,
     height: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
-  briefRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  briefIconCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  briefTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  briefSubtitle: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 2,
-  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-    marginBottom: 14,
+    paddingHorizontal: 4,
+    marginTop: 6,
+  },
+  sectionTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
+    color: '#FFF7ED',
+    letterSpacing: -0.2,
   },
-  skeletonBox: {
-    gap: 12,
+  countBadge: {
+    backgroundColor: 'rgba(251, 146, 60, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 9999,
   },
-  emptyAgentsText: {
-    fontSize: 13.5,
-    color: '#94A3B8',
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FB923C',
+  },
+  emptyCard: {
+    backgroundColor: 'rgba(23, 20, 28, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  emptyCardText: {
+    fontSize: 12.5,
+    color: '#8C827A',
     textAlign: 'center',
-    paddingVertical: 8,
   },
 });

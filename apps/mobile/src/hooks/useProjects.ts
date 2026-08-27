@@ -1,51 +1,25 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import { QUERY_KEYS } from '../constants/query-keys';
-import { projectsModule } from '../modules/projects.module';
-import { mobileRelayService } from '../services/mobileRelay.service';
+import { useLiveRelayStore } from '../stores/liveRelay.store';
 
 export const useProjects = () => {
-  const queryClient = useQueryClient();
+  const projects = useLiveRelayStore((s) => s.projects);
+  const isConnected = useLiveRelayStore((s) => s.isConnected);
 
-  useEffect(() => {
-    mobileRelayService.connect();
-    const unsubscribe = mobileRelayService.subscribe((data) => {
-      if (data.projects && data.projects.length >= 0) {
-        queryClient.setQueryData(QUERY_KEYS.PROJECTS.LIST, data.projects);
-      }
-    });
-    return unsubscribe;
-  }, [queryClient]);
-
-  return useQuery({
-    queryKey: QUERY_KEYS.PROJECTS.LIST,
-    queryFn: projectsModule.getProjects,
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    refetchOnWindowFocus: true,
-  });
+  return {
+    data: projects,
+    isLoading: !isConnected,
+    isRefetching: false,
+    refetch: async () => ({ data: projects }),
+  };
 };
 
 export const useProjectDetail = (projectId: string) => {
-  const queryClient = useQueryClient();
+  const project = useLiveRelayStore((s) => s.projects.find((p) => p.id === projectId));
+  const isConnected = useLiveRelayStore((s) => s.isConnected);
 
-  useEffect(() => {
-    mobileRelayService.connect();
-    const unsubscribe = mobileRelayService.subscribe((data) => {
-      if (data.projects) {
-        const found = data.projects.find((p) => p.id === projectId);
-        if (found) {
-          queryClient.setQueryData(QUERY_KEYS.PROJECTS.DETAIL(projectId), found);
-        }
-      }
-    });
-    return unsubscribe;
-  }, [projectId, queryClient]);
-
-  return useQuery({
-    queryKey: QUERY_KEYS.PROJECTS.DETAIL(projectId),
-    queryFn: () => projectsModule.getProjectDetail(projectId),
-    enabled: !!projectId,
-    staleTime: 0,
-  });
+  return {
+    data: project,
+    isLoading: !isConnected,
+    isRefetching: false,
+    refetch: async () => ({ data: project }),
+  };
 };

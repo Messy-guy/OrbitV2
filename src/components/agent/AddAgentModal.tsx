@@ -18,6 +18,7 @@ import { useSettingsStore } from '../../stores/settings.store';
 
 import { OFFICIAL_AGENT_INSTALLERS, AgentInstallerConfig } from '../../constants/agentInstallers';
 import { tauriService } from '../../services/tauri.service';
+import { engineDiscoveryService } from '../../services/conversation/EngineDiscoveryService';
 import { Terminal as TerminalIcon, Download, Copy, RefreshCw } from 'lucide-react';
 
 export const AddAgentModal: React.FC = () => {
@@ -153,6 +154,15 @@ export const AddAgentModal: React.FC = () => {
         ? `${roleLabels[selectedRole] || 'Worker'} (${parentAgent.name.slice(0, 8)})`
         : (selectedProvider === 'custom' ? 'Custom Agent' : undefined);
 
+      if (selectedProvider === 'custom' && customName.trim()) {
+        await engineDiscoveryService.registerUserEngine({
+          id: `custom_${customName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_')}`,
+          name: customName.trim(),
+          executable: customName.trim(),
+          transport: 'auto',
+        });
+      }
+
       await addAgent(
         activeWorkspaceId,
         selectedProvider,
@@ -201,22 +211,22 @@ export const AddAgentModal: React.FC = () => {
         maxWidth="3xl"
         className="max-h-[85vh] p-0 overflow-hidden"
       >
-        <div className="flex flex-col font-sans -mx-4 -my-4">
+        <div className="flex flex-col font-sans">
           {/* Main 2-Pane Content Grid */}
-          <div className="flex flex-col sm:flex-row h-[500px] overflow-hidden">
+          <div className="flex flex-col sm:flex-row h-[520px] overflow-hidden">
             
             {/* Left Pane: Dedicated Scrollable Engine Catalog (Scales to 50+ CLIs) */}
-            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-3.5 flex flex-col gap-2.5 shrink-0 select-none">
+            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-4 flex flex-col gap-3 shrink-0 select-none">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider text-text-muted">
                   1. AI Engine
                 </span>
-                <span className="text-[9.5px] font-mono text-text-dim">
+                <span className="text-[10px] font-mono text-text-dim">
                   {AVAILABLE_AGENT_PRESETS.length} presets
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                 {AVAILABLE_AGENT_PRESETS.map((preset) => {
                   const isSelected = selectedProvider === preset.provider;
                   const detected = detectedAgents.find((d) => d.provider === preset.provider);
@@ -228,29 +238,29 @@ export const AddAgentModal: React.FC = () => {
                       type="button"
                       onClick={() => setSelectedProvider(preset.provider)}
                       className={clsx(
-                        'w-full px-3 py-2.5 rounded-xl text-left flex items-center justify-between cursor-pointer select-none group',
+                        'w-full px-3.5 py-3 rounded-xl text-left flex items-center justify-between cursor-pointer select-none group transition-all',
                         isSelected ? 'surface-selectable-active' : 'surface-selectable'
                       )}
                     >
-                      <div className="flex items-center gap-2.5 truncate min-w-0 pr-2">
-                        <span className={clsx('w-2 h-2 rounded-full shrink-0', isAvailableOnHost ? 'bg-emerald-400 ring-2 ring-emerald-400/20' : 'bg-amber-400 ring-2 ring-amber-400/20')} />
+                      <div className="flex items-center gap-3 truncate min-w-0 pr-2">
+                        <span className={clsx('w-2.5 h-2.5 rounded-full shrink-0', isAvailableOnHost ? 'bg-emerald-400 ring-2 ring-emerald-400/20' : 'bg-amber-400 ring-2 ring-amber-400/20')} />
                         <div className="flex flex-col truncate">
                           <span className={clsx('text-xs font-mono font-semibold truncate leading-tight', isSelected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary')}>
                             {preset.name}
                           </span>
-                          <span className="text-[10px] font-mono text-text-dim truncate mt-0.5">
+                          <span className="text-[10.5px] font-mono text-text-dim truncate mt-0.5">
                             {detected?.version || preset.model}
                           </span>
                         </div>
                       </div>
 
                       {isAvailableOnHost ? (
-                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
+                        <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
                           Ready
                         </span>
                       ) : (
-                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
-                          Install
+                        <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
+                          Setup
                         </span>
                       )}
                     </button>
@@ -259,15 +269,21 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {selectedProvider === 'custom' && (
-                <div className="p-2.5 bg-well rounded-xl border border-border space-y-1.5 shrink-0 mt-1">
-                  <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-text-muted">Custom CLI Binary</span>
+                <div className="p-3 bg-well rounded-xl border border-border space-y-2 shrink-0 mt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-text-muted">Custom CLI Agent</span>
+                    <span className="text-[8.5px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Universal</span>
+                  </div>
                   <input
                     type="text"
-                    placeholder="e.g. aider, mentor"
+                    placeholder="Command (e.g. quantum-coder, aider)"
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
                     className="w-full px-2.5 py-1.5 rounded-lg bg-panel border border-border text-text-primary text-[11px] font-mono focus:outline-hidden"
                   />
+                  <span className="text-[9px] text-text-dim leading-tight block">
+                    Orbit will automatically detect ACP, JSONL, or Terminal protocol.
+                  </span>
                 </div>
               )}
             </div>
@@ -474,7 +490,7 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {/* Footer Actions */}
-              <div className="flex items-center justify-between pt-3 border-t border-border mt-auto">
+              <div className="flex items-center justify-between pt-3.5 border-t border-border mt-auto">
                 <div className="flex items-center gap-2">
                   {detectedAgents.length > 0 && !detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable && (
                     <span className="text-[10.5px] font-mono text-amber-400 font-medium flex items-center gap-1.5">
@@ -482,30 +498,30 @@ export const AddAgentModal: React.FC = () => {
                     </span>
                   )}
                   {detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable !== false && (
-                    <span className="text-[10px] font-mono text-text-dim">
-                      Press <kbd className="px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono text-[9.5px]">Enter ↵</kbd>
+                    <span className="text-[10.5px] font-mono text-text-dim">
+                      Press <kbd className="px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono text-[10px]">Enter ↵</kbd>
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="md"
                     onClick={() => setAddAgentOpen(false)}
-                    className="font-mono text-xs px-3 py-1.5 h-8.5 rounded-xl"
+                    className="font-mono text-xs px-4 py-2 h-9 rounded-xl cursor-pointer"
                   >
                     Cancel
                   </Button>
                   <Button
                     variant="primary"
-                    size="sm"
+                    size="md"
                     onClick={handleCreateAgent}
                     isLoading={isSubmitting}
                     disabled={detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false}
-                    className="gap-2 font-mono text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed px-4.5 py-1.5 h-8.5 rounded-xl"
+                    className="gap-2.5 font-mono text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2 h-9 rounded-xl shadow-md cursor-pointer"
                   >
                     <span>Spawn Worker</span>
-                    <ArrowRight size={13} strokeWidth={2.5} />
+                    <ArrowRight size={14} strokeWidth={2.5} />
                   </Button>
                 </div>
               </div>

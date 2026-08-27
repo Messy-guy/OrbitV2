@@ -1,32 +1,35 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
 import { desktopRelayService } from '../../services/desktopRelay.service';
-import { Wifi, Copy, Check } from 'lucide-react';
-import { useState } from 'react';
+import { Wifi, Copy, Check, KeyRound, RefreshCw } from 'lucide-react';
 
 export const PairMobileModal: React.FC = () => {
   const { isPairMobileOpen, setPairMobileOpen } = useUIStore();
   const { user } = useAuthStore();
   const [hasCopied, setHasCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<'qr' | 'code'>('code');
 
   if (!isPairMobileOpen) return null;
 
-  // Use the exact static token that desktopRelayService uses
   const token = desktopRelayService.getRelayToken();
+  const pairingCode = desktopRelayService.getPairingCode();
+  const relayUrl = (import.meta as any).env?.VITE_API_URL || 'http://192.168.18.60:3000';
+
   const pairingPayload = JSON.stringify({
     type: 'orbit_pair',
     version: '1.0',
     userId: user?.id || 'dev-user-default',
     token: token,
-    relayUrl: (import.meta as any).env?.VITE_API_URL || 'http://192.168.18.60:3000',
+    code: pairingCode,
+    relayUrl: relayUrl,
     issuedAt: Date.now(),
   });
 
-  const handleCopyPayload = () => {
-    navigator.clipboard.writeText(pairingPayload);
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(pairingCode);
     setHasCopied(true);
     setTimeout(() => setHasCopied(false), 2000);
   };
@@ -35,45 +38,91 @@ export const PairMobileModal: React.FC = () => {
     <Modal
       isOpen={isPairMobileOpen}
       onClose={() => setPairMobileOpen(false)}
-      title="Pair Orbit Mobile Cockpit"
-      subtitle="Scan with your phone to link your workstation in 1 tap"
+      title="Link Mobile Cockpit"
+      subtitle="Pair your phone with your desktop in seconds"
       maxWidth="sm"
     >
       <div className="flex flex-col items-center gap-4 font-sans text-xs pt-1 select-none">
         
-        {/* QR Code Container */}
-        <div className="p-4 bg-white rounded-2xl shadow-xl flex items-center justify-center border border-border">
-          <QRCodeSVG
-            value={pairingPayload}
-            size={180}
-            level="M"
-            includeMargin={false}
-          />
+        {/* Toggle Mode: 6-Digit Code vs QR Code */}
+        <div className="w-full flex rounded-xl bg-panel border border-border p-1 gap-1">
+          <button
+            onClick={() => setActiveTab('code')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+              activeTab === 'code'
+                ? 'bg-text-primary text-background shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            6-Digit Code
+          </button>
+          <button
+            onClick={() => setActiveTab('qr')}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+              activeTab === 'qr'
+                ? 'bg-text-primary text-background shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            Scan QR
+          </button>
         </div>
+
+        {activeTab === 'code' ? (
+          /* OTP 6-Digit Display Box */
+          <div className="w-full flex flex-col items-center justify-center p-6 bg-well rounded-2xl border border-border gap-3">
+            <div className="flex items-center gap-2 text-text-dim text-[11px] font-mono">
+              <KeyRound size={13} className="text-accent" />
+              <span>ENTER THIS CODE ON YOUR PHONE</span>
+            </div>
+            
+            <div className="flex items-center gap-2 tracking-[0.35em] font-mono font-extrabold text-3xl text-text-primary bg-panel px-6 py-3 rounded-xl border border-border select-all">
+              {pairingCode.slice(0, 3)} {pairingCode.slice(3)}
+            </div>
+
+            <p className="text-[11px] text-text-muted text-center font-mono">
+              Open Orbit Mobile → <b>Sync</b> tab → type this 6-digit code
+            </p>
+          </div>
+        ) : (
+          /* QR Code Container */
+          <div className="p-4 bg-white rounded-2xl shadow-xl flex items-center justify-center border border-border">
+            <QRCodeSVG
+              value={pairingPayload}
+              size={180}
+              level="M"
+              includeMargin={false}
+            />
+          </div>
+        )}
 
         {/* Security / Tunnel Info */}
         <div className="w-full p-3 rounded-xl bg-well border border-border flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-mono text-emerald-400 font-bold text-[11px]">
               <Wifi size={12} className="animate-pulse" />
-              <span>END-TO-END ENCRYPTED RELAY</span>
+              <span>DIRECT LOCAL RELAY</span>
             </div>
-            <span className="text-[10px] font-mono text-text-dim">Socket.IO</span>
+            <span className="text-[10px] font-mono text-text-dim">TLS Encrypted</span>
           </div>
           <p className="text-text-muted font-mono text-[11px] leading-relaxed">
-            Your phone connects directly to your desktop workspace over the local relay tunnel.
+            Your phone communicates directly with this workstation. No account or complex config needed.
           </p>
         </div>
 
-        {/* Quick Copy Link Option */}
+        {/* Action Buttons */}
         <div className="w-full flex items-center justify-between pt-2 border-t border-border">
-          <button
-            onClick={handleCopyPayload}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-panel hover:bg-panel-elevated border border-border text-text-secondary hover:text-text-primary text-xs font-mono transition-colors cursor-pointer"
-          >
-            {hasCopied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-            <span>{hasCopied ? 'Copied Token' : 'Copy Pairing Payload'}</span>
-          </button>
+          {activeTab === 'code' ? (
+            <button
+              onClick={handleCopyCode}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-panel hover:bg-panel-elevated border border-border text-text-secondary hover:text-text-primary text-xs font-mono transition-colors cursor-pointer"
+            >
+              {hasCopied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              <span>{hasCopied ? 'Code Copied' : 'Copy Code'}</span>
+            </button>
+          ) : (
+            <div />
+          )}
 
           <button
             onClick={() => setPairMobileOpen(false)}

@@ -41,7 +41,7 @@ export class HybridWorkspaceService implements IWorkspaceService {
     const newWs: Workspace = {
       id: `ws-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now().toString().slice(-4)}`,
       name,
-      projectPath: projectPath || `/home/leo/projects/${name.toLowerCase().replace(/\s+/g, '-')}`,
+      projectPath: projectPath || `~/projects/${name.toLowerCase().replace(/\s+/g, '-')}`,
       agentCount: 0,
       lastActive: 'Just created',
       createdAt: Date.now(),

@@ -50,7 +50,7 @@ export const AstryxButton: React.FC<AstryxButtonProps> = ({
             styles.labelBase,
             styles[`label_${variant}`],
             styles[`labelSize_${size}`],
-            disabled && styles.labelDisabled,
+            disabled && (isPrimary ? styles.labelDisabledPrimary : styles.labelDisabled),
           ]}
         >
           {label}
@@ -66,17 +66,21 @@ export const AstryxButton: React.FC<AstryxButtonProps> = ({
       style={({ pressed }) => [
         styles.pressableContainer,
         styles[`size_${size}`],
-        disabled && styles.disabled,
+        disabled && (isPrimary ? styles.disabledPrimary : styles.disabled),
         pressed && !disabled && styles.pressed,
         style,
       ]}
     >
       {isPrimary ? (
         <LinearGradient
-          colors={['#1D4ED8', '#2563EB']}
+          colors={disabled ? ['#241D1A', '#382E29'] : ['#EA580C', '#FB923C']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[styles.innerGradient, styles[`size_${size}`]]}
+          style={[
+            styles.innerGradient,
+            styles[`size_${size}`],
+            disabled && { borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)' },
+          ]}
         >
           {content}
         </LinearGradient>
@@ -118,11 +122,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   size_md: {
-    height: 46,
+    height: 48,
     paddingHorizontal: 20,
   },
   size_lg: {
-    height: 52,
+    height: 54,
     paddingHorizontal: 24,
   },
   secondary: {
@@ -143,10 +147,13 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.85,
-    transform: [{ scale: 0.97 }],
+    transform: [{ scale: 0.98 }],
   },
   disabled: {
-    opacity: 0.45,
+    opacity: 0.5,
+  },
+  disabledPrimary: {
+    opacity: 1,
   },
   labelBase: {
     fontSize: 14,
@@ -165,6 +172,7 @@ const styles = StyleSheet.create({
   },
   label_primary: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
   label_secondary: {
     color: OrbitTokens.colors.text.primary,
@@ -181,5 +189,8 @@ const styles = StyleSheet.create({
   },
   labelDisabled: {
     color: OrbitTokens.colors.text.disabled,
+  },
+  labelDisabledPrimary: {
+    color: '#A89F97',
   },
 });

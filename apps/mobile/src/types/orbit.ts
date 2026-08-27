@@ -1,5 +1,6 @@
-export type AgentProvider = 'antigravity' | 'claude' | 'opencode' | 'custom';
-export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error' | 'stopped';
+export type AgentProvider = 'antigravity' | 'claude' | 'opencode' | 'custom' | 'codex' | 'gemini' | 'terminal';
+export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error' | 'stopped' | 'offline' | 'completed';
+export type SessionTransportType = 'native' | 'protocol' | 'pty';
 
 export interface MobileUser {
   id: string;
@@ -9,17 +10,63 @@ export interface MobileUser {
   plan: 'FREE' | 'PRO' | 'TEAM';
 }
 
+export interface MobileSpaceSummary {
+  id: string;
+  name: string;
+  agentCount?: number;
+}
+
+export interface MobileDiffChunk {
+  oldPath?: string;
+  newPath?: string;
+  diffSummary?: string;
+  addedLines?: number;
+  deletedLines?: number;
+}
+
 export interface MobileProjectSummary {
   id: string;
   name: string;
   projectPath: string;
   gitBranch: string;
+  spacesCount: number;
+  spaces?: MobileSpaceSummary[];
   activeAgentsCount: number;
+  totalAgentsCount: number;
   filesModifiedCount: number;
   failingTestsCount: number;
   contextFreshnessPercentage: number;
   lastActivitySummary: string;
   updatedAt: number;
+}
+
+export type ConversationFidelityLevel =
+  | 'STRUCTURED'
+  | 'SEMI_STRUCTURED'
+  | 'TERMINAL_FALLBACK'
+  | 'UNSUPPORTED';
+
+export interface EngineFidelity {
+  conversation: ConversationFidelityLevel;
+  activities: 'STRUCTURED' | 'BEST_EFFORT' | 'UNSUPPORTED';
+  approvals: 'STRUCTURED' | 'TERMINAL_PROMPT' | 'UNSUPPORTED';
+}
+
+export interface OrbitSessionCapabilities {
+  sendMessage: boolean;
+  resume: boolean;
+  history: boolean;
+  approvals: boolean;
+  fileChanges: boolean;
+  structuredEvents: boolean;
+}
+
+export interface ActivitySummary {
+  id: string;
+  category: 'files' | 'commands' | 'search' | 'tests' | 'build' | 'git' | 'approvals' | 'thinking' | 'other';
+  summary: string;
+  startedAt: number;
+  completedAt?: number;
 }
 
 export interface MobileAgentChatMessage {
@@ -30,56 +77,57 @@ export interface MobileAgentChatMessage {
   thought?: string;
   toolCall?: {
     toolName: string;
+    args?: string;
     summary?: string;
   };
+  activities?: ActivitySummary[];
+  diffs?: MobileDiffChunk[];
+  streaming?: boolean;
   timestamp: number;
 }
 
 export interface MobileAgentDetail {
   id: string;
   name: string;
-  provider: AgentProvider;
+  title?: string;
+  preview?: string;
+  provider: AgentProvider | string;
   profileId?: string;
+  role?: string;
+  workspaceId: string;
+  projectId?: string;
   status: AgentStatus;
   currentTaskDescription?: string;
   terminalLogs?: string[];
   chatHistory?: MobileAgentChatMessage[];
-  tokensUsed: number;
-  filesTouchedCount: number;
-  runtimeSeconds: number;
-  requiresAttention: boolean;
-  attentionPrompt?: string;
+  transport?: SessionTransportType;
+  fidelity?: EngineFidelity;
+  capabilities?: OrbitSessionCapabilities;
+  tokensUsed?: number;
+  filesTouchedCount?: number;
+  runtimeSeconds?: number;
+  requiresAttention?: boolean;
   updatedAt: number;
 }
 
-export interface MobileSwarmStats {
-  totalActiveAgents: number;
-  totalTokensBurned: number;
-  burnRatePerMinute: number;
-  activeWorkspacesCount: number;
-  cpuPercent?: number;
-  ramPercent?: number;
+export interface ApprovalActionPayload {
+  id: string;
+  agentId: string;
+  action: 'approve' | 'reject';
 }
 
 export interface MobileWhatsHappeningBrief {
-  projectId: string;
-  headline: string;
-  executiveSummary: string;
+  projectId?: string;
+  headline?: string;
+  executiveSummary?: string;
   accomplished: string[];
   blockersAndErrors: string[];
-  keyDecisions: string[];
-  recommendedNextStep: string;
-  generatedAt: number;
-}
-
-export interface MobilePendingApproval {
-  id: string;
-  agentId: string;
-  agentName: string;
-  provider: AgentProvider;
-  actionTitle: string;
-  commandSnippet?: string;
-  question: string;
-  options: string[];
-  createdAt: number;
+  keyDecisions?: string[];
+  recommendedNextStep?: string;
+  summary?: string;
+  activeAgentsCount?: number;
+  failingTestsCount?: number;
+  filesModifiedCount?: number;
+  generatedAt?: number;
+  timestamp?: number;
 }

@@ -19,6 +19,12 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const insets = useSafeAreaInsets();
   const bottomMargin = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 14;
 
+  // Filter routes so only active visible tab screens render
+  const visibleRoutes = state.routes.filter((route) => {
+    const opts = descriptors[route.key]?.options;
+    return (opts as any)?.href !== null && ['index', 'sync', 'settings'].includes(route.name);
+  });
+
   return (
     <View style={[styles.floatingWrapper, { bottom: bottomMargin }]} pointerEvents="box-none">
       <View style={[styles.dockContainer, OrbitTokens.shadows.floatingDock]}>
@@ -30,7 +36,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           />
         ) : (
           <LinearGradient
-            colors={['rgba(26, 36, 56, 0.96)', 'rgba(11, 17, 32, 0.98)']}
+            colors={['rgba(28, 24, 34, 0.96)', 'rgba(15, 13, 18, 0.98)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFillObject}
@@ -38,10 +44,11 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
         )}
 
         <View style={styles.dockRow}>
-          {state.routes.map((route, index) => {
+          {visibleRoutes.map((route) => {
             const descriptor = descriptors[route.key];
             const opts = descriptor.options;
-            const isFocused = state.index === index;
+            const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+            const isFocused = state.index === routeIndex;
             const label =
               typeof opts.tabBarLabel === 'string'
                 ? opts.tabBarLabel
@@ -81,7 +88,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                     isFocused && styles.tabHighlightPillFocused,
                   ]}
                 >
-                  {renderIcon(isFocused ? '#93C5FD' : '#64748B')}
+                  {renderIcon(isFocused ? '#FB923C' : '#8C827A')}
                   <Text
                     style={[
                       styles.tabLabel,
@@ -105,19 +112,19 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
 const styles = StyleSheet.create({
   floatingWrapper: {
     position: 'absolute',
-    left: 14,
-    right: 14,
+    left: 18,
+    right: 18,
     alignItems: 'center',
   },
   dockContainer: {
     width: '100%',
-    height: 72,
+    height: 68,
     borderRadius: 9999,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderTopColor: 'rgba(255, 255, 255, 0.25)',
-    backgroundColor: 'rgba(11, 17, 32, 0.9)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(19, 17, 23, 0.92)',
   },
   dockRow: {
     flex: 1,
@@ -133,26 +140,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 9999,
     overflow: 'hidden',
-    paddingHorizontal: 2,
+    paddingHorizontal: 4,
   },
   tabHighlightPill: {
-    width: '92%',
-    maxWidth: 76,
-    height: 54,
-    borderRadius: 27,
+    width: '90%',
+    maxWidth: 92,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
-    gap: 3.5,
+    gap: 3,
     overflow: 'hidden',
   },
   tabHighlightPillFocused: {
-    backgroundColor: 'rgba(37, 99, 235, 0.25)',
-    borderColor: 'rgba(59, 130, 246, 0.4)',
+    backgroundColor: 'rgba(251, 146, 60, 0.2)',
+    borderColor: 'rgba(251, 146, 60, 0.45)',
   },
   tabLabel: {
     fontSize: 11,
@@ -162,10 +169,10 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   tabLabelFocused: {
-    color: '#93C5FD',
+    color: '#FB923C',
     fontWeight: '700',
   },
   tabLabelMuted: {
-    color: '#64748B',
+    color: '#8C827A',
   },
 });

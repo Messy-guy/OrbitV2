@@ -93,7 +93,7 @@ export const CreateWorkspaceModal: React.FC = () => {
           <Input
             value={projectPath}
             onChange={(e) => setProjectPath(e.target.value)}
-            placeholder={name ? `/home/leo/projects/${name.toLowerCase().replace(/\s+/g, '-')}` : '/home/leo/projects/my-app'}
+            placeholder={name ? `~/projects/${name.toLowerCase().replace(/\s+/g, '-')}` : '~/projects/my-app'}
             icon={<Folder size={14} />}
           />
         </div>

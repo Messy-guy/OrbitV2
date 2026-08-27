@@ -58,24 +58,24 @@ const styles = StyleSheet.create({
     backgroundColor: OrbitTokens.colors.text.muted,
   },
   primary: {
-    backgroundColor: 'rgba(37, 99, 235, 0.16)',
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    backgroundColor: 'rgba(251, 146, 60, 0.16)',
+    borderColor: 'rgba(251, 146, 60, 0.35)',
   },
   label_primary: {
-    color: '#93C5FD',
+    color: '#FB923C',
   },
   dot_primary: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#F97316',
   },
   secondary: {
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    backgroundColor: 'rgba(38, 33, 46, 0.6)',
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   label_secondary: {
-    color: '#CBD5E1',
+    color: '#D6C7B8',
   },
   dot_secondary: {
-    backgroundColor: '#64748B',
+    backgroundColor: '#8C827A',
   },
   success: {
     backgroundColor: 'rgba(16, 185, 129, 0.14)',

@@ -44,7 +44,7 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`h-full w-full surface-panel rounded-panel shadow-panel flex flex-col overflow-hidden transition-all relative ${
+      className={`h-full w-full surface-panel rounded-2xl shadow-panel flex flex-col overflow-hidden transition-all relative ${
         isDragOver
           ? 'ring-2 ring-emerald-500/80 border-emerald-500/50 scale-[1.005] shadow-2xl'
           : 'focus-within:border-border-hover'
@@ -52,8 +52,8 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
     >
       {/* Visual Role Drop Highlight Overlay */}
       {isDragOver && (
-        <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-xs z-40 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/80 rounded-panel">
-          <div className="px-3 py-1.5 rounded-full bg-[#10121A] border border-emerald-400 shadow-xl flex items-center gap-2">
+        <div className="absolute inset-0 bg-emerald-500/10 backdrop-blur-xs z-40 pointer-events-none flex items-center justify-center border-2 border-dashed border-emerald-400/80 rounded-2xl">
+          <div className="px-3.5 py-2 rounded-full bg-[#10121A] border border-emerald-400 shadow-xl flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
             <span className="font-mono font-bold text-xs text-emerald-400 uppercase tracking-wider">
               Drop to Assign Role
@@ -77,38 +77,38 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
       )}
 
       {/* Footer Quick Actions */}
-      <div className="h-8 px-3 bg-[#111217]/80 backdrop-blur-md border-t border-white/[0.08] flex items-center justify-between text-[11px] font-mono select-none no-drag">
-        <div className="flex items-center gap-1.5">
+      <div className="h-9 px-3.5 bg-[#111217]/80 backdrop-blur-md border-t border-white/[0.08] flex items-center justify-between text-xs font-mono select-none no-drag">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveBottomPanel('context')}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-text-muted hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-text-muted hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
             title="Open Project Context"
           >
-            <Database size={11} className="text-[#00e5ff]/70" />
+            <Database size={12} className="text-[#00e5ff]/70" />
             <span className="font-medium">Context</span>
           </button>
 
           <button
             onClick={() => setShareContextOpen(true, agent.id)}
-            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-white hover:bg-white/90 text-black font-bold transition-all shadow-sm active:translate-y-[0.5px]"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white hover:bg-white/90 text-black font-bold transition-all shadow-sm active:translate-y-[0.5px] cursor-pointer"
             title="Share Context to another Agent"
           >
-            <Share2 size={11} strokeWidth={2.5} />
-            <span className="tracking-wide text-[10.5px]">Handoff</span>
+            <Share2 size={12} strokeWidth={2.5} />
+            <span className="tracking-wide text-[11px]">Handoff</span>
           </button>
 
           <button
             onClick={() => setCreateCheckpointOpen(true, agent.id)}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-text-muted hover:text-white hover:bg-white/[0.06] transition-colors"
-            title="Create Project Checkpoint"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-text-muted hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+            title="Save Checkpoint of current Workspace & Logs"
           >
-            <BookmarkPlus size={11} />
-            <span className="font-medium">Checkpoint</span>
+            <BookmarkPlus size={12} />
+            <span>Checkpoint</span>
           </button>
         </div>
 
-        <div className="text-[10px] text-white/40 uppercase font-extrabold tracking-widest px-2 py-0.5 rounded bg-black/40 border border-white/[0.05]">
-          {agent.provider}
+        <div className="text-[10px] text-text-dim font-mono">
+          Session ID: <span className="text-text-muted font-bold">{currentSessionId?.slice(0, 8) || 'raw'}</span>
         </div>
       </div>
     </div>
