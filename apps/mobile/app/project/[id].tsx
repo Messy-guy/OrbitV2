@@ -28,9 +28,16 @@ export default function ProjectDetailScreen() {
 
   const [activeTerminalAgent, setActiveTerminalAgent] = useState<MobileAgentDetail | null>(null);
 
-  // Categorize agents: Working Now vs Idle & Ready
-  const workingAgents = projectAgents.filter((a) => a.status === 'working');
-  const idleAgents = projectAgents.filter((a) => a.status !== 'working');
+  // Categorize agents: Active Now vs Live & Ready vs Historical / Offline Conversations
+  const workingAgents = projectAgents.filter(
+    (a) => (a.status === 'working' || a.status === 'starting') && (a.runtime?.isAlive ?? a.isLive ?? true)
+  );
+  const liveReadyAgents = projectAgents.filter(
+    (a) => (a.status === 'ready' || a.status === 'waiting') && (a.runtime?.isAlive ?? a.isLive ?? true)
+  );
+  const historicalAgents = projectAgents.filter(
+    (a) => !workingAgents.includes(a) && !liveReadyAgents.includes(a)
+  );
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -69,8 +76,8 @@ export default function ProjectDetailScreen() {
           <View style={styles.heroTop}>
             <Text style={styles.heroName}>{project?.name || 'Workspace'}</Text>
             <AstryxBadge
-              label={`${workingAgents.length} Running`}
-              variant={workingAgents.length > 0 ? 'primary' : 'neutral'}
+              label={workingAgents.length > 0 ? `${workingAgents.length} Active` : liveReadyAgents.length > 0 ? `${liveReadyAgents.length} Live` : 'Offline'}
+              variant={workingAgents.length > 0 ? 'primary' : liveReadyAgents.length > 0 ? 'primary' : 'neutral'}
               showDot={workingAgents.length > 0}
             />
           </View>
@@ -78,15 +85,17 @@ export default function ProjectDetailScreen() {
 
           <View style={styles.metricsRow}>
             <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Total Agents</Text>
+              <Text style={styles.metricLabel}>Total Sessions</Text>
               <Text style={[styles.metricValue, projectAgents.length > 0 && { color: '#FB923C' }]}>
                 {projectAgents.length}
               </Text>
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricItem}>
-              <Text style={styles.metricLabel}>Canvas Spaces</Text>
-              <Text style={styles.metricValue}>{project?.spacesCount || project?.spaces?.length || 1}</Text>
+              <Text style={styles.metricLabel}>Active Live</Text>
+              <Text style={[styles.metricValue, workingAgents.length > 0 && { color: '#34D399' }]}>
+                {workingAgents.length}
+              </Text>
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricItem}>
@@ -96,11 +105,11 @@ export default function ProjectDetailScreen() {
           </View>
         </GlassCard>
 
-        {/* Section 1: Working Now */}
+        {/* Section 1: Active Now */}
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleGroup}>
             <Zap size={15} color="#FB923C" />
-            <Text style={styles.sectionTitle}>Working Now</Text>
+            <Text style={styles.sectionTitle}>Active Now</Text>
           </View>
           <View style={styles.countBadge}>
             <Text style={styles.countBadgeText}>{workingAgents.length}</Text>
@@ -125,37 +134,63 @@ export default function ProjectDetailScreen() {
           ))
         )}
 
-        {/* Section 2: Idle & Ready */}
-        <View style={[styles.sectionHeader, { marginTop: 12 }]}>
-          <View style={styles.sectionTitleGroup}>
-            <Users size={15} color="#D6C7B8" />
-            <Text style={styles.sectionTitle}>Idle & Spawned Workers</Text>
-          </View>
-          <View style={[styles.countBadge, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
-            <Text style={styles.countBadgeText}>{idleAgents.length}</Text>
-          </View>
-        </View>
+        {/* Section 2: Live & Ready (Only if there are live ready agents) */}
+        {liveReadyAgents.length > 0 && (
+          <>
+            <View style={[styles.sectionHeader, { marginTop: 12 }]}>
+              <View style={styles.sectionTitleGroup}>
+                <Users size={15} color="#34D399" />
+                <Text style={styles.sectionTitle}>Live & Ready</Text>
+              </View>
+              <View style={[styles.countBadge, { backgroundColor: 'rgba(52, 211, 153, 0.15)' }]}>
+                <Text style={[styles.countBadgeText, { color: '#34D399' }]}>{liveReadyAgents.length}</Text>
+              </View>
+            </View>
 
-        {idleAgents.length === 0 && workingAgents.length === 0 ? (
+            {liveReadyAgents.map((agent) => (
+              <AgentTile
+                key={agent.id}
+                agent={agent}
+                onPause={() => mobileRelayService.sendAction('PAUSE', agent.id, projectId)}
+                onStop={() => mobileRelayService.sendAction('STOP', agent.id, projectId)}
+                onHandoff={() => {}}
+                onOpenTerminal={() => setActiveTerminalAgent(agent)}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Section 3: Previous Conversations / Historical Sessions */}
+        {historicalAgents.length > 0 && (
+          <>
+            <View style={[styles.sectionHeader, { marginTop: 12 }]}>
+              <View style={styles.sectionTitleGroup}>
+                <Users size={15} color="#8C827A" />
+                <Text style={styles.sectionTitle}>Recent Conversations</Text>
+              </View>
+              <View style={[styles.countBadge, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
+                <Text style={styles.countBadgeText}>{historicalAgents.length}</Text>
+              </View>
+            </View>
+
+            {historicalAgents.map((agent) => (
+              <AgentTile
+                key={agent.id}
+                agent={agent}
+                onPause={() => mobileRelayService.sendAction('PAUSE', agent.id, projectId)}
+                onStop={() => mobileRelayService.sendAction('STOP', agent.id, projectId)}
+                onHandoff={() => {}}
+                onOpenTerminal={() => setActiveTerminalAgent(agent)}
+              />
+            ))}
+          </>
+        )}
+
+        {projectAgents.length === 0 && (
           <View style={styles.emptyCard}>
             <ShieldAlert size={18} color="#8C827A" />
-            <Text style={styles.emptyCardText}>No agents spawned for this project yet. Spawn a worker on Orbit Desktop to interact with it here.</Text>
+            <Text style={styles.emptyCardText}>No agent sessions in this workspace yet. Start a conversation on Orbit Desktop to interact with it here.</Text>
           </View>
-        ) : idleAgents.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyCardText}>All spawned workers are currently active.</Text>
-          </View>
-        ) : (
-          idleAgents.map((agent) => (
-            <AgentTile
-              key={agent.id}
-              agent={agent}
-              onPause={() => mobileRelayService.sendAction('PAUSE', agent.id, projectId)}
-              onStop={() => mobileRelayService.sendAction('STOP', agent.id, projectId)}
-              onHandoff={() => {}}
-              onOpenTerminal={() => setActiveTerminalAgent(agent)}
-            />
-          ))
         )}
       </ScrollView>
 

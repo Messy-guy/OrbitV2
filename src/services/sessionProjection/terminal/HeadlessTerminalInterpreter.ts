@@ -6,6 +6,7 @@ export class HeadlessTerminalInterpreter {
   private grid: string[][];
   private cursorRow: number = 0;
   private cursorCol: number = 0;
+  private generation: number = 0;
 
   constructor(rows = 30, cols = 100) {
     this.rows = rows;
@@ -158,6 +159,7 @@ export class HeadlessTerminalInterpreter {
           this.grid = this.createEmptyGrid(this.rows, this.cols);
           this.cursorRow = 0;
           this.cursorCol = 0;
+          this.generation++;
         }
         break;
       }
@@ -170,12 +172,17 @@ export class HeadlessTerminalInterpreter {
   }
 
   captureSnapshot(): ScreenSnapshot {
-    return new ScreenSnapshot(this.grid, this.rows, this.cols);
+    return new ScreenSnapshot(this.grid, this.rows, this.cols, this.generation);
+  }
+
+  getGeneration(): number {
+    return this.generation;
   }
 
   reset() {
     this.grid = this.createEmptyGrid(this.rows, this.cols);
     this.cursorRow = 0;
     this.cursorCol = 0;
+    this.generation++;
   }
 }

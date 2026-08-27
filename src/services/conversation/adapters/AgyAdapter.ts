@@ -1,16 +1,14 @@
-import { EngineAdapter, EngineEvent, StartSessionOptions, Unsubscribe } from './EngineAdapter';
-import { EngineCapabilities, ActivitySummary, ConversationTurn, ConversationMessage } from '../../../types/conversation';
-import { HeadlessTerminalInterpreter } from '../../sessionProjection/terminal/HeadlessTerminalInterpreter';
+import { EngineAdapter, StartSessionOptions, Unsubscribe } from './EngineAdapter';
+import { EngineCapabilities, OrbitEngineEvent, ConversationTurn, ActivitySummary } from '../../../types/conversation';
+import { PtyCaptureSession } from '../../sessionProjection/state/PtyCaptureSession';
 import { isTauriAvailable, tauriService } from '../../tauri.service';
 
 export class AgyAdapter implements EngineAdapter {
   readonly id = 'antigravity';
-  readonly name = 'Antigravity (AGY)';
+  readonly name = 'Antigravity CLI (AGY)';
 
-  private interpreters: Map<string, HeadlessTerminalInterpreter> = new Map();
-  private subscribers: Map<string, Set<(event: EngineEvent) => void>> = new Map();
-  private lastStreamedText: Map<string, string> = new Map();
-  private currentTurnPrompt: Map<string, string> = new Map();
+  private captureSessions: Map<string, PtyCaptureSession> = new Map();
+  private subscribers: Map<string, Set<(event: OrbitEngineEvent) => void>> = new Map();
   private commitTimers: Map<string, NodeJS.Timeout> = new Map();
 
   capabilities(): EngineCapabilities {
@@ -30,8 +28,8 @@ export class AgyAdapter implements EngineAdapter {
 
   async startSession(options: StartSessionOptions): Promise<void> {
     const { sessionId, projectPath, taskDirective, workspaceId } = options;
-    if (!this.interpreters.has(sessionId)) {
-      this.interpreters.set(sessionId, new HeadlessTerminalInterpreter(30, 100));
+    if (!this.captureSessions.has(sessionId)) {
+      this.captureSessions.set(sessionId, new PtyCaptureSession(sessionId, 30, 100));
     }
 
     if (isTauriAvailable()) {
@@ -54,8 +52,12 @@ export class AgyAdapter implements EngineAdapter {
     const cleanText = message.trim();
     if (!cleanText) return;
 
-    this.currentTurnPrompt.set(sessionId, cleanText);
-    this.lastStreamedText.set(sessionId, '');
+    let capture = this.captureSessions.get(sessionId);
+    if (!capture) {
+      capture = new PtyCaptureSession(sessionId, 30, 100);
+      this.captureSessions.set(sessionId, capture);
+    }
+    capture.startTurn(`turn_${Date.now()}`, cleanText);
 
     if (isTauriAvailable()) {
       await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r\n`).catch((err) => {
@@ -74,13 +76,20 @@ export class AgyAdapter implements EngineAdapter {
     if (isTauriAvailable()) {
       await tauriService.stopAgentSession(sessionId).catch(() => {});
     }
-    this.interpreters.delete(sessionId);
+    const capture = this.captureSessions.get(sessionId);
+    if (capture) {
+      capture.dispose();
+      this.captureSessions.delete(sessionId);
+    }
     this.subscribers.delete(sessionId);
-    this.lastStreamedText.delete(sessionId);
-    this.currentTurnPrompt.delete(sessionId);
+    const timer = this.commitTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.commitTimers.delete(sessionId);
+    }
   }
 
-  subscribe(sessionId: string, callback: (event: EngineEvent) => void): Unsubscribe {
+  subscribe(sessionId: string, callback: (event: OrbitEngineEvent) => void): Unsubscribe {
     if (!this.subscribers.has(sessionId)) {
       this.subscribers.set(sessionId, new Set());
     }
@@ -90,7 +99,7 @@ export class AgyAdapter implements EngineAdapter {
     };
   }
 
-  private emit(sessionId: string, event: EngineEvent) {
+  private emit(sessionId: string, event: OrbitEngineEvent) {
     const subs = this.subscribers.get(sessionId);
     if (subs) {
       for (const cb of subs) {
@@ -104,69 +113,46 @@ export class AgyAdapter implements EngineAdapter {
   }
 
   /**
-   * Process raw stdout from AGY PTY runtime
+   * Process raw stdout from AGY PTY runtime through stateful differential capture
    */
   processRawOutput(sessionId: string, bytes: string) {
-    let interpreter = this.interpreters.get(sessionId);
-    if (!interpreter) {
-      interpreter = new HeadlessTerminalInterpreter(30, 100);
-      this.interpreters.set(sessionId, interpreter);
+    let capture = this.captureSessions.get(sessionId);
+    if (!capture) {
+      capture = new PtyCaptureSession(sessionId, 30, 100);
+      this.captureSessions.set(sessionId, capture);
     }
 
-    const snapshot = interpreter.processBytes(bytes);
-    const prompt = this.currentTurnPrompt.get(sessionId);
-    const { text, isThinking, thought, activeMode } = snapshot.getCleanConversationalText(prompt);
+    try {
+      const result = capture.processPtyBytes(bytes);
 
-    if (thought) {
-      this.emit(sessionId, {
-        type: 'activity_started',
-        category: 'other',
-        summary: thought,
-        timestamp: Date.now(),
-      });
-    }
-
-    // Detect tool actions in AGY output (e.g. running command, reading file)
-    if (bytes.includes('run_command') || bytes.includes('Executing') || bytes.includes('Running')) {
-      const match = bytes.match(/(?:Executing|Running)\s+([^\r\n]+)/);
-      if (match) {
+      // 1. Emit tool activities
+      for (const act of result.activities) {
         this.emit(sessionId, {
           type: 'activity_started',
-          category: 'commands',
-          summary: `Ran command: ${match[1].slice(0, 40)}`,
+          category: act.category,
+          summary: act.summary,
+          detail: act.details?.[0],
           timestamp: Date.now(),
         });
       }
-    } else if (bytes.includes('view_file') || bytes.includes('Reading')) {
-      const match = bytes.match(/(?:Reading|Viewing)\s+([^\r\n]+)/);
-      if (match) {
-        this.emit(sessionId, {
-          type: 'activity_started',
-          category: 'files',
-          summary: `Read file: ${match[1].slice(0, 40)}`,
-          timestamp: Date.now(),
-        });
-      }
-    } else if (bytes.includes('write_to_file') || bytes.includes('Editing') || bytes.includes('Writing')) {
-      const match = bytes.match(/(?:Editing|Writing)\s+([^\r\n]+)/);
-      if (match) {
-        this.emit(sessionId, {
-          type: 'activity_started',
-          category: 'files',
-          summary: `Modified file: ${match[1].slice(0, 40)}`,
-          timestamp: Date.now(),
-        });
-      }
-    }
 
-    if (text && text.trim().length > 2 && !/^(Plan|Build|Chat|Explore):/i.test(text.trim())) {
-      const last = this.lastStreamedText.get(sessionId) || '';
-      if (text !== last) {
-        this.lastStreamedText.set(sessionId, text);
+      // 2. Emit compact thinking
+      if (result.thought) {
+        this.emit(sessionId, {
+          type: 'activity_started',
+          category: 'other',
+          summary: result.thought,
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. Emit assistant delta only for true newly appeared user-facing text
+      const userText = result.userFacingText;
+      if (userText && userText.trim().length > 2 && !/^(Plan|Build|Chat|Explore):/i.test(userText.trim())) {
         this.emit(sessionId, {
           type: 'assistant_delta',
-          text,
-          thought,
+          text: userText,
+          thought: result.thought,
           timestamp: Date.now(),
         });
 
@@ -176,16 +162,19 @@ export class AgyAdapter implements EngineAdapter {
 
         const timer = setTimeout(() => {
           this.commitTimers.delete(sessionId);
+          capture?.commitTurn();
           this.emit(sessionId, {
             type: 'assistant_completed',
-            text,
-            thought,
+            text: userText,
+            thought: result.thought,
             timestamp: Date.now(),
           });
         }, 900);
 
         this.commitTimers.set(sessionId, timer);
       }
+    } catch (err) {
+      console.warn('[AgyAdapter] Passive observation parsing error (terminal unaffected):', err);
     }
   }
 

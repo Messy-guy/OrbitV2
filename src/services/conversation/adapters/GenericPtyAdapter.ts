@@ -1,16 +1,14 @@
 import { EngineAdapter, StartSessionOptions, Unsubscribe } from './EngineAdapter';
 import { EngineCapabilities, OrbitEngineEvent } from '../../../types/conversation';
-import { HeadlessTerminalInterpreter } from '../../sessionProjection/terminal/HeadlessTerminalInterpreter';
+import { PtyCaptureSession } from '../../sessionProjection/state/PtyCaptureSession';
 import { isTauriAvailable, tauriService } from '../../tauri.service';
 
 export class GenericPtyAdapter implements EngineAdapter {
   readonly id = 'pty';
   readonly name = 'Generic PTY CLI (Fallback)';
   
-  private interpreters: Map<string, HeadlessTerminalInterpreter> = new Map();
+  private captureSessions: Map<string, PtyCaptureSession> = new Map();
   private subscribers: Map<string, Set<(event: OrbitEngineEvent) => void>> = new Map();
-  private lastStreamedText: Map<string, string> = new Map();
-  private currentTurnPrompt: Map<string, string> = new Map();
   private commitTimers: Map<string, NodeJS.Timeout> = new Map();
 
   capabilities(): EngineCapabilities {
@@ -30,8 +28,8 @@ export class GenericPtyAdapter implements EngineAdapter {
 
   async startSession(options: StartSessionOptions): Promise<void> {
     const { sessionId, projectPath, provider, taskDirective, workspaceId } = options;
-    if (!this.interpreters.has(sessionId)) {
-      this.interpreters.set(sessionId, new HeadlessTerminalInterpreter(30, 100));
+    if (!this.captureSessions.has(sessionId)) {
+      this.captureSessions.set(sessionId, new PtyCaptureSession(sessionId, 30, 100));
     }
 
     if (isTauriAvailable()) {
@@ -54,8 +52,13 @@ export class GenericPtyAdapter implements EngineAdapter {
     const cleanText = message.trim();
     if (!cleanText) return;
 
-    this.currentTurnPrompt.set(sessionId, cleanText);
-    this.lastStreamedText.set(sessionId, '');
+    let capture = this.captureSessions.get(sessionId);
+    if (!capture) {
+      capture = new PtyCaptureSession(sessionId, 30, 100);
+      this.captureSessions.set(sessionId, capture);
+    }
+    // Freeze current terminal state into the TurnBaseline before the agent responds
+    capture.startTurn(`turn_${Date.now()}`, cleanText);
 
     if (isTauriAvailable()) {
       await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r\n`).catch((err) => {
@@ -74,10 +77,17 @@ export class GenericPtyAdapter implements EngineAdapter {
     if (isTauriAvailable()) {
       await tauriService.stopAgentSession(sessionId).catch(() => {});
     }
-    this.interpreters.delete(sessionId);
+    const capture = this.captureSessions.get(sessionId);
+    if (capture) {
+      capture.dispose();
+      this.captureSessions.delete(sessionId);
+    }
     this.subscribers.delete(sessionId);
-    this.lastStreamedText.delete(sessionId);
-    this.currentTurnPrompt.delete(sessionId);
+    const timer = this.commitTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.commitTimers.delete(sessionId);
+    }
   }
 
   subscribe(sessionId: string, callback: (event: OrbitEngineEvent) => void): Unsubscribe {
@@ -104,36 +114,46 @@ export class GenericPtyAdapter implements EngineAdapter {
   }
 
   /**
-   * Process incoming raw stdout from PTY runtime
+   * Process incoming raw stdout from PTY runtime through stateful differential capture
    */
   processRawOutput(sessionId: string, bytes: string) {
-    let interpreter = this.interpreters.get(sessionId);
-    if (!interpreter) {
-      interpreter = new HeadlessTerminalInterpreter(30, 100);
-      this.interpreters.set(sessionId, interpreter);
+    let capture = this.captureSessions.get(sessionId);
+    if (!capture) {
+      capture = new PtyCaptureSession(sessionId, 30, 100);
+      this.captureSessions.set(sessionId, capture);
     }
 
-    const snapshot = interpreter.processBytes(bytes);
-    const prompt = this.currentTurnPrompt.get(sessionId);
-    const { text, isThinking, thought } = snapshot.getCleanConversationalText(prompt);
+    try {
+      const result = capture.processPtyBytes(bytes);
 
-    if (thought) {
-      this.emit(sessionId, {
-        type: 'activity_started',
-        category: 'other',
-        summary: thought,
-        timestamp: Date.now(),
-      });
-    }
+      // 1. Emit extracted tool activities
+      for (const act of result.activities) {
+        this.emit(sessionId, {
+          type: 'activity_started',
+          category: act.category,
+          summary: act.summary,
+          detail: act.details?.[0],
+          timestamp: Date.now(),
+        });
+      }
 
-    if (text && text.trim().length > 2 && !/^(Plan|Build|Chat|Explore):/i.test(text.trim())) {
-      const last = this.lastStreamedText.get(sessionId) || '';
-      if (text !== last) {
-        this.lastStreamedText.set(sessionId, text);
+      // 2. Emit compact thinking activity if present
+      if (result.thought) {
+        this.emit(sessionId, {
+          type: 'activity_started',
+          category: 'other',
+          summary: result.thought,
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. Emit assistant_delta ONLY for true newly appeared user-facing assistant content
+      const userText = result.userFacingText;
+      if (userText && userText.trim().length > 0 && !/^(Plan|Build|Chat|Explore):/i.test(userText.trim())) {
         this.emit(sessionId, {
           type: 'assistant_delta',
-          text,
-          thought,
+          text: userText,
+          thought: result.thought,
           timestamp: Date.now(),
         });
 
@@ -143,16 +163,19 @@ export class GenericPtyAdapter implements EngineAdapter {
 
         const timer = setTimeout(() => {
           this.commitTimers.delete(sessionId);
+          capture?.commitTurn();
           this.emit(sessionId, {
             type: 'assistant_completed',
-            text,
-            thought,
+            text: userText,
+            thought: result.thought,
             timestamp: Date.now(),
           });
         }, 900);
 
         this.commitTimers.set(sessionId, timer);
       }
+    } catch (err) {
+      console.warn('[GenericPtyAdapter] Passive observation parsing error (terminal unaffected):', err);
     }
   }
 }

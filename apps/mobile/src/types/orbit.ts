@@ -1,6 +1,21 @@
 export type AgentProvider = 'antigravity' | 'claude' | 'opencode' | 'custom' | 'codex' | 'gemini' | 'terminal';
-export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error' | 'stopped' | 'offline' | 'completed';
+export type AgentStatus = 'working' | 'ready' | 'waiting' | 'starting' | 'paused' | 'error' | 'stopped' | 'offline' | 'completed';
 export type SessionTransportType = 'native' | 'protocol' | 'pty';
+
+export interface AuthoritativeRuntimeSession {
+  sessionId: string;
+  runtimeStatus: AgentStatus;
+  isLive: boolean;
+  processExists: boolean;
+  pid?: number;
+  lastUpdatedAt: number;
+}
+
+export interface AuthoritativeRuntimeSnapshot {
+  generatedAt: number;
+  desktopOnline: boolean;
+  sessions: AuthoritativeRuntimeSession[];
+}
 
 export interface MobileUser {
   id: string;
@@ -97,6 +112,12 @@ export interface MobileAgentDetail {
   workspaceId: string;
   projectId?: string;
   status: AgentStatus;
+  isLive?: boolean;
+  runtime?: {
+    isAlive: boolean;
+    pid?: number;
+    lastHeartbeat?: number;
+  };
   currentTaskDescription?: string;
   terminalLogs?: string[];
   chatHistory?: MobileAgentChatMessage[];

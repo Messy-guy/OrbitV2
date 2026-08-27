@@ -187,18 +187,31 @@ class DesktopRelayService {
       this.scheduleSync();
     });
 
+    // Authoritative conversation store sync: broadcasts streaming deltas and final completions to mobile
+    this.unsubscribeConversationStore = conversationStore.subscribe(() => {
+      this.scheduleSync();
+    });
+
     if (isTauriAvailable()) {
       tauriService.onAgentOutput((payload) => {
-        // Feed into Conversation Capture Service
-        conversationCaptureService.handlePtyOutput(payload.agentId, payload.text);
-        this.scheduleSync();
+        try {
+          // Passive observer: never disrupts interactive terminal
+          conversationCaptureService.handlePtyOutput(payload.agentId, payload.text);
+          this.scheduleSync();
+        } catch (err) {
+          console.warn('[DesktopRelay] Passive conversation observer error (terminal unaffected):', err);
+        }
       }).then((unlisten) => {
         this.unlistenTauriOutput = unlisten;
       });
 
       tauriService.onAgentStatus((payload) => {
-        conversationCaptureService.handleProcessStatus(payload.agentId, payload.status, payload.pid);
-        this.scheduleSync();
+        try {
+          conversationCaptureService.handleProcessStatus(payload.agentId, payload.status, payload.pid);
+          this.scheduleSync();
+        } catch (err) {
+          console.warn('[DesktopRelay] Process status observer error (terminal unaffected):', err);
+        }
       }).then((unlisten) => {
         this.unlistenTauriStatus = unlisten;
       });
@@ -213,10 +226,31 @@ class DesktopRelayService {
     }, 200);
   }
 
+  async reconcileLiveProcesses() {
+    if (isTauriAvailable()) {
+      const canonicalSessions = conversationStore.getAllSessions();
+      for (const session of canonicalSessions) {
+        try {
+          const isRunning = await tauriService.isAgentProcessRunning(session.id);
+          if (isRunning) {
+            if (!session.runtime?.isAlive) {
+              conversationStore.setRuntimeAlive(session.id, true);
+            }
+          } else {
+            if (session.runtime?.isAlive || session.status === 'working') {
+              conversationStore.setRuntimeAlive(session.id, false, undefined, 'offline');
+            }
+          }
+        } catch {}
+      }
+    }
+  }
+
   async broadcastLiveTelemetry() {
     if (!this.socket || !this.socket.connected) return;
 
     try {
+      await this.reconcileLiveProcesses();
       const { workspaces, activeWorkspaceId } = useWorkspaceStore.getState();
       const { agents } = useAgentStore.getState();
       const canonicalSessions = conversationStore.getAllSessions();
@@ -224,7 +258,8 @@ class DesktopRelayService {
       const projects = workspaces.map((w) => {
         const workspaceAgents = agents.filter((a) => a.workspaceId === w.id);
         const workspaceSessions = canonicalSessions.filter((s) => s.workspaceId === w.id || s.projectId === w.id);
-        const activeCount = workspaceSessions.filter((s) => s.status === 'working').length;
+        const activeCount = workspaceSessions.filter((s) => s.runtime?.isAlive && s.status === 'working').length;
+        const liveCount = workspaceSessions.filter((s) => s.runtime?.isAlive && s.status !== 'offline').length;
 
         return {
           id: w.id,
@@ -238,7 +273,12 @@ class DesktopRelayService {
           filesModifiedCount: 0,
           failingTestsCount: 0,
           contextFreshnessPercentage: 98,
-          lastActivitySummary: activeCount > 0 ? `${activeCount} agents actively working` : 'All agents ready',
+          lastActivitySummary:
+            activeCount > 0
+              ? `${activeCount} agents actively working`
+              : liveCount > 0
+              ? `${liveCount} agents ready`
+              : 'Desktop idle · All agents offline',
           updatedAt: Date.now(),
         };
       });
@@ -249,6 +289,8 @@ class DesktopRelayService {
       const mappedAgents = canonicalSessions.map((session) => {
         // Find matching live agent store if present
         const liveAgent = agents.find((a) => a.id === session.id);
+        const isRuntimeLive = !!session.runtime?.isAlive && session.status !== 'offline';
+        const effectiveStatus = isRuntimeLive ? session.status : 'offline';
 
         // Map canonical turns into flat message stream for backwards compat and UI rendering
         const chatHistory: any[] = [];
@@ -293,22 +335,46 @@ class DesktopRelayService {
           role: liveAgent?.role || 'raw',
           workspaceId: session.workspaceId,
           projectId: session.projectId,
-          status: session.status,
+          status: effectiveStatus,
+          isLive: isRuntimeLive,
           title: session.title,
           preview: previewText || 'Awaiting instructions...',
-          currentTaskDescription: session.status === 'working' ? 'Processing instructions...' : 'Idle & Ready',
+          currentTaskDescription:
+            effectiveStatus === 'working'
+              ? 'Processing instructions...'
+              : effectiveStatus === 'waiting'
+              ? 'Ready for prompt'
+              : 'Offline · Previous conversation',
           chatHistory,
           conversation: session.conversation,
           capabilities: session.capabilities,
-          runtime: session.runtime,
+          runtime: {
+            isAlive: isRuntimeLive,
+            pid: session.runtime?.pid,
+            lastHeartbeat: session.runtime?.lastHeartbeat,
+          },
           terminalLogs: ['● Conversation mode active.'],
           updatedAt: session.updatedAt,
         };
       });
 
+      const runtimeSnapshot = {
+        generatedAt: Date.now(),
+        desktopOnline: true,
+        sessions: canonicalSessions.map((s) => ({
+          sessionId: s.id,
+          runtimeStatus: s.runtime?.isAlive && s.status !== 'offline' ? s.status : 'offline',
+          isLive: !!s.runtime?.isAlive && s.status !== 'offline',
+          processExists: !!s.runtime?.isAlive && s.status !== 'offline',
+          pid: s.runtime?.pid,
+          lastUpdatedAt: s.updatedAt,
+        })),
+      };
+
       const packet = {
         projects,
         agents: mappedAgents,
+        runtimeSnapshot,
         activeWorkspaceId,
         device: deviceMeta,
       };

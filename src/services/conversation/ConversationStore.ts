@@ -24,6 +24,15 @@ class AuthoritativeConversationStore {
       if (raw) {
         const list: OrbitSession[] = JSON.parse(raw);
         for (const s of list) {
+          // Historical sessions start offline until actively connected or verified by desktop runtime
+          s.runtime = {
+            isAlive: false,
+            pid: undefined,
+            lastHeartbeat: s.runtime?.lastHeartbeat || Date.now(),
+          };
+          if (s.status === 'working' || s.status === 'waiting') {
+            s.status = 'offline';
+          }
           this.sessions.set(s.id, s);
         }
       }
@@ -74,7 +83,7 @@ class AuthoritativeConversationStore {
         workspaceId,
         engine,
         title: initialTitle || `${engine.name} Session`,
-        status: 'waiting',
+        status: 'offline',
         conversation: { turns: [] },
         capabilities: {
           streaming: true,
@@ -89,7 +98,7 @@ class AuthoritativeConversationStore {
           nativeConversationHistory: true,
         },
         runtime: {
-          isAlive: true,
+          isAlive: false,
           lastHeartbeat: Date.now(),
         },
         createdAt: Date.now(),
@@ -296,16 +305,14 @@ class AuthoritativeConversationStore {
     this.notify();
   }
 
-  setRuntimeAlive(sessionId: string, isAlive: boolean, pid?: number) {
+  setRuntimeAlive(sessionId: string, isAlive: boolean, pid?: number, statusOverride?: SessionStatus) {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     session.runtime.isAlive = isAlive;
     if (pid !== undefined) session.runtime.pid = pid;
     session.runtime.lastHeartbeat = Date.now();
     if (!isAlive) {
-      if (session.status === 'working') {
-        session.status = 'offline';
-      }
+      session.status = statusOverride || 'offline';
       // Reconcile any in-flight streaming message so UI does not hang indefinitely
       for (const turn of session.conversation.turns) {
         if (turn.status === 'streaming') {
@@ -318,7 +325,14 @@ class AuthoritativeConversationStore {
           }
         }
       }
+    } else {
+      if (statusOverride) {
+        session.status = statusOverride;
+      } else if (session.status === 'offline') {
+        session.status = 'waiting';
+      }
     }
+    session.updatedAt = Date.now();
     this.notify();
   }
 }

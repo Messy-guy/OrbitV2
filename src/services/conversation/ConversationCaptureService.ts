@@ -170,8 +170,18 @@ class ConversationCaptureService {
    * Update runtime alive / process status
    */
   handleProcessStatus(sessionId: string, status: string, pid?: number) {
-    const isAlive = status === 'working' || status === 'ready' || status === 'started';
-    conversationStore.setRuntimeAlive(sessionId, isAlive, pid);
+    const isAlive = status === 'working' || status === 'running' || status === 'active' || status === 'started' || status === 'ready';
+    let canonicalStatus: import('../../types/conversation').SessionStatus = 'offline';
+    if (status === 'working' || status === 'running' || status === 'active') {
+      canonicalStatus = 'working';
+    } else if (status === 'ready' || status === 'waiting' || status === 'started') {
+      canonicalStatus = 'waiting';
+    } else if (status === 'error') {
+      canonicalStatus = 'error';
+    } else if (status === 'exited' || status === 'stopped') {
+      canonicalStatus = 'offline';
+    }
+    conversationStore.setRuntimeAlive(sessionId, isAlive, pid, canonicalStatus);
   }
 }
 

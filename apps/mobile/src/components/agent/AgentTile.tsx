@@ -23,16 +23,24 @@ export const AgentTile: React.FC<AgentTileProps> = ({
   isPausing = false,
 }) => {
   const isWorking = agent.status === 'working';
+  const isStarting = agent.status === 'starting';
+  const isReady = (agent.status === 'ready' || agent.status === 'waiting') && (agent.runtime?.isAlive ?? agent.isLive ?? true);
   const isPaused = agent.status === 'paused';
+  const isError = agent.status === 'error';
+  const isOffline = !isWorking && !isStarting && !isReady && !isPaused && !isError;
 
-  const preview = agent.preview || agent.currentTaskDescription || 'Standing by for conversation...';
+  const badgeLabel = isWorking ? 'Working' : isStarting ? 'Starting' : isReady ? 'Ready' : isPaused ? 'Paused' : isError ? 'Error' : 'Offline';
+  const badgeVariant = isWorking ? 'primary' : isStarting ? 'warning' : isReady ? 'primary' : isPaused ? 'warning' : isError ? 'danger' : 'neutral';
+  const showBadgeDot = isWorking || isStarting;
+
+  const preview = agent.preview || agent.currentTaskDescription || (isOffline ? 'Offline · Tap to view previous conversation' : 'Ready for conversation...');
 
   return (
     <GlassCard active={isWorking}>
       {/* Header */}
       <View style={styles.topRow}>
         <View style={styles.iconBox}>
-          <Bot size={18} color={isWorking ? '#FB923C' : '#94A3B8'} />
+          <Bot size={18} color={isWorking ? '#FB923C' : isReady ? '#34D399' : '#94A3B8'} />
         </View>
 
         <View style={styles.identity}>
@@ -44,9 +52,9 @@ export const AgentTile: React.FC<AgentTileProps> = ({
 
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <AstryxBadge
-            label={agent.status}
-            variant={isWorking ? 'primary' : isPaused ? 'warning' : 'neutral'}
-            showDot={isWorking}
+            label={badgeLabel}
+            variant={badgeVariant}
+            showDot={showBadgeDot}
           />
           {agent.fidelity?.conversation && (
             <View style={styles.fidelityPill}>
