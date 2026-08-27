@@ -158,6 +158,9 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
                   onChangeText={setInputCommand}
                   onSubmitEditing={() => handleSendCommand()}
                   returnKeyType="send"
+                  multiline={false}
+                  blurOnSubmit={false}
+                  autoCorrect={false}
                 />
                 <Pressable
                   style={[styles.sendButton, !inputCommand.trim() && styles.sendButtonDisabled]}

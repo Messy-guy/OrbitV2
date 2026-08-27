@@ -61,7 +61,7 @@ export class GenericPtyAdapter implements EngineAdapter {
     capture.startTurn(`turn_${Date.now()}`, cleanText);
 
     if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r\n`).catch((err) => {
+      await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r`).catch((err) => {
         console.warn(`[GenericPtyAdapter] Failed to send input:`, err);
       });
     }

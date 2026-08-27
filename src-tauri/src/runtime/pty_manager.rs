@@ -206,7 +206,18 @@ impl PtyManager {
                 cmd
             }
             "codex" => {
-                let bin = find_executable(&["codex", "openai-codex"], &[])
+                let codex_extra = [
+                    "/home/leo/.local/share/orbit/engines/codex/node_modules/.bin/codex",
+                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/.bin/codex",
+                    "/home/leo/.local/share/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+                    "/home/leo/.npm-global/bin/codex",
+                    "/home/leo/.local/bin/codex",
+                    "/home/leo/.cargo/bin/codex",
+                    "/usr/local/bin/codex",
+                    "/usr/bin/codex",
+                ];
+                let bin = find_executable(&["codex", "openai-codex"], &codex_extra)
                     .unwrap_or_else(|| {
                         #[cfg(target_os = "windows")]
                         {
@@ -220,7 +231,12 @@ impl PtyManager {
                         }
                     });
                 let mut cmd = CommandBuilder::new(&bin);
-                if bin.to_string_lossy().contains("bash") || bin.to_string_lossy().contains("sh") {
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                if is_shell {
                     cmd.arg("-i");
                 }
                 cmd
@@ -280,6 +296,25 @@ impl PtyManager {
         };
 
         // Inherit all host environment variables (PATH, USER, LANG, HOME, OAuth Auth, etc.)
+        let mut host_path = std::env::var("PATH").unwrap_or_default();
+        if let Ok(home) = std::env::var("HOME") {
+            let candidate_bin_dirs = [
+                format!("{}/.npm-global/bin", home),
+                format!("{}/.nvm/versions/node/v24.18.1/bin", home),
+                format!("{}/.local/bin", home),
+                format!("{}/.cargo/bin", home),
+                format!("{}/.gemini/antigravity-cli/bin", home),
+                "/usr/local/bin".to_string(),
+                "/usr/bin".to_string(),
+                "/bin".to_string(),
+            ];
+            for d in &candidate_bin_dirs {
+                if !host_path.contains(d) && Path::new(d).is_dir() {
+                    host_path = format!("{}:{}", d, host_path);
+                }
+            }
+        }
+
         for (key, value) in std::env::vars() {
             // Strip active session tokens, connection addresses, and conflicting npm prefix vars
             if key.starts_with("ANTIGRAVITY_") 
@@ -292,6 +327,9 @@ impl PtyManager {
             }
             cmd_builder.env(key, value);
         }
+
+        // Ensure augmented PATH is applied so node-based CLIs (Codex, OpenCode) resolve dependencies
+        cmd_builder.env("PATH", &host_path);
 
         // Apply isolated profile environment sandbox only if a custom profile is explicitly specified
         if let Some(ref prof) = profile_id {

@@ -151,7 +151,18 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     }
 
     // 3. Detect Codex CLI
-    if let Some(codex_path) = find_executable(&["codex", "openai-codex"], &[]) {
+    let codex_extra = [
+        "/home/leo/.local/share/orbit/engines/codex/node_modules/.bin/codex",
+        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/.bin/codex",
+        "/home/leo/.local/share/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "/home/leo/.npm-global/bin/codex",
+        "/home/leo/.local/bin/codex",
+        "/home/leo/.cargo/bin/codex",
+        "/usr/local/bin/codex",
+        "/usr/bin/codex",
+    ];
+    if let Some(codex_path) = find_executable(&["codex", "openai-codex"], &codex_extra) {
         let version = get_cli_version(&codex_path, "--version");
         detected.push(DetectedAgent {
             provider: "codex".to_string(),
