@@ -29,7 +29,7 @@ export class ScreenSnapshot {
     return this.lines.join('\n').trim();
   }
 
-  analyzeSemanticOutput(latestUserPrompt?: string): SemanticScreenAnalysis {
+  analyzeSemanticOutput(latestUserPrompt?: string, sessionId?: string): SemanticScreenAnalysis {
     const rawLines = this.lines;
     let startIndex = 0;
 
@@ -51,6 +51,7 @@ export class ScreenSnapshot {
           l.startsWith(`> /plan ${promptNorm}`) ||
           l.startsWith(`/plan ${promptNorm}`) ||
           l.startsWith(`> ${promptNorm}`) ||
+          l.startsWith(`› ${promptNorm}`) ||
           l.startsWith(`| ${promptNorm}`) ||
           l.startsWith(`│ ${promptNorm}`) ||
           l.startsWith(`$ ${promptNorm}`) ||
@@ -64,7 +65,7 @@ export class ScreenSnapshot {
     }
 
     const slicedLines = rawLines.slice(startIndex);
-    const classified: ClassifiedScreenOutput = PtyConversationClassifier.classifyLines(slicedLines, latestUserPrompt);
+    const classified: ClassifiedScreenOutput = PtyConversationClassifier.classifyLines(slicedLines, latestUserPrompt, sessionId);
 
     let workspacePath: string | undefined;
     let activeMode: string | undefined;
@@ -93,14 +94,14 @@ export class ScreenSnapshot {
     };
   }
 
-  getCleanConversationalText(latestUserPrompt?: string): {
+  getCleanConversationalText(latestUserPrompt?: string, sessionId?: string): {
     text: string;
     isThinking: boolean;
     thought?: string;
     workspacePath?: string;
     activeMode?: string;
   } {
-    const analysis = this.analyzeSemanticOutput(latestUserPrompt);
+    const analysis = this.analyzeSemanticOutput(latestUserPrompt, sessionId);
     return {
       text: analysis.userFacingText,
       isThinking: analysis.isThinking,

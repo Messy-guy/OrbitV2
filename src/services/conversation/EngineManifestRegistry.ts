@@ -66,6 +66,11 @@ class EngineManifestRegistry {
     }
   }
 
+  unregister(idOrExecutable: string) {
+    const key = (idOrExecutable || '').toLowerCase();
+    this.manifests.delete(key);
+  }
+
   getManifest(engineIdOrExecutable: string): EngineManifest {
     const key = (engineIdOrExecutable || '').toLowerCase();
     const found = this.manifests.get(key);

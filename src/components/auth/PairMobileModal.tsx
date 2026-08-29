@@ -1,16 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../stores/auth.store';
 import { useUIStore } from '../../stores/ui.store';
 import { desktopRelayService } from '../../services/desktopRelay.service';
-import { Wifi, Copy, Check, KeyRound, RefreshCw } from 'lucide-react';
+import { Wifi, Copy, Check, KeyRound, RefreshCw, Radio } from 'lucide-react';
 
 export const PairMobileModal: React.FC = () => {
   const { isPairMobileOpen, setPairMobileOpen } = useUIStore();
   const { user } = useAuthStore();
   const [hasCopied, setHasCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'qr' | 'code'>('code');
+  const [isRelayConnected, setIsRelayConnected] = useState(desktopRelayService.isConnected());
+
+  useEffect(() => {
+    if (isPairMobileOpen) {
+      desktopRelayService.connect();
+      const unsub = desktopRelayService.subscribeStatus((connected) => {
+        setIsRelayConnected(connected);
+      });
+      return unsub;
+    }
+  }, [isPairMobileOpen]);
 
   if (!isPairMobileOpen) return null;
 
@@ -96,17 +107,38 @@ export const PairMobileModal: React.FC = () => {
           </div>
         )}
 
-        {/* Security / Tunnel Info */}
+        {/* Security / Relay Info */}
         <div className="w-full p-3 rounded-xl bg-well border border-border flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-mono text-emerald-400 font-bold text-[11px]">
-              <Wifi size={12} className="animate-pulse" />
-              <span>DIRECT LOCAL RELAY</span>
+            <div className="flex items-center gap-1.5 font-mono font-bold text-[11px]">
+              {isRelayConnected ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-emerald-400">RELAY WORKSTATION ONLINE</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="text-amber-400">CONNECTING TO RELAY...</span>
+                </>
+              )}
             </div>
-            <span className="text-[10px] font-mono text-text-dim">TLS Encrypted</span>
+            {!isRelayConnected ? (
+              <button
+                onClick={() => desktopRelayService.connect()}
+                className="text-[10px] font-mono text-accent hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <RefreshCw size={10} />
+                <span>Retry</span>
+              </button>
+            ) : (
+              <span className="text-[10px] font-mono text-text-dim">TLS Encrypted</span>
+            )}
           </div>
           <p className="text-text-muted font-mono text-[11px] leading-relaxed">
-            Your phone communicates directly with this workstation. No account or complex config needed.
+            {isRelayConnected
+              ? "Your phone connects directly to this workstation. Keep Orbit open while pairing."
+              : "Reconnecting to local relay server at http://localhost:3000..."}
           </p>
         </div>
 

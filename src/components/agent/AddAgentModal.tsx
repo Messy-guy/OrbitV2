@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Check, ArrowRight, UserCheck, Plus, Sparkles, AlertCircle, ChevronDown } from 'lucide-react';
+import { Check, ArrowRight, Terminal as TerminalIcon, Download, Copy, RefreshCw } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { Input } from '../ui/Input';
-import { CustomSelect, SelectOption } from '../ui/CustomSelect';
+import { CustomSelect } from '../ui/CustomSelect';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -13,13 +12,24 @@ import { agentService, DetectedAgentDto } from '../../services';
 import { useAuthStore } from '../../stores/auth.store';
 import { ProUpgradeModal } from './ProUpgradeModal';
 import { clsx } from 'clsx';
-
 import { useSettingsStore } from '../../stores/settings.store';
-
-import { OFFICIAL_AGENT_INSTALLERS, AgentInstallerConfig } from '../../constants/agentInstallers';
+import { OFFICIAL_AGENT_INSTALLERS } from '../../constants/agentInstallers';
 import { tauriService } from '../../services/tauri.service';
-import { engineDiscoveryService } from '../../services/conversation/EngineDiscoveryService';
-import { Terminal as TerminalIcon, Download, Copy, RefreshCw } from 'lucide-react';
+
+const QUICK_INSTALL_PRESETS = [
+  { name: 'GitHub Copilot', exec: 'copilot', cmd: 'npm install -g @github/copilot', desc: 'Official GitHub Copilot autonomous terminal coding agent' },
+  { name: 'Goose', exec: 'goose', cmd: 'curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash', desc: 'Autonomous on-machine developer agent by Block' },
+  { name: 'Kiro CLI', exec: 'kiro-cli', cmd: 'curl -fsSL https://cli.kiro.dev/install | bash', desc: 'High-performance autonomous terminal assistant' },
+  { name: 'Qwen Code', exec: 'qwen', cmd: 'npm install -g @qwen-code/qwen-code@latest', desc: 'Alibaba Qwen specialized coding agent' },
+  { name: 'Mimo Code', exec: 'mimo', cmd: 'npm install -g @mimo-ai/cli', desc: 'Autonomous on-device developer coding agent CLI by Xiaomi' },
+  { name: 'Muse Code', exec: 'muse', cmd: 'curl -fsSL https://dev.meta.ai/install.sh | bash', desc: 'Meta AI autonomous terminal coding assistant' },
+  { name: 'Mistral Vibe', exec: 'vibe', cmd: 'curl -LsSf https://mistral.ai/vibe/install.sh | bash', desc: 'Mistral AI terminal coding harness powered by Codestral' },
+  { name: 'Qoder CLI', exec: 'qodercli', cmd: 'curl -fsSL https://qoder.com/install | bash', desc: 'Intelligent command line coding agent' },
+  { name: 'KiloCode', exec: 'kilocode', cmd: 'npm install -g @kilocode/cli', desc: 'Autonomous coding agent CLI' },
+  { name: 'Freebuff', exec: 'freebuff', cmd: 'npm install -g freebuff', desc: 'Autonomous AI coding agent CLI' },
+  { name: 'Gemini CLI', exec: 'gemini', cmd: 'npm install -g @google/gemini-cli', desc: 'Google Gemini CLI developer harness' },
+  { name: 'Open Interpreter', exec: 'interpreter', cmd: 'pip install open-interpreter', desc: 'Natural language computer terminal control' },
+];
 
 export const AddAgentModal: React.FC = () => {
   const { isAddAgentOpen, setAddAgentOpen, spawnerParentAgentId } = useUIStore();
@@ -29,9 +39,6 @@ export const AddAgentModal: React.FC = () => {
   const { savedProfiles, addSavedProfile } = useSettingsStore();
 
   const parentAgent = spawnerParentAgentId ? agents.find(a => a.id === spawnerParentAgentId) : null;
-
-  // Wizard Step: 1 = Select Agent Preset, 2 = Configure Profile / Account
-  const [step, setStep] = useState<1 | 2>(1);
 
   const [selectedProvider, setSelectedProvider] = useState<AgentProvider>('antigravity');
   const [selectedRole, setSelectedRole] = useState<import('../../types/orbit').AgentRoleType>('raw');
@@ -44,13 +51,11 @@ export const AddAgentModal: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
 
-  // In-App 1-Click Installer State
+  // 1-Click Installer State
   const [isInstalling, setIsInstalling] = useState(false);
   const [installOutput, setInstallOutput] = useState<string | null>(null);
-  const [customInstallCmd, setCustomInstallCmd] = useState('');
   const [copiedCmd, setCopiedCmd] = useState(false);
 
-  // Compute unique profiles strictly scoped per agent/provider (e.g. Antigravity only sees Antigravity profiles)
   const existingProfiles = Array.from(
     new Set([
       'default',
@@ -59,7 +64,6 @@ export const AddAgentModal: React.FC = () => {
           if (p.startsWith(`${selectedProvider}:`)) {
             return p.slice(`${selectedProvider}:`.length);
           }
-          // The previous un-prefixed profile was created for antigravity, so only show it when antigravity is selected
           if (!p.includes(':') && p !== 'default' && selectedProvider === 'antigravity') {
             return p;
           }
@@ -84,14 +88,12 @@ export const AddAgentModal: React.FC = () => {
 
   useEffect(() => {
     if (isAddAgentOpen) {
-      setStep(1);
       setSelectedRole(parentAgent ? 'implementer' : 'architect');
       setTaskDirective('');
       setCustomProfile('default');
       setIsCreatingNewProfile(false);
-      agentService.detectInstalledAgents().then((res) => {
-        setDetectedAgents(res);
-      }).catch(() => {});
+      setInstallOutput(null);
+      refreshDetection();
     }
   }, [isAddAgentOpen]);
 
@@ -102,9 +104,9 @@ export const AddAgentModal: React.FC = () => {
     } catch {}
   };
 
-  const handleInstallAgent = async (cmdToRun?: string) => {
+  const handleInstallOfficialAgent = async () => {
     const installerConfig = OFFICIAL_AGENT_INSTALLERS[selectedProvider];
-    const cmd = cmdToRun || (selectedProvider === 'custom' ? customInstallCmd : installerConfig?.command);
+    const cmd = installerConfig?.command;
     if (!cmd) return;
 
     setIsInstalling(true);
@@ -121,16 +123,20 @@ export const AddAgentModal: React.FC = () => {
     }
   };
 
-  const handleNextStep = () => {
-    if (currentRunningAgents >= maxAllowedSlots) {
-      setIsProModalOpen(true);
-      return;
-    }
-    setStep(2);
+  const handleSelectPreset = (provider: AgentProvider) => {
+    setSelectedProvider(provider);
+    setCustomName('');
+    setCustomModel('');
+    setInstallOutput(null);
   };
 
   const handleCreateAgent = async () => {
     if (!activeWorkspaceId) return;
+
+    if (currentRunningAgents >= maxAllowedSlots) {
+      setIsProModalOpen(true);
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -152,22 +158,13 @@ export const AddAgentModal: React.FC = () => {
         ? taskDirective.trim().slice(0, 24)
         : parentAgent
         ? `${roleLabels[selectedRole] || 'Worker'} (${parentAgent.name.slice(0, 8)})`
-        : (selectedProvider === 'custom' ? 'Custom Agent' : undefined);
-
-      if (selectedProvider === 'custom' && customName.trim()) {
-        await engineDiscoveryService.registerUserEngine({
-          id: `custom_${customName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_')}`,
-          name: customName.trim(),
-          executable: customName.trim(),
-          transport: 'auto',
-        });
-      }
+        : undefined;
 
       await addAgent(
         activeWorkspaceId,
         selectedProvider,
         finalAgentName,
-        selectedProvider === 'custom' ? customModel.trim() || 'Local LLM' : undefined,
+        undefined,
         activeWorkspace?.projectPath,
         activeSpaceId,
         cleanProfile,
@@ -176,8 +173,8 @@ export const AddAgentModal: React.FC = () => {
         undefined,
         taskDirective.trim() || undefined
       );
+
       setAddAgentOpen(false);
-      setStep(1);
       setCustomName('');
       setTaskDirective('');
       setCustomModel('');
@@ -190,13 +187,19 @@ export const AddAgentModal: React.FC = () => {
     }
   };
 
+  // Check host availability for current selection
+  const isSelectedAvailable = (() => {
+    if (selectedProvider === 'terminal') return true;
+    const detected = detectedAgents.find(d => d.provider === selectedProvider);
+    return detected ? detected.isAvailable : true;
+  })();
+
   return (
     <>
       <Modal
         isOpen={isAddAgentOpen}
         onClose={() => {
           setAddAgentOpen(false);
-          setStep(1);
         }}
         title={
           parentAgent
@@ -212,54 +215,54 @@ export const AddAgentModal: React.FC = () => {
         className="max-h-[85vh] p-0 overflow-hidden"
       >
         <div className="flex flex-col font-sans">
-          {/* Main 2-Pane Content Grid */}
+          {/* Main 2-Pane Spawner Catalog */}
           <div className="flex flex-col sm:flex-row h-[520px] overflow-hidden">
             
-            {/* Left Pane: Dedicated Scrollable Engine Catalog (Scales to 50+ CLIs) */}
-            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-4 flex flex-col gap-3 shrink-0 select-none">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider text-text-muted">
-                  1. AI Engine
+            {/* Left Pane: Agent Catalog */}
+            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-3.5 flex flex-col gap-2.5 shrink-0 select-none">
+              <div className="flex items-center justify-between px-1 pt-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                  Engine Catalog
                 </span>
                 <span className="text-[10px] font-mono text-text-dim">
-                  {AVAILABLE_AGENT_PRESETS.length} presets
+                  {AVAILABLE_AGENT_PRESETS.length} Agents
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                 {AVAILABLE_AGENT_PRESETS.map((preset) => {
                   const isSelected = selectedProvider === preset.provider;
                   const detected = detectedAgents.find((d) => d.provider === preset.provider);
-                  const isAvailableOnHost = detected?.isAvailable ?? true;
+                  const isAvailableOnHost = preset.provider === 'terminal' || (detected ? detected.isAvailable : true);
 
                   return (
                     <button
                       key={preset.provider}
                       type="button"
-                      onClick={() => setSelectedProvider(preset.provider)}
+                      onClick={() => handleSelectPreset(preset.provider)}
                       className={clsx(
-                        'w-full px-3.5 py-3 rounded-xl text-left flex items-center justify-between cursor-pointer select-none group transition-all',
+                        'w-full px-3 py-2.5 rounded-xl text-left flex items-center justify-between cursor-pointer select-none group transition-all',
                         isSelected ? 'surface-selectable-active' : 'surface-selectable'
                       )}
                     >
-                      <div className="flex items-center gap-3 truncate min-w-0 pr-2">
-                        <span className={clsx('w-2.5 h-2.5 rounded-full shrink-0', isAvailableOnHost ? 'bg-emerald-400 ring-2 ring-emerald-400/20' : 'bg-amber-400 ring-2 ring-amber-400/20')} />
+                      <div className="flex items-center gap-2.5 truncate min-w-0 pr-2">
+                        <span className={clsx('w-2 h-2 rounded-full shrink-0', isAvailableOnHost ? 'bg-emerald-400 ring-2 ring-emerald-400/20' : 'bg-amber-400 ring-2 ring-amber-400/20')} />
                         <div className="flex flex-col truncate">
                           <span className={clsx('text-xs font-mono font-semibold truncate leading-tight', isSelected ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary')}>
                             {preset.name}
                           </span>
-                          <span className="text-[10.5px] font-mono text-text-dim truncate mt-0.5">
+                          <span className="text-[10px] font-mono text-text-dim truncate mt-0.5">
                             {detected?.version || preset.model}
                           </span>
                         </div>
                       </div>
 
                       {isAvailableOnHost ? (
-                        <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
                           Ready
                         </span>
                       ) : (
-                        <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
                           Setup
                         </span>
                       )}
@@ -267,66 +270,43 @@ export const AddAgentModal: React.FC = () => {
                   );
                 })}
               </div>
-
-              {selectedProvider === 'custom' && (
-                <div className="p-3 bg-well rounded-xl border border-border space-y-2 shrink-0 mt-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9.5px] font-mono font-bold uppercase tracking-wider text-text-muted">Custom CLI Agent</span>
-                    <span className="text-[8.5px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Universal</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Command (e.g. quantum-coder, aider)"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg bg-panel border border-border text-text-primary text-[11px] font-mono focus:outline-hidden"
-                  />
-                  <span className="text-[9px] text-text-dim leading-tight block">
-                    Orbit will automatically detect ACP, JSONL, or Terminal protocol.
-                  </span>
-                </div>
-              )}
             </div>
 
-            {/* Right Pane: Modes, Directives, Profile & 1-Click Installer */}
+            {/* Right Pane: Operational Mode, Task Directives, Profile & Spawner */}
             <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between overflow-y-auto bg-panel gap-4 custom-scrollbar">
               
-              {/* If Selected Agent is NOT installed: Clean 1-Click Installer Banner */}
-              {detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false && (
-                <div className="p-3.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/20 flex flex-col gap-2.5 shrink-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Download size={14} className="text-amber-400" />
-                      <span className="font-mono font-bold text-xs text-text-primary">
-                        Setup {selectedPreset?.name || 'Agent'} CLI
-                      </span>
+              {/* Official 1-Click Installer Banner if uninstalled */}
+              {(() => {
+                const detected = detectedAgents.find(d => d.provider === selectedProvider);
+                const isAvail = selectedProvider === 'terminal' || (detected ? detected.isAvailable : true);
+                if (isAvail) return null;
+
+                return (
+                  <div className="p-3.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/20 flex flex-col gap-2.5 shrink-0">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Download size={14} className="text-amber-400" />
+                        <span className="font-mono font-bold text-xs text-text-primary">
+                          Setup {selectedPreset?.name || 'Agent'} CLI
+                        </span>
+                      </div>
+                      <button
+                        onClick={refreshDetection}
+                        className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                        title="Re-check installation"
+                      >
+                        <RefreshCw size={12} className={isInstalling ? 'animate-spin' : ''} />
+                      </button>
                     </div>
-                    <button
-                      onClick={refreshDetection}
-                      className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-                      title="Re-check installation"
-                    >
-                      <RefreshCw size={12} className={isInstalling ? 'animate-spin' : ''} />
-                    </button>
-                  </div>
 
-                  <p className="text-[11px] text-text-muted leading-relaxed">
-                    {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.description || 'Harness binary not detected on your system. Run 1-click install below.'}
-                  </p>
+                    <p className="text-[11px] text-text-muted leading-relaxed">
+                      {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.description || 'Harness binary not detected on your system. Run 1-click install below.'}
+                    </p>
 
-                  <div className="flex flex-col gap-2 pt-0.5">
-                    {selectedProvider === 'custom' ? (
-                      <input
-                        type="text"
-                        placeholder="e.g. pip install aider-chat"
-                        value={customInstallCmd}
-                        onChange={(e) => setCustomInstallCmd(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-[11px] focus:outline-hidden"
-                      />
-                    ) : (
+                    <div className="flex flex-col gap-2 pt-0.5">
                       <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[11px] text-text-primary truncate">
                         <span className="truncate text-emerald-400 select-all font-mono">
-                          {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command || 'npm i -g custom-agent'}
+                          {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command || 'npm i -g agent'}
                         </span>
                         <button
                           onClick={() => {
@@ -343,32 +323,32 @@ export const AddAgentModal: React.FC = () => {
                           {copiedCmd ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                         </button>
                       </div>
-                    )}
 
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleInstallAgent()}
-                      isLoading={isInstalling}
-                      className="font-mono text-xs font-bold gap-2 bg-amber-500 hover:bg-amber-400 text-black border-amber-500 h-8.5 rounded-xl"
-                    >
-                      <TerminalIcon size={13} />
-                      <span>{isInstalling ? 'Installing in Orbit...' : `⚡ 1-Click Install ${selectedPreset?.name || ''}`}</span>
-                    </Button>
-                  </div>
-
-                  {installOutput && (
-                    <div className="p-2.5 rounded-xl bg-black/60 border border-border font-mono text-[10px] text-zinc-300 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                      {installOutput}
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleInstallOfficialAgent()}
+                        isLoading={isInstalling}
+                        className="font-mono text-xs font-bold gap-2 bg-amber-500 hover:bg-amber-400 text-black border-amber-500 h-8.5 rounded-xl cursor-pointer"
+                      >
+                        <TerminalIcon size={13} />
+                        <span>{isInstalling ? 'Installing in Orbit...' : `⚡ 1-Click Install ${selectedPreset?.name || ''}`}</span>
+                      </Button>
                     </div>
-                  )}
-                </div>
-              )}
+
+                    {installOutput && (
+                      <div className="p-2.5 rounded-xl bg-black/60 border border-border font-mono text-[10px] text-zinc-300 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                        {installOutput}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* 2. Operational Mode (Auto-Binds Invariant Skills) */}
               <div className="flex flex-col gap-2">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
-                  2. Operational Mode (Auto-Binds Skills)
+                  Operational Mode
                 </span>
                 <div className="grid grid-cols-3 gap-2.5">
                   <button
@@ -421,7 +401,7 @@ export const AddAgentModal: React.FC = () => {
               {/* 3. Task Directive / Scope */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted flex items-center justify-between">
-                  <span>3. Initial Task Directive</span>
+                  <span>Initial Task Directive</span>
                   <span className="text-[9.5px] text-text-dim lowercase font-mono">optional</span>
                 </label>
                 <input
@@ -439,7 +419,7 @@ export const AddAgentModal: React.FC = () => {
               {/* 4. Account Profile / Sandbox */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
-                  4. Account Profile / Sandbox
+                  Account Profile / Sandbox
                 </span>
                 {!isCreatingNewProfile ? (
                   <CustomSelect
@@ -490,25 +470,28 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {/* Footer Actions */}
-              <div className="flex items-center justify-between pt-3.5 border-t border-border mt-auto">
+              <div className="flex items-center justify-between pt-4 border-t border-border mt-auto shrink-0">
                 <div className="flex items-center gap-2">
-                  {detectedAgents.length > 0 && !detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable && (
-                    <span className="text-[10.5px] font-mono text-amber-400 font-medium flex items-center gap-1.5">
-                      💡 Click "1-Click Install" above to setup
+                  {!isSelectedAvailable ? (
+                    <span className="text-[11px] font-mono text-amber-400 font-medium flex items-center gap-1.5">
+                      💡 Click &quot;1-Click Install&quot; above to setup
                     </span>
-                  )}
-                  {detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable !== false && (
-                    <span className="text-[10.5px] font-mono text-text-dim">
-                      Press <kbd className="px-2 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono text-[10px]">Enter ↵</kbd>
-                    </span>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-[11px] font-mono text-text-dim">
+                      <span>Press</span>
+                      <kbd className="px-1.5 py-0.5 rounded-md bg-well border border-border text-text-muted font-mono text-[10px] shadow-xs">
+                        Enter ↵
+                      </kbd>
+                      <span>to spawn</span>
+                    </div>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                   <Button
                     variant="ghost"
                     size="md"
                     onClick={() => setAddAgentOpen(false)}
-                    className="font-mono text-xs px-4 py-2 h-9 rounded-xl cursor-pointer"
+                    className="font-mono text-xs px-4 h-9 rounded-xl cursor-pointer"
                   >
                     Cancel
                   </Button>
@@ -517,8 +500,8 @@ export const AddAgentModal: React.FC = () => {
                     size="md"
                     onClick={handleCreateAgent}
                     isLoading={isSubmitting}
-                    disabled={detectedAgents.length > 0 && detectedAgents.find(d => d.provider === selectedProvider)?.isAvailable === false}
-                    className="gap-2.5 font-mono text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2 h-9 rounded-xl shadow-md cursor-pointer"
+                    disabled={!isSelectedAvailable}
+                    className="gap-2 font-mono text-xs font-bold px-5 h-9 rounded-xl shadow-md cursor-pointer"
                   >
                     <span>Spawn Worker</span>
                     <ArrowRight size={14} strokeWidth={2.5} />

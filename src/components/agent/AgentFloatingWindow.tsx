@@ -18,7 +18,9 @@ import {
   FlaskConical,
   Zap,
   ShieldCheck,
-  CornerDownRight
+  CornerDownRight,
+  Bot,
+  Sparkles
 } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { AgentTerminal } from './AgentTerminal';
@@ -132,6 +134,32 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
         return <Cpu size={12} className="text-amber-500" />;
       case 'opencode':
         return <Code2 size={12} className="text-cyan-500" />;
+      case 'kilocode':
+        return <Code2 size={12} className="text-orange-400" />;
+      case 'freebuff':
+        return <Cpu size={12} className="text-emerald-400" />;
+      case 'cline':
+        return <Code2 size={12} className="text-blue-400" />;
+      case 'copilot':
+        return <Cpu size={12} className="text-violet-400" />;
+      case 'goose':
+        return <Bot size={12} className="text-yellow-400" />;
+      case 'kiro':
+        return <Code2 size={12} className="text-rose-400" />;
+      case 'qwen':
+        return <Cpu size={12} className="text-purple-400" />;
+      case 'mimo':
+        return <Bot size={12} className="text-emerald-400" />;
+      case 'muse':
+        return <Sparkles size={12} className="text-blue-400" />;
+      case 'continue':
+        return <Code2 size={12} className="text-teal-400" />;
+      case 'aider':
+        return <Bot size={12} className="text-green-400" />;
+      case 'vibe':
+        return <Sparkles size={12} className="text-orange-400" />;
+      case 'qoder':
+        return <Code2 size={12} className="text-indigo-400" />;
       default:
         return <Terminal size={12} className="text-text-muted" />;
     }
@@ -141,6 +169,19 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
     if (agent.provider === 'antigravity') return 'Antigravity CLI';
     if (agent.provider === 'claude') return 'Claude Code';
     if (agent.provider === 'opencode') return 'OpenCode Interpreter';
+    if (agent.provider === 'kilocode') return 'KiloCode';
+    if (agent.provider === 'freebuff') return 'Freebuff';
+    if (agent.provider === 'cline') return 'Cline';
+    if (agent.provider === 'copilot') return 'GitHub Copilot';
+    if (agent.provider === 'goose') return 'Goose';
+    if (agent.provider === 'kiro') return 'Kiro CLI';
+    if (agent.provider === 'qwen') return 'Qwen Code';
+    if (agent.provider === 'mimo') return 'Mimo Code';
+    if (agent.provider === 'muse') return 'Muse Code';
+    if (agent.provider === 'continue') return 'Continue CLI';
+    if (agent.provider === 'aider') return 'Aider';
+    if (agent.provider === 'vibe') return 'Mistral Vibe';
+    if (agent.provider === 'qoder') return 'Qoder CLI';
     return agent.name || 'Terminal';
   };
 

@@ -4,6 +4,7 @@ import { TurnBaseline } from './TurnBaseline';
 import { IncrementalOutputDiffer } from './IncrementalOutputDiffer';
 import { PtyConversationClassifier, ClassifiedScreenOutput } from '../classification/PtyConversationClassifier';
 import { ActivitySummary } from '../../../types/conversation';
+import { pendingInputEchoQueue } from '../input/PendingInputEchoQueue';
 
 export interface ProcessedPtyTurnOutput {
   userFacingText: string;
@@ -30,6 +31,10 @@ export class PtyCaptureSession {
    * All screen state present prior to this moment is frozen into the baseline.
    */
   startTurn(turnId: string, userPrompt: string) {
+    if (userPrompt && userPrompt.trim()) {
+      pendingInputEchoQueue.registerPendingEcho(this.sessionId, userPrompt.trim());
+    }
+
     const snapshot = this.interpreter.captureSnapshot();
     const baselineOccurrences = ScreenFingerprint.computeOccurrenceMap(snapshot.lines);
 
@@ -57,11 +62,12 @@ export class PtyCaptureSession {
       this.currentBaseline
     );
 
-    // Classify candidate new lines
+    // Classify candidate new lines with authoritative session echo suppression
     const prompt = this.currentBaseline?.userPrompt;
     const classified: ClassifiedScreenOutput = PtyConversationClassifier.classifyLines(
       diff.candidateLines,
-      prompt
+      prompt,
+      this.sessionId
     );
 
     const userFacingText = classified.userFacingText;

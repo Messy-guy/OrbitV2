@@ -1,6 +1,6 @@
 // Core Types for Orbit Desktop (Phase 3 Data Model)
 
-export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'gemini' | 'terminal' | 'custom';
+export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'kilocode' | 'freebuff' | 'cline' | 'copilot' | 'goose' | 'kiro' | 'qwen' | 'mimo' | 'muse' | 'continue' | 'aider' | 'vibe' | 'qoder' | 'gemini' | 'terminal' | 'custom';
 
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'paused' | 'error';
 

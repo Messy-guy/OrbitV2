@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../stores/workspace.store';
 import { isTauriAvailable, tauriService } from './tauri.service';
 import { conversationStore } from './conversation/ConversationStore';
 import { conversationCaptureService } from './conversation/ConversationCaptureService';
+import { universalRemoteController } from './remoteControl';
 
 class DesktopRelayService {
   private socket: Socket | null = null;
@@ -68,8 +69,28 @@ class DesktopRelayService {
     this.isConnecting = false;
   }
 
+  private statusListeners = new Set<(connected: boolean) => void>();
+
+  isConnected(): boolean {
+    return Boolean(this.socket?.connected);
+  }
+
+  subscribeStatus(listener: (connected: boolean) => void): () => void {
+    this.statusListeners.add(listener);
+    listener(this.isConnected());
+    return () => this.statusListeners.delete(listener);
+  }
+
+  private notifyStatus(connected: boolean) {
+    this.statusListeners.forEach((fn) => fn(connected));
+  }
+
   connect(relayUrl?: string) {
-    if (this.socket?.connected || this.isConnecting) return;
+    if (this.socket?.connected) return;
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
     this.isConnecting = true;
 
     const targetUrl = relayUrl || (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
@@ -88,7 +109,7 @@ class DesktopRelayService {
         },
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 20,
+        reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
       });
@@ -96,7 +117,18 @@ class DesktopRelayService {
       this.socket.on('connect', () => {
         this.isConnecting = false;
         console.log('✅ [Desktop Relay] Connected to Live Relay! Socket ID:', this.socket?.id);
+        this.notifyStatus(true);
         this.broadcastLiveTelemetry();
+      });
+
+      this.socket.on('disconnect', () => {
+        this.isConnecting = false;
+        this.notifyStatus(false);
+      });
+
+      this.socket.on('connect_error', (err) => {
+        this.isConnecting = false;
+        this.notifyStatus(false);
       });
 
       this.socket.on('desktop:request_telemetry', () => {
@@ -111,9 +143,19 @@ class DesktopRelayService {
 
         if (actionType === 'SEND_INPUT' || actionType === 'SEND_MESSAGE') {
           const input = payload?.input || payload?.text;
+          const requestId = String(action.requestId || action.id || `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+          const sessionId = String(action.sessionId || payload?.sessionId || agentId);
+
           if (input !== undefined && agentId) {
-            await conversationCaptureService.submitUserMessage(agentId, String(input)).catch((e) => {
-              console.warn('Failed to submit user message via conversation capture:', e);
+            await universalRemoteController.deliverRemoteMessage({
+              requestId,
+              agentId,
+              sessionId,
+              message: String(input),
+              projectId: action.projectId || payload?.projectId,
+              timestamp: Date.now(),
+            }).catch((e) => {
+              console.warn('[Desktop Relay] Failed to deliver remote message via universalRemoteController:', e);
             });
           }
         } else if (actionType === 'PAUSE' || actionType === 'KILL' || actionType === 'STOP') {

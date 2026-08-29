@@ -204,6 +204,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       parentId,
       workerType,
       taskDirective,
+      currentCommand: customName?.trim() || undefined,
       currentSessionId: newSession.id,
       viewMode: 'terminal',
       pid: undefined,

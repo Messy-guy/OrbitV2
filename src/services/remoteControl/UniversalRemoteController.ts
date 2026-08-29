@@ -1,0 +1,223 @@
+import { useAgentStore } from '../../stores/agent.store';
+import { conversationStore } from '../conversation/ConversationStore';
+import { conversationCaptureService } from '../conversation/ConversationCaptureService';
+import { pendingInputEchoQueue } from '../sessionProjection/input/PendingInputEchoQueue';
+import { isTauriAvailable, tauriService } from '../tauri.service';
+import { agentProfileRegistry } from './AgentInteractionProfileRegistry';
+import {
+  RemoteControlRequest,
+  RemoteControlResult,
+  RemoteDiagnosticEvent,
+  RemoteDiagnosticLog,
+} from './types';
+
+export class UniversalRemoteController {
+  private processedRequestIds: Set<string> = new Set();
+  private maxStoredRequestIds = 500;
+  private diagnosticListeners: Set<(log: RemoteDiagnosticLog) => void> = new Set();
+
+  /**
+   * Register a diagnostic listener for observability
+   */
+  onDiagnostic(listener: (log: RemoteDiagnosticLog) => void): () => void {
+    this.diagnosticListeners.add(listener);
+    return () => this.diagnosticListeners.delete(listener);
+  }
+
+  private emitDiagnostic(
+    event: RemoteDiagnosticEvent,
+    agentId: string,
+    sessionId: string,
+    provider?: string,
+    details?: Record<string, any>
+  ) {
+    // Sanitize details to guarantee zero token / secret leakage
+    const sanitizedDetails: Record<string, any> = {};
+    if (details) {
+      for (const [k, v] of Object.entries(details)) {
+        if (
+          k.toLowerCase().includes('token') ||
+          k.toLowerCase().includes('secret') ||
+          k.toLowerCase().includes('password') ||
+          k.toLowerCase().includes('key') ||
+          k.toLowerCase().includes('auth')
+        ) {
+          sanitizedDetails[k] = '[REDACTED]';
+        } else {
+          sanitizedDetails[k] = v;
+        }
+      }
+    }
+
+    const log: RemoteDiagnosticLog = {
+      timestamp: Date.now(),
+      event,
+      agentId,
+      sessionId,
+      provider,
+      details: sanitizedDetails,
+    };
+
+    console.log(`[Orbit RemoteControl] [${event}] Agent: ${agentId} | Session: ${sessionId} | Provider: ${provider || 'unknown'}`);
+    for (const listener of this.diagnosticListeners) {
+      try {
+        listener(log);
+      } catch {}
+    }
+  }
+
+  /**
+   * Universal authoritative remote message delivery endpoint
+   */
+  async deliverRemoteMessage(request: RemoteControlRequest): Promise<RemoteControlResult> {
+    const { requestId, agentId, sessionId, message } = request;
+    const targetSessionId = sessionId || agentId;
+    const cleanMessage = String(message || '').trim();
+
+    this.emitDiagnostic('REMOTE_CONTROL_REQUEST', agentId, targetSessionId, undefined, {
+      requestId,
+      messageLength: cleanMessage.length,
+    });
+
+    // 1. Idempotency validation
+    if (requestId) {
+      if (this.processedRequestIds.has(requestId)) {
+        console.warn(`[Orbit RemoteControl] Duplicate requestId ${requestId} ignored.`);
+        return {
+          success: true,
+          requestId,
+          sessionId: targetSessionId,
+          agentId,
+          deliveryTier: 'pty_interactive',
+          submittedAt: Date.now(),
+        };
+      }
+      this.processedRequestIds.add(requestId);
+      if (this.processedRequestIds.size > this.maxStoredRequestIds) {
+        const first = this.processedRequestIds.values().next().value;
+        if (first) this.processedRequestIds.delete(first);
+      }
+    }
+
+    if (!cleanMessage) {
+      return {
+        success: false,
+        requestId,
+        sessionId: targetSessionId,
+        agentId,
+        deliveryTier: 'unsupported',
+        submittedAt: Date.now(),
+        error: 'Cannot deliver empty message',
+        diagnosticCode: 'EMPTY_PAYLOAD',
+      };
+    }
+
+    // 2. Authoritative Desktop Process / Session Lookup
+    this.emitDiagnostic('SESSION_LOOKUP', agentId, targetSessionId);
+    const agent = useAgentStore.getState().agents.find((a) => a.id === agentId || a.currentSessionId === targetSessionId);
+    const provider = agent?.provider || 'terminal';
+    const profile = agentProfileRegistry.getProfile(provider);
+
+    this.emitDiagnostic('ADAPTER_SELECTED', agentId, targetSessionId, provider, {
+      profileName: profile.name,
+      deliveryTier: profile.deliveryTier,
+    });
+
+    // 3. Lifecycle State Check
+    if (agent && (agent.status === 'error' || (agent as any).status === 'exited')) {
+      this.emitDiagnostic('REMOTE_CONTROL_FAILED', agentId, targetSessionId, provider, {
+        reason: 'AGENT_OFFLINE',
+        agentStatus: agent.status,
+      });
+      return {
+        success: false,
+        requestId,
+        sessionId: targetSessionId,
+        agentId,
+        deliveryTier: profile.deliveryTier,
+        submittedAt: Date.now(),
+        error: `Target agent ${agent.name || agentId} is offline or in error state.`,
+        diagnosticCode: 'AGENT_OFFLINE',
+      };
+    }
+
+    // 4. Register pending echo in authoritative queue for passive conversation capture
+    pendingInputEchoQueue.registerPendingEcho(targetSessionId, cleanMessage);
+    if (agentId && agentId !== targetSessionId) {
+      pendingInputEchoQueue.registerPendingEcho(agentId, cleanMessage);
+    }
+
+    // 5. Update Conversation Store
+    conversationStore.getOrCreateSession(
+      targetSessionId,
+      agent?.workspaceId || 'default',
+      agent?.workspaceId || 'default',
+      {
+        id: agent?.id || targetSessionId,
+        name: agent?.name || profile.name,
+        provider,
+        transport: profile.deliveryTier === 'structured_acp' ? 'acp' : 'pty',
+      }
+    );
+    conversationStore.addUserMessage(targetSessionId, cleanMessage);
+    conversationStore.setSessionStatus(targetSessionId, 'working');
+    if (agent) {
+      useAgentStore.getState().setAgentStatus(agentId, 'working').catch(() => {});
+    }
+
+    // 6. Execute Delivery according to Profile Strategy
+    this.emitDiagnostic('INPUT_DELIVERY_STARTED', agentId, targetSessionId, provider, {
+      deliveryTier: profile.deliveryTier,
+    });
+
+    try {
+      const submission = profile.formatSubmission(cleanMessage);
+
+      if (isTauriAvailable()) {
+        // Send the payload to the EXISTING PTY process
+        await tauriService.sendAgentInput(agentId, targetSessionId, submission.payload);
+
+        // Pre-submit delay if required by profile (e.g. Codex multiline buffering)
+        if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, submission.preSubmitDelayMs));
+        }
+
+        // Send submit key (e.g. '\r' or '\n')
+        await tauriService.sendAgentInput(agentId, targetSessionId, submission.submitKey);
+      } else {
+        // Fallback for non-Tauri / mock testing environments
+        console.log(`[Orbit RemoteControl (Web/Mock)] Delivered to ${agentId}: ${submission.payload}`);
+      }
+
+      this.emitDiagnostic('INPUT_SUBMITTED', agentId, targetSessionId, provider, {
+        submitKey: submission.submitKey === '\r' ? 'CR' : submission.submitKey === '\n' ? 'LF' : 'CUSTOM',
+      });
+
+      return {
+        success: true,
+        requestId,
+        sessionId: targetSessionId,
+        agentId,
+        deliveryTier: profile.deliveryTier,
+        submittedAt: Date.now(),
+      };
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err);
+      this.emitDiagnostic('REMOTE_CONTROL_FAILED', agentId, targetSessionId, provider, {
+        error: errorMsg,
+      });
+      return {
+        success: false,
+        requestId,
+        sessionId: targetSessionId,
+        agentId,
+        deliveryTier: profile.deliveryTier,
+        submittedAt: Date.now(),
+        error: errorMsg,
+        diagnosticCode: 'PTY_WRITE_ERROR',
+      };
+    }
+  }
+}
+
+export const universalRemoteController = new UniversalRemoteController();

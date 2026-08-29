@@ -60,8 +60,12 @@ export class AgyAdapter implements EngineAdapter {
     capture.startTurn(`turn_${Date.now()}`, cleanText);
 
     if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r`).catch((err) => {
+      await tauriService.sendAgentInput(sessionId, sessionId, cleanText).catch((err) => {
         console.warn(`[AgyAdapter] Failed to send input to AGY:`, err);
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      await tauriService.sendAgentInput(sessionId, sessionId, '\r').catch((err) => {
+        console.warn(`[AgyAdapter] Failed to send submit key to AGY:`, err);
       });
     }
   }

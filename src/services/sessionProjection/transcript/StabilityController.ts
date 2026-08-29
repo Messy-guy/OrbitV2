@@ -1,6 +1,7 @@
 import { ScreenSnapshot } from '../terminal/ScreenSnapshot';
 import { HeuristicClassifier } from '../classification/HeuristicClassifier';
 import { sessionEventStore } from '../events/SessionEventStore';
+import { pendingInputEchoQueue } from '../input/PendingInputEchoQueue';
 
 export class StabilityController {
   private sessionId: string;
@@ -18,6 +19,9 @@ export class StabilityController {
 
   setLatestUserPrompt(prompt: string) {
     this.latestUserPrompt = prompt;
+    if (prompt && prompt.trim()) {
+      pendingInputEchoQueue.registerPendingEcho(this.sessionId, prompt.trim());
+    }
     this.lastCleanText = '';
     this.lastThought = undefined;
     this.lastWorkspacePath = undefined;
@@ -30,8 +34,8 @@ export class StabilityController {
     onDraftFlush?: (draft: string) => void,
     onEventCommit?: () => void
   ) {
-    // Extract current turn text (isolated from previous turns via turn-boundary slicing)
-    const { text, isThinking, thought, workspacePath, activeMode } = snapshot.getCleanConversationalText(this.latestUserPrompt);
+    // Extract current turn text (isolated from previous turns via turn-boundary slicing and echo suppression)
+    const { text, isThinking, thought, workspacePath, activeMode } = snapshot.getCleanConversationalText(this.latestUserPrompt, this.sessionId);
 
     if (thought) this.lastThought = thought;
     if (workspacePath) this.lastWorkspacePath = workspacePath;

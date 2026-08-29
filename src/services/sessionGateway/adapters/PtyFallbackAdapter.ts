@@ -1,6 +1,7 @@
 import { ISessionAdapter, OrbitSessionCapabilities, OrbitSessionMessage } from '../types';
 import { AgentProvider } from '../../../types/orbit';
 import { isTauriAvailable, tauriService } from '../../tauri.service';
+import { agentProfileRegistry } from '../../remoteControl/AgentInteractionProfileRegistry';
 
 export class PtyFallbackAdapter implements ISessionAdapter {
   readonly provider: AgentProvider;
@@ -42,7 +43,15 @@ export class PtyFallbackAdapter implements ISessionAdapter {
 
   async sendMessage(agentId: string, message: string, _workspacePath?: string, nativeSessionId?: string): Promise<void> {
     if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(agentId, nativeSessionId || 'default', `${message}\r`);
+      const profile = agentProfileRegistry.getProfile(this.provider);
+      const submission = profile.formatSubmission(message);
+      const targetSession = nativeSessionId || 'default';
+
+      await tauriService.sendAgentInput(agentId, targetSession, submission.payload);
+      if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, submission.preSubmitDelayMs));
+      }
+      await tauriService.sendAgentInput(agentId, targetSession, submission.submitKey);
     }
   }
 }

@@ -174,7 +174,7 @@ impl PtyManager {
             _ => "",
         };
 
-        let mut cmd_builder = match prov.as_str() {
+        let (mut cmd_builder, is_shell_process) = match prov.as_str() {
             "antigravity" => {
                 let bin = find_executable(
                     &["agy", "antigravity"],
@@ -192,7 +192,7 @@ impl PtyManager {
                     cmd.arg("--mode");
                     cmd.arg("accept-edits");
                 }
-                cmd
+                (cmd, false)
             }
             "claude" => {
                 let bin = find_executable(&["claude"], &["/home/leo/.local/bin/claude"])
@@ -203,7 +203,7 @@ impl PtyManager {
                     cmd.arg("--permission-mode");
                     cmd.arg("plan");
                 }
-                cmd
+                (cmd, false)
             }
             "codex" => {
                 let codex_extra = [
@@ -230,16 +230,16 @@ impl PtyManager {
                                 .unwrap_or_else(|| Path::new("bash").to_path_buf())
                         }
                     });
-                let mut cmd = CommandBuilder::new(&bin);
                 let is_shell = bin
                     .file_name()
                     .and_then(|n| n.to_str())
                     .map(|n| n == "bash" || n == "sh" || n == "zsh")
                     .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(&bin);
                 if is_shell {
                     cmd.arg("-i");
                 }
-                cmd
+                (cmd, is_shell)
             }
             "opencode" => {
                 let opencode_extra = [
@@ -263,57 +263,428 @@ impl PtyManager {
                                 .unwrap_or_else(|| Path::new("bash").to_path_buf())
                         }
                     });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
                 let mut cmd = CommandBuilder::new(bin);
-                if active_role == "architect" {
-                    cmd.arg("--agent");
-                    cmd.arg("plan");
-                } else if active_role == "reviewer" {
+                if is_shell {
+                    cmd.arg("-i");
+                } else if active_role == "architect" || active_role == "reviewer" {
                     cmd.arg("--agent");
                     cmd.arg("plan");
                 }
-                cmd
+                (cmd, is_shell)
             }
-            "terminal" | "shell" | _ => {
-                #[cfg(target_os = "windows")]
-                let (bin, is_bash) = (
-                    find_executable(&["powershell", "cmd"], &[])
-                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf()),
-                    false,
-                );
-                #[cfg(not(target_os = "windows"))]
-                let (bin, is_bash) = (
-                    find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                        .unwrap_or_else(|| Path::new("bash").to_path_buf()),
-                    true,
-                );
-
+            "kilocode" | "kilo" => {
+                let bin = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
                 let mut cmd = CommandBuilder::new(bin);
-                if is_bash {
+                if is_shell {
                     cmd.arg("-i");
                 }
-                cmd
+                (cmd, is_shell)
+            }
+            "freebuff" => {
+                let bin = find_executable(&["freebuff"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "cline" => {
+                let bin = find_executable(&["cline"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "copilot" | "github-copilot" => {
+                let bin = find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "goose" | "goose-ai" => {
+                let bin = find_executable(&["goose", "goose-ai"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "kiro" | "kiro-cli" => {
+                let bin = find_executable(&["kiro-cli", "kiro"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "qwen" | "qwen-code" | "qwen-agent" => {
+                let bin = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "mimo" | "mimo-cli" | "mimocode" => {
+                let bin = find_executable(&["mimo", "mimo-cli", "mimocode"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "muse" | "muse-cli" | "musecode" => {
+                let bin = find_executable(&["muse", "muse-cli", "musecode"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "continue" | "cn" | "continuedev" => {
+                let bin = find_executable(&["continue", "cn", "continuedev"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "aider" | "aider-chat" => {
+                let bin = find_executable(&["aider", "aider-chat"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            "vibe" | "mistral-vibe" | "vibe-cli" => {
+                let bin = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                } else {
+                    cmd.arg("--trust");
+                }
+                (cmd, is_shell)
+            }
+            "qoder" | "qoder-cli" | "qodercli" => {
+                let bin = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[])
+                    .unwrap_or_else(|| {
+                        #[cfg(target_os = "windows")]
+                        {
+                            find_executable(&["powershell", "cmd"], &[])
+                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
+                        }
+                    });
+                let is_shell = bin
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                    .unwrap_or(false);
+                let mut cmd = CommandBuilder::new(bin);
+                if is_shell {
+                    cmd.arg("-i");
+                }
+                (cmd, is_shell)
+            }
+            custom_or_shell => {
+                let parts: Vec<&str> = custom_or_shell.split_whitespace().collect();
+                let bin_token = if parts.is_empty() { custom_or_shell } else { parts[0] };
+                let custom_bin = find_executable(&[bin_token], &[]);
+
+                if let Some(bin) = custom_bin {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    if parts.len() > 1 {
+                        for arg in &parts[1..] {
+                            cmd.arg(arg);
+                        }
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
+
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
+                    cmd.arg("-i");
+                    (cmd, true)
+                }
             }
         };
 
         // Inherit all host environment variables (PATH, USER, LANG, HOME, OAuth Auth, etc.)
         let mut host_path = std::env::var("PATH").unwrap_or_default();
         if let Ok(home) = std::env::var("HOME") {
-            let candidate_bin_dirs = [
+            let mut candidate_bin_dirs = vec![
                 format!("{}/.npm-global/bin", home),
-                format!("{}/.nvm/versions/node/v24.18.1/bin", home),
                 format!("{}/.local/bin", home),
                 format!("{}/.cargo/bin", home),
                 format!("{}/.gemini/antigravity-cli/bin", home),
+                format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
+                format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
+                format!("{}/.local/share/orbit/engines/antigravity/bin", home),
+                format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
+                format!("{}/.local/share/pnpm/bin", home),
+                format!("{}/.local/share/pnpm", home),
                 "/usr/local/bin".to_string(),
                 "/usr/bin".to_string(),
                 "/bin".to_string(),
             ];
+
+            let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
+            if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
+                for entry in entries.flatten() {
+                    let bin_dir = entry.path().join("bin");
+                    if bin_dir.is_dir() {
+                        candidate_bin_dirs.push(bin_dir.to_string_lossy().to_string());
+                    }
+                }
+            }
+
             for d in &candidate_bin_dirs {
                 if !host_path.contains(d) && Path::new(d).is_dir() {
                     host_path = format!("{}:{}", d, host_path);
                 }
             }
         }
+
+        // Explicitly remove conflicting prefix and global config variables
+        cmd_builder.env_remove("npm_config_prefix");
+        cmd_builder.env_remove("NPM_CONFIG_PREFIX");
+        cmd_builder.env_remove("NPM_CONFIG_GLOBALCONFIG");
+        cmd_builder.env_remove("npm_config_globalconfig");
+        cmd_builder.env_remove("ANTIGRAVITY_AGENT_ID");
+        cmd_builder.env_remove("JETSKI_AGENT_ID");
+        cmd_builder.env_remove("AI_AGENT");
 
         for (key, value) in std::env::vars() {
             // Strip active session tokens, connection addresses, and conflicting npm prefix vars
@@ -322,6 +693,8 @@ impl PtyManager {
                 || key == "AI_AGENT"
                 || key == "npm_config_prefix"
                 || key == "NPM_CONFIG_PREFIX" 
+                || key == "NPM_CONFIG_GLOBALCONFIG"
+                || key == "npm_config_globalconfig"
             {
                 continue;
             }
@@ -369,11 +742,8 @@ impl PtyManager {
         cmd_builder.env("ORBIT_WORKSPACE_ID", &workspace_id);
         cmd_builder.env("ORBIT_AGENT_ID", &agent_id);
 
-        // Spawn child process in slave PTY
-        dbg_log!("[ORBIT DEBUG] Spawning child process...");
-        let child = pair
-            .slave
-            .spawn_command(cmd_builder)
+        // Spawn PTY process
+        let child = pair.slave.spawn_command(cmd_builder)
             .map_err(|e| format!("Failed to spawn command in PTY: {}", e))?;
 
         let pid = child.process_id().unwrap_or(0);
@@ -405,16 +775,19 @@ impl PtyManager {
         let _master_arc = session.master.clone(); // for reader + resize
         let writer_for_initial_prompt = session.writer.clone();
 
-        // Feed initial prompt and mode-tied skill directives into stdin after a short delay so the CLI process initializes its terminal/event loop
-        let mode_prelude = if !role_directive.is_empty() {
+        // Feed initial prompt: for raw shell terminals and CLI utilities (e.g. Copilot), only send explicit prompt
+        let is_direct_cli = prov == "terminal" || prov == "shell" || prov == "copilot" || prov == "github-copilot" || is_shell_process;
+        let mode_prelude = if is_direct_cli {
+            prompt_to_send
+        } else if !role_directive.is_empty() {
             if let Some(ref p) = prompt_to_send {
                 if !p.trim().is_empty() {
                     Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]\nTask: {}", role_directive, p.trim()))
                 } else {
-                    Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]", role_directive))
+                    None
                 }
             } else {
-                Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]", role_directive))
+                None
             }
         } else {
             prompt_to_send

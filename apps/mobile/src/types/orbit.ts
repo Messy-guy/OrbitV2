@@ -1,4 +1,4 @@
-export type AgentProvider = 'antigravity' | 'claude' | 'opencode' | 'custom' | 'codex' | 'gemini' | 'terminal';
+export type AgentProvider = 'antigravity' | 'claude' | 'codex' | 'opencode' | 'kilocode' | 'freebuff' | 'cline' | 'copilot' | 'goose' | 'kiro' | 'qwen' | 'mimo' | 'muse' | 'continue' | 'aider' | 'vibe' | 'qoder' | 'gemini' | 'terminal' | 'custom';
 export type AgentStatus = 'working' | 'ready' | 'waiting' | 'starting' | 'paused' | 'error' | 'stopped' | 'offline' | 'completed';
 export type SessionTransportType = 'native' | 'protocol' | 'pty';
 

@@ -55,6 +55,15 @@ class EngineDiscoveryService {
     }
   }
 
+  getUserDefinedEngines(): EngineManifest[] {
+    return engineManifestRegistry.getAllManifests().filter((m) => m.id.startsWith('custom_') || m.id.startsWith('user_'));
+  }
+
+  unregisterUserEngine(id: string) {
+    engineManifestRegistry.unregister(id);
+    this.saveUserDefinedEngines();
+  }
+
   /**
    * Register a user-defined custom agent / CLI with truth-based fidelity
    */

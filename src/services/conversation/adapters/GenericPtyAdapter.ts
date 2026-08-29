@@ -2,6 +2,8 @@ import { EngineAdapter, StartSessionOptions, Unsubscribe } from './EngineAdapter
 import { EngineCapabilities, OrbitEngineEvent } from '../../../types/conversation';
 import { PtyCaptureSession } from '../../sessionProjection/state/PtyCaptureSession';
 import { isTauriAvailable, tauriService } from '../../tauri.service';
+import { useAgentStore } from '../../../stores/agent.store';
+import { agentProfileRegistry } from '../../remoteControl/AgentInteractionProfileRegistry';
 
 export class GenericPtyAdapter implements EngineAdapter {
   readonly id = 'pty';
@@ -61,8 +63,20 @@ export class GenericPtyAdapter implements EngineAdapter {
     capture.startTurn(`turn_${Date.now()}`, cleanText);
 
     if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(sessionId, sessionId, `${cleanText}\r`).catch((err) => {
-        console.warn(`[GenericPtyAdapter] Failed to send input:`, err);
+      const agent = useAgentStore.getState().agents.find((a) => a.id === sessionId || a.currentSessionId === sessionId);
+      const profile = agentProfileRegistry.getProfile(agent?.provider || 'terminal');
+      const submission = profile.formatSubmission(cleanText);
+
+      await tauriService.sendAgentInput(sessionId, sessionId, submission.payload).catch((err) => {
+        console.warn(`[GenericPtyAdapter] Failed to send input text:`, err);
+      });
+
+      if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, submission.preSubmitDelayMs));
+      }
+
+      await tauriService.sendAgentInput(sessionId, sessionId, submission.submitKey).catch((err) => {
+        console.warn(`[GenericPtyAdapter] Failed to send submit key:`, err);
       });
     }
   }

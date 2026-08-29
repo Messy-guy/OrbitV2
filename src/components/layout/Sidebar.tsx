@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder, Star } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder, Star, Bot, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -44,6 +44,32 @@ export const Sidebar: React.FC = () => {
         return <Cpu size={11} className="text-amber-500" />;
       case 'opencode':
         return <Code2 size={11} className="text-cyan-500" />;
+      case 'kilocode':
+        return <Code2 size={11} className="text-orange-400" />;
+      case 'freebuff':
+        return <Cpu size={11} className="text-emerald-400" />;
+      case 'cline':
+        return <Code2 size={11} className="text-blue-400" />;
+      case 'copilot':
+        return <Cpu size={11} className="text-violet-400" />;
+      case 'goose':
+        return <Bot size={11} className="text-yellow-400" />;
+      case 'kiro':
+        return <Code2 size={11} className="text-rose-400" />;
+      case 'qwen':
+        return <Cpu size={11} className="text-purple-400" />;
+      case 'mimo':
+        return <Bot size={11} className="text-emerald-400" />;
+      case 'muse':
+        return <Sparkles size={11} className="text-blue-400" />;
+      case 'continue':
+        return <Code2 size={11} className="text-teal-400" />;
+      case 'aider':
+        return <Bot size={11} className="text-green-400" />;
+      case 'vibe':
+        return <Sparkles size={11} className="text-orange-400" />;
+      case 'qoder':
+        return <Code2 size={11} className="text-indigo-400" />;
       default:
         return <Terminal size={11} className="text-emerald-500" />;
     }

@@ -103,6 +103,32 @@ export const CanvasMinimap: React.FC<CanvasMinimapProps> = ({
         return '#10b981';
       case 'opencode':
         return '#a855f7';
+      case 'kilocode':
+        return '#f97316';
+      case 'freebuff':
+        return '#10b981';
+      case 'cline':
+        return '#3b82f6';
+      case 'copilot':
+        return '#8b5cf6';
+      case 'goose':
+        return '#eab308';
+      case 'kiro':
+        return '#f43f5e';
+      case 'qwen':
+        return '#a855f7';
+      case 'mimo':
+        return '#10b981';
+      case 'muse':
+        return '#3b82f6';
+      case 'continue':
+        return '#14b8a6';
+      case 'aider':
+        return '#22c55e';
+      case 'vibe':
+        return '#fb923c';
+      case 'qoder':
+        return '#6366f1';
       default:
         return '#38bdf8';
     }

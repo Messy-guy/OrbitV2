@@ -1,5 +1,6 @@
 import { ActivitySummary } from '../../../types/conversation';
 import { ScreenFingerprint } from '../state/ScreenFingerprint';
+import { InputEchoSuppressor } from '../transcript/InputEchoSuppressor';
 
 export type CaptureDecision =
   | {
@@ -32,7 +33,7 @@ export class PtyConversationClassifier {
   /**
    * Classifies a single line of terminal output into a semantic CaptureDecision
    */
-  static classifyLine(line: string, latestUserPrompt?: string): CaptureDecision {
+  static classifyLine(line: string, latestUserPrompt?: string, sessionId?: string): CaptureDecision {
     const trimmed = line.trim();
     if (!trimmed) {
       return { type: 'terminal_only', reason: 'empty_line' };
@@ -49,45 +50,11 @@ export class PtyConversationClassifier {
     }
 
     // ----------------------------------------------------------------------
-    // 1. USER ECHO DETECTION
+    // 1. AUTHORITATIVE USER ECHO SUPPRESSION (via InputEchoSuppressor)
     // ----------------------------------------------------------------------
-    if (latestUserPrompt && latestUserPrompt.trim().length > 0) {
-      const promptNorm = latestUserPrompt.trim().toLowerCase();
-      const lineNorm = cleanText.toLowerCase();
-
-      // Check if line is exact user prompt or prompt with typical terminal prefixes
-      const promptVariants = [
-        promptNorm,
-        `> ${promptNorm}`,
-        `| ${promptNorm}`,
-        `│ ${promptNorm}`,
-        `$ ${promptNorm}`,
-        `❯ ${promptNorm}`,
-        `> /plan ${promptNorm}`,
-        `/plan ${promptNorm}`,
-        `plan: ${promptNorm}`,
-      ];
-
-      for (const variant of promptVariants) {
-        if (
-          lineNorm === variant ||
-          lineNorm.startsWith(`${variant}─`) ||
-          lineNorm.startsWith(`${variant}-`) ||
-          lineNorm.startsWith(`${variant} │`) ||
-          lineNorm.startsWith(`${variant} |`)
-        ) {
-          return { type: 'user_echo', text: cleanText };
-        }
-      }
-
-      // Check short prompt echo in a bordered prompt box
-      if (
-        /^[|│>❯$]\s*(?:\/plan\s+)?[a-zA-Z0-9\s.,!?_-]+$/.test(cleanText) &&
-        cleanText.length < 40 &&
-        lineNorm.includes(promptNorm)
-      ) {
-        return { type: 'user_echo', text: cleanText };
-      }
+    const echoCheck = InputEchoSuppressor.checkLine(sessionId || '', line, latestUserPrompt);
+    if (echoCheck.isEcho) {
+      return { type: 'user_echo', text: cleanText };
     }
 
     // ----------------------------------------------------------------------
@@ -266,7 +233,7 @@ export class PtyConversationClassifier {
   /**
    * Classifies an entire snapshot of candidate new lines
    */
-  static classifyLines(candidateLines: string[], latestUserPrompt?: string): ClassifiedScreenOutput {
+  static classifyLines(candidateLines: string[], latestUserPrompt?: string, sessionId?: string): ClassifiedScreenOutput {
     const cleanLines: string[] = [];
     const activities: ActivitySummary[] = [];
     const decisions: CaptureDecision[] = [];
@@ -275,7 +242,7 @@ export class PtyConversationClassifier {
     let isThinking = false;
 
     for (const line of candidateLines) {
-      const decision = this.classifyLine(line, latestUserPrompt);
+      const decision = this.classifyLine(line, latestUserPrompt, sessionId);
       decisions.push(decision);
 
       switch (decision.type) {
@@ -308,7 +275,7 @@ export class PtyConversationClassifier {
     }
 
     return {
-      userFacingText: cleanLines.join('\n\n').trim(),
+      userFacingText: cleanLines.join('\n').trim(),
       activities,
       thought: latestThought,
       isThinking,

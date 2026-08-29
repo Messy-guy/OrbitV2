@@ -655,7 +655,51 @@ pub async fn install_agent_cli(command: String) -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     let mut cmd = std::process::Command::new("bash");
     #[cfg(not(target_os = "windows"))]
-    cmd.args(["-c", &command]);
+    {
+        // Wrap with sourcing of user shell environments (nvm, cargo, local)
+        let wrapped_cmd = format!(
+            "source ~/.nvm/nvm.sh 2>/dev/null || true; source ~/.cargo/env 2>/dev/null || true; {}",
+            command
+        );
+        cmd.args(["-l", "-c", &wrapped_cmd]);
+    }
+
+    cmd.env_remove("npm_config_prefix");
+    cmd.env_remove("NPM_CONFIG_PREFIX");
+    cmd.env_remove("NPM_CONFIG_GLOBALCONFIG");
+
+    let mut host_path = std::env::var("PATH").unwrap_or_default();
+    if let Ok(home) = std::env::var("HOME") {
+        let mut candidate_bin_dirs = vec![
+            format!("{}/.npm-global/bin", home),
+            format!("{}/.local/bin", home),
+            format!("{}/.cargo/bin", home),
+            format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
+            format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
+            format!("{}/.local/share/pnpm/bin", home),
+            "/usr/local/bin".to_string(),
+            "/usr/bin".to_string(),
+            "/bin".to_string(),
+        ];
+
+        // Dynamically add all node binary directories in ~/.nvm/versions/node/*/bin
+        let nvm_node_root = std::path::Path::new(&home).join(".nvm").join("versions").join("node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
+            for entry in entries.flatten() {
+                let bin_dir = entry.path().join("bin");
+                if bin_dir.is_dir() {
+                    candidate_bin_dirs.push(bin_dir.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        for d in &candidate_bin_dirs {
+            if !host_path.contains(d) && std::path::Path::new(d).is_dir() {
+                host_path = format!("{}:{}", d, host_path);
+            }
+        }
+    }
+    cmd.env("PATH", host_path);
 
     let output = cmd.output().map_err(|e| format!("Failed to execute installer: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();

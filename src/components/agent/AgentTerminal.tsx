@@ -219,11 +219,15 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
           await tauriService.setAgentRole(agentRef.current.id, agentRef.current.role).catch(() => {});
         }
 
+        const effectiveProvider = agentRef.current.provider === 'custom'
+          ? (agentRef.current.currentCommand?.trim() || agentRef.current.name?.trim() || 'terminal')
+          : agentRef.current.provider;
+
         await tauriService.startAgentSession(
           projPath,
           agentRef.current.id,
           sessionId,
-          agentRef.current.provider,
+          effectiveProvider,
           agentRef.current.taskDirective?.trim() || undefined,
           ws?.id || 'ws-orbit',
           rows,

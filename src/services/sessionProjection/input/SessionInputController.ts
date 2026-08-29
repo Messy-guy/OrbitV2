@@ -1,9 +1,13 @@
 import { isTauriAvailable, tauriService } from '../../tauri.service';
+import { useAgentStore } from '../../../stores/agent.store';
+import { agentProfileRegistry } from '../../remoteControl/AgentInteractionProfileRegistry';
 
 interface QueuedInput {
   agentId: string;
   sessionId: string;
-  bytes: string;
+  payload: string;
+  submitKey: string;
+  preSubmitDelayMs?: number;
   resolve: () => void;
   reject: (err: any) => void;
 }
@@ -14,11 +18,16 @@ export class SessionInputController {
 
   async enqueueInput(agentId: string, sessionId: string, text: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const bytesWithEnter = text.endsWith('\r') || text.endsWith('\n') ? text : `${text}\r`;
+      const agent = useAgentStore.getState().agents.find((a) => a.id === agentId || a.currentSessionId === sessionId);
+      const profile = agentProfileRegistry.getProfile(agent?.provider || 'terminal');
+      const submission = profile.formatSubmission(text);
+
       this.queue.push({
         agentId,
         sessionId,
-        bytes: bytesWithEnter,
+        payload: submission.payload,
+        submitKey: submission.submitKey,
+        preSubmitDelayMs: submission.preSubmitDelayMs,
         resolve,
         reject,
       });
@@ -33,7 +42,11 @@ export class SessionInputController {
     const item = this.queue.shift()!;
     try {
       if (isTauriAvailable()) {
-        await tauriService.sendAgentInput(item.agentId, item.sessionId, item.bytes);
+        await tauriService.sendAgentInput(item.agentId, item.sessionId, item.payload);
+        if (item.preSubmitDelayMs && item.preSubmitDelayMs > 0) {
+          await new Promise((r) => setTimeout(r, item.preSubmitDelayMs));
+        }
+        await tauriService.sendAgentInput(item.agentId, item.sessionId, item.submitKey);
       }
       item.resolve();
     } catch (err) {

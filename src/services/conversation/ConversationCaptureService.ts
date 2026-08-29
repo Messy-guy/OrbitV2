@@ -6,6 +6,7 @@ import { acpAdapter, AcpAdapter } from './adapters/AcpAdapter';
 import { EngineAdapter } from './adapters/EngineAdapter';
 import { engineManifestRegistry } from './EngineManifestRegistry';
 import { OrbitSession, OrbitEngineEvent } from '../../types/conversation';
+import { pendingInputEchoQueue } from '../sessionProjection/input/PendingInputEchoQueue';
 
 class ConversationCaptureService {
   private adapters: Map<string, EngineAdapter> = new Map();
@@ -133,6 +134,9 @@ class ConversationCaptureService {
   async submitUserMessage(sessionId: string, message: string): Promise<void> {
     const cleanText = message.trim();
     if (!cleanText) return;
+
+    // Register pending echo in authoritative queue for session
+    pendingInputEchoQueue.registerPendingEcho(sessionId, cleanText);
 
     // 1. Authoritatively record the user turn in the canonical conversation store
     conversationStore.addUserMessage(sessionId, cleanText);

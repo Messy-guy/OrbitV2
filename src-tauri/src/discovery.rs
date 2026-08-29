@@ -11,26 +11,149 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         }
     }
 
+    // Expand names with aliases and package variations (e.g. @kilocode/cli -> kilocode, kilo)
+    let mut expanded_names: Vec<String> = Vec::new();
+    for name in names {
+        let trimmed = name.trim();
+        if trimmed.is_empty() { continue; }
+        expanded_names.push(trimmed.to_string());
+
+        if trimmed.starts_with('@') && trimmed.contains('/') {
+            let parts: Vec<&str> = trimmed.split('/').collect();
+            if parts.len() == 2 {
+                let org = parts[0].trim_start_matches('@');
+                let pkg = parts[1];
+                expanded_names.push(org.to_string());
+                expanded_names.push(pkg.to_string());
+                expanded_names.push(format!("{}-{}", org, pkg));
+            }
+        }
+
+        let base = trimmed.trim_start_matches('@');
+        let clean = base
+            .trim_end_matches("-cli")
+            .trim_end_matches("/cli")
+            .trim_end_matches("-chat")
+            .trim_end_matches("-ai");
+        if clean != trimmed && !clean.is_empty() {
+            expanded_names.push(clean.to_string());
+        }
+        if clean.contains('/') {
+            let sub = clean.split('/').next_back().unwrap_or(clean);
+            if !sub.is_empty() {
+                expanded_names.push(sub.to_string());
+            }
+        }
+
+        if trimmed.contains("kilocode") || trimmed.contains("kilo") {
+            expanded_names.push("kilocode".to_string());
+            expanded_names.push("kilo".to_string());
+        }
+        if trimmed.contains("aider") {
+            expanded_names.push("aider".to_string());
+        }
+        if trimmed.contains("gemini") {
+            expanded_names.push("gemini".to_string());
+            expanded_names.push("gemini-cli".to_string());
+        }
+        if trimmed.contains("interpreter") {
+            expanded_names.push("interpreter".to_string());
+            expanded_names.push("open-interpreter".to_string());
+        }
+        if trimmed.contains("copilot") {
+            expanded_names.push("github-copilot-cli".to_string());
+            expanded_names.push("github-copilot".to_string());
+            expanded_names.push("gh-copilot".to_string());
+            expanded_names.push("copilot".to_string());
+        }
+        if trimmed.contains("goose") {
+            expanded_names.push("goose".to_string());
+            expanded_names.push("goose-ai".to_string());
+        }
+        if trimmed.contains("kiro") {
+            expanded_names.push("kiro".to_string());
+            expanded_names.push("kiro-cli".to_string());
+        }
+        if trimmed.contains("qwen") {
+            expanded_names.push("qwen-code".to_string());
+            expanded_names.push("qwen".to_string());
+            expanded_names.push("qwen-agent".to_string());
+        }
+        if trimmed.contains("mimo") {
+            expanded_names.push("mimo".to_string());
+            expanded_names.push("mimo-cli".to_string());
+            expanded_names.push("mimocode".to_string());
+        }
+        if trimmed.contains("muse") {
+            expanded_names.push("muse".to_string());
+            expanded_names.push("muse-cli".to_string());
+            expanded_names.push("musecode".to_string());
+        }
+        if trimmed.contains("continue") {
+            expanded_names.push("continue".to_string());
+            expanded_names.push("cn".to_string());
+            expanded_names.push("continuedev".to_string());
+        }
+        if trimmed.contains("vibe") || trimmed.contains("mistral") {
+            expanded_names.push("vibe".to_string());
+            expanded_names.push("mistral-vibe".to_string());
+            expanded_names.push("vibe-cli".to_string());
+        }
+        if trimmed.contains("qoder") {
+            expanded_names.push("qodercli".to_string());
+            expanded_names.push("qoder".to_string());
+            expanded_names.push("qoder-cli".to_string());
+            expanded_names.push("qoder_cli".to_string());
+        }
+    }
+
     // 2. Check standard user home directories
     if let Ok(home) = std::env::var("HOME") {
-        let home_paths = [
+        let mut home_paths = vec![
             format!("{}/.local/bin", home),
             format!("{}/.cargo/bin", home),
             format!("{}/.npm-global/bin", home),
             format!("{}/.gemini/antigravity-cli/bin", home),
+            format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
             format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
             format!("{}/.local/share/orbit/engines/antigravity/bin", home),
+            format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
             format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
             format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
             format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
             format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
-            format!("{}/.nvm/versions/node/v24.18.1/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin", home),
             format!("{}/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin", home),
+            format!("{}/.local/share/pnpm/bin", home),
+            format!("{}/.local/share/pnpm", home),
+            format!("{}/.qoder/bin", home),
+            format!("{}/.qoder/entry", home),
             format!("{}/bin", home),
         ];
 
+        // Dynamically add all node binary directories in ~/.nvm/versions/node/*/bin
+        let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
+            for entry in entries.flatten() {
+                let bin_dir = entry.path().join("bin");
+                if bin_dir.is_dir() {
+                    home_paths.push(bin_dir.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        // Dynamically add all engine binary directories in ~/.local/share/orbit/engines/*/node_modules/.bin
+        let orbit_engines_root = Path::new(&home).join(".local").join("share").join("orbit").join("engines");
+        if let Ok(entries) = std::fs::read_dir(&orbit_engines_root) {
+            for entry in entries.flatten() {
+                let bin_dir = entry.path().join("node_modules").join(".bin");
+                if bin_dir.is_dir() {
+                    home_paths.push(bin_dir.to_string_lossy().to_string());
+                }
+            }
+        }
+
         for dir in &home_paths {
-            for name in names {
+            for name in &expanded_names {
                 let candidate = Path::new(dir).join(name);
                 if candidate.is_file() {
                     return Some(candidate);
@@ -42,7 +165,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     // 3. Check system PATH and standard executable extensions (.exe, .cmd, .bat)
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
-            for name in names {
+            for name in &expanded_names {
                 let candidate = dir.join(name);
                 if candidate.is_file() {
                     return Some(candidate);
@@ -68,7 +191,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     #[cfg(not(target_os = "windows"))]
     let lookup_cmd = "which";
 
-    for name in names {
+    for name in &expanded_names {
         if let Ok(output) = Command::new(lookup_cmd).arg(name).output() {
             if output.status.success() {
                 let path_str = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").trim().to_string();
@@ -213,7 +336,249 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 5. Detect Standard Shell Terminal (Bash / Sh)
+    // 5. Detect KiloCode CLI
+    if let Some(kilo_path) = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[]) {
+        let version = get_cli_version(&kilo_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "kilocode".to_string(),
+            name: "KILOCODE".to_string(),
+            path: kilo_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "KiloCode AI — Autonomous coding agent harness with codebase indexing".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "kilocode".to_string(),
+            name: "KILOCODE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "KiloCode CLI (not installed)".to_string(),
+        });
+    }
+
+    // 6. Detect Freebuff CLI
+    if let Some(freebuff_path) = find_executable(&["freebuff"], &[]) {
+        let version = get_cli_version(&freebuff_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "freebuff".to_string(),
+            name: "FREEBUFF".to_string(),
+            path: freebuff_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Freebuff AI — Lightweight autonomous AI coding agent harness".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "freebuff".to_string(),
+            name: "FREEBUFF".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Freebuff CLI (not installed)".to_string(),
+        });
+    }
+
+    // 7. Detect Cline CLI
+    if let Some(cline_path) = find_executable(&["cline"], &[]) {
+        let version = get_cli_version(&cline_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "cline".to_string(),
+            name: "CLINE".to_string(),
+            path: cline_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Cline CLI — Autonomous multi-model terminal coding agent".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "cline".to_string(),
+            name: "CLINE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Cline CLI (not installed)".to_string(),
+        });
+    }
+
+    // 8. Detect GitHub Copilot CLI
+    if let Some(copilot_path) = find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
+        let version = get_cli_version(&copilot_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "copilot".to_string(),
+            name: "GITHUB COPILOT".to_string(),
+            path: copilot_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Official GitHub Copilot CLI — Code generation & shell explanation harness".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "copilot".to_string(),
+            name: "GITHUB COPILOT".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "GitHub Copilot CLI (not installed)".to_string(),
+        });
+    }
+
+    // 9. Detect Goose CLI
+    if let Some(goose_path) = find_executable(&["goose", "goose-ai"], &[]) {
+        let version = get_cli_version(&goose_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "goose".to_string(),
+            name: "GOOSE".to_string(),
+            path: goose_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Goose — Autonomous on-machine developer agent by Block".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "goose".to_string(),
+            name: "GOOSE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Goose CLI (not installed)".to_string(),
+        });
+    }
+
+    // 10. Detect Kiro CLI
+    if let Some(kiro_path) = find_executable(&["kiro-cli", "kiro"], &[]) {
+        let version = get_cli_version(&kiro_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "kiro".to_string(),
+            name: "KIRO CLI".to_string(),
+            path: kiro_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Kiro CLI — High-performance autonomous terminal assistant".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "kiro".to_string(),
+            name: "KIRO CLI".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Kiro CLI (not installed)".to_string(),
+        });
+    }
+
+    // 11. Detect Qwen Code CLI
+    if let Some(qwen_path) = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[]) {
+        let version = get_cli_version(&qwen_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "qwen".to_string(),
+            name: "QWEN CODE".to_string(),
+            path: qwen_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Qwen Code — Specialized coding agent for deep multilingual reasoning".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "qwen".to_string(),
+            name: "QWEN CODE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Qwen Code CLI (not installed)".to_string(),
+        });
+    }
+
+    // 12. Detect Mimo Code CLI
+    if let Some(mimo_path) = find_executable(&["mimo", "mimo-cli", "mimocode"], &[]) {
+        let version = get_cli_version(&mimo_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "mimo".to_string(),
+            name: "MIMO CODE".to_string(),
+            path: mimo_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Mimo Code — Autonomous on-device developer coding agent CLI by Xiaomi".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "mimo".to_string(),
+            name: "MIMO CODE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Mimo Code CLI (not installed)".to_string(),
+        });
+    }
+
+    // 13. Detect Muse Code CLI
+    if let Some(muse_path) = find_executable(&["muse", "muse-cli", "musecode"], &[]) {
+        let version = get_cli_version(&muse_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "muse".to_string(),
+            name: "MUSE CODE".to_string(),
+            path: muse_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Muse Code — Meta AI autonomous terminal coding assistant".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "muse".to_string(),
+            name: "MUSE CODE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Muse Code CLI (not installed)".to_string(),
+        });
+    }
+
+    // 14. Detect Mistral Vibe CLI
+    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]) {
+        let version = get_cli_version(&vibe_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "vibe".to_string(),
+            name: "MISTRAL VIBE".to_string(),
+            path: vibe_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Mistral Vibe — Terminal coding harness powered by Codestral".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "vibe".to_string(),
+            name: "MISTRAL VIBE".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Mistral Vibe CLI (not installed)".to_string(),
+        });
+    }
+
+    // 15. Detect Qoder CLI
+    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
+        let version = get_cli_version(&qoder_path, "--version");
+        detected.push(DetectedAgent {
+            provider: "qoder".to_string(),
+            name: "QODER CLI".to_string(),
+            path: qoder_path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: "Qoder CLI — Intelligent repository navigation & refactoring".to_string(),
+        });
+    } else {
+        detected.push(DetectedAgent {
+            provider: "qoder".to_string(),
+            name: "QODER CLI".to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: "Qoder CLI (not installed)".to_string(),
+        });
+    }
+
+    // 16. Detect Standard Shell Terminal (Bash / Sh)
     if let Some(bash_path) = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]) {
         detected.push(DetectedAgent {
             provider: "terminal".to_string(),

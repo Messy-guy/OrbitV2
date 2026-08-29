@@ -225,9 +225,17 @@ class MobileRelayService {
     useLiveRelayStore.getState().clearLiveState();
   }
 
-  sendAction(action: 'PAUSE' | 'STOP' | 'SEND_INPUT' | 'APPROVE' | 'EMERGENCY_STOP_ALL', agentId?: string, projectId?: string, data?: any) {
+  sendAction(action: 'PAUSE' | 'STOP' | 'SEND_INPUT' | 'APPROVE' | 'EMERGENCY_STOP_ALL' | 'RESUME', agentId?: string, projectId?: string, data?: any) {
     if (this.socket?.connected) {
-      this.socket.emit('mobile:remote_action', { action, agentId, projectId, data });
+      const requestId = `mob_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      this.socket.emit('mobile:remote_action', {
+        action,
+        agentId,
+        projectId,
+        data,
+        requestId,
+        timestamp: Date.now(),
+      });
     }
   }
 
