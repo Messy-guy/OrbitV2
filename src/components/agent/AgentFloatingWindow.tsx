@@ -48,7 +48,7 @@ interface AgentFloatingWindowProps {
   onPositionChange: (pos: { x: number; y: number; width: number; height: number }) => void;
 }
 
-export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
+export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = ({
   agent,
   initialPosition,
   zIndex,
@@ -403,3 +403,5 @@ export const AgentFloatingWindow: React.FC<AgentFloatingWindowProps> = ({
     </Rnd>
   );
 };
+
+export const AgentFloatingWindow = React.memo(AgentFloatingWindowComponent);

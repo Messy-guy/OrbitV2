@@ -1,9 +1,38 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use regex::Regex;
 use crate::models::{ChangedFileItem, GitState};
 use crate::runtime::session_events::{redact_secrets, SessionEvent, SessionEventType};
+
+static TEST_REGEX: OnceLock<Regex> = OnceLock::new();
+static TS_ERROR_REGEX: OnceLock<Regex> = OnceLock::new();
+static GIT_STATE_CACHE: Mutex<Option<HashMap<String, (Instant, GitState)>>> = Mutex::new(None);
+
+fn get_test_regex() -> &'static Regex {
+    TEST_REGEX.get_or_init(|| Regex::new(r"(?i)tests?:?\s+(\d+)\s+failed.*(\d+)\s+passed").unwrap())
+}
+
+fn get_ts_error_regex() -> &'static Regex {
+    TS_ERROR_REGEX.get_or_init(|| Regex::new(r"(?m)([a-zA-Z0-9_\-\./]+)\((\d+),(\d+)\):\s*error\s*(TS\d+):\s*(.+)$").unwrap())
+}
+
+fn get_cached_git_state(project_path: &str) -> GitState {
+    if let Ok(mut cache_guard) = GIT_STATE_CACHE.lock() {
+        let map = cache_guard.get_or_insert_with(HashMap::new);
+        if let Some((ts, state)) = map.get(project_path) {
+            if ts.elapsed() < Duration::from_secs(5) {
+                return state.clone();
+            }
+        }
+        let fresh_state = crate::git::inspect_git_state(project_path);
+        map.insert(project_path.to_string(), (Instant::now(), fresh_state.clone()));
+        fresh_state
+    } else {
+        crate::git::inspect_git_state(project_path)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,9 +192,9 @@ impl ActivityDetector {
             _ => {}
         }
 
-        // Refresh Git state periodically
+        // Refresh Git state periodically (cached with 5-second throttle to eliminate subprocess thrashing)
         if !project_path.is_empty() {
-            let git_st = crate::git::inspect_git_state(project_path);
+            let git_st = get_cached_git_state(project_path);
             state.changed_files = git_st.modified_files.clone();
             state.git_state = git_st;
         }
@@ -187,9 +216,8 @@ impl ActivityDetector {
 
     fn parse_technical_signals(&self, state: &mut ProjectActivityState, text: &str, timestamp: i64) {
         // 1. Detect Test Results (Vitest, Jest, Cargo test, Pytest)
-        // Vitest / Jest: Tests  1 failed | 4 passed (5)
-        if let Ok(re) = Regex::new(r"(?i)tests?:?\s+(\d+)\s+failed.*(\d+)\s+passed") {
-            if let Some(caps) = re.captures(text) {
+        if text.contains("passed") || text.contains("failed") || text.contains("test result:") {
+            if let Some(caps) = get_test_regex().captures(text) {
                 let failed: u32 = caps[1].parse().unwrap_or(0);
                 let passed: u32 = caps[2].parse().unwrap_or(0);
                 state.last_test = Some(TestSummary {
@@ -200,23 +228,22 @@ impl ActivityDetector {
                     timestamp,
                     runner: "vitest/jest".to_string(),
                 });
+            } else if text.contains("test result: ok") || text.contains("test result: FAILED") {
+                let is_fail = text.contains("FAILED");
+                state.last_test = Some(TestSummary {
+                    status: if is_fail { "failed".to_string() } else { "passed".to_string() },
+                    passed_count: 1,
+                    failed_count: if is_fail { 1 } else { 0 },
+                    total_count: 1,
+                    timestamp,
+                    runner: "cargo".to_string(),
+                });
             }
-        } else if text.contains("test result: ok") || text.contains("test result: FAILED") {
-            // Cargo test: test result: FAILED. 1 failed; 5 passed; 0 ignored
-            let is_fail = text.contains("FAILED");
-            state.last_test = Some(TestSummary {
-                status: if is_fail { "failed".to_string() } else { "passed".to_string() },
-                passed_count: 1,
-                failed_count: if is_fail { 1 } else { 0 },
-                total_count: 1,
-                timestamp,
-                runner: "cargo".to_string(),
-            });
         }
 
-        // 2. Detect TypeScript Errors (e.g. error TS2322: Type 'string' is not assignable to type 'number'.)
-        if let Ok(re) = Regex::new(r"(?m)([a-zA-Z0-9_\-\./]+)\((\d+),(\d+)\):\s*error\s*(TS\d+):\s*(.+)$") {
-            for caps in re.captures_iter(text) {
+        // 2. Detect TypeScript Errors (Quick check before executing regex)
+        if text.contains("error TS") {
+            for caps in get_ts_error_regex().captures_iter(text) {
                 let file = caps.get(1).map(|m| m.as_str().to_string());
                 let line: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
                 let code = caps.get(4).map(|m| m.as_str().to_string());

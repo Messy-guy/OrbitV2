@@ -1,6 +1,16 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use crate::models::DetectedAgent;
+
+static DETECTION_CACHE: Mutex<Option<(Instant, Vec<DetectedAgent>)>> = Mutex::new(None);
+
+pub fn invalidate_detection_cache() {
+    if let Ok(mut cache) = DETECTION_CACHE.lock() {
+        *cache = None;
+    }
+}
 
 pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> {
     // 1. Check custom extra paths first
@@ -219,6 +229,14 @@ pub fn get_cli_version(path: &Path, version_flag: &str) -> Option<String> {
 }
 
 pub fn detect_all_agents() -> Vec<DetectedAgent> {
+    if let Ok(cache) = DETECTION_CACHE.lock() {
+        if let Some((timestamp, ref agents)) = *cache {
+            if timestamp.elapsed() < Duration::from_secs(60) {
+                return agents.clone();
+            }
+        }
+    }
+
     let mut detected = Vec::new();
 
     // 1. Detect Antigravity CLI (agy)
@@ -588,6 +606,10 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
             is_available: true,
             description: "Interactive shell terminal connected to project directory".to_string(),
         });
+    }
+
+    if let Ok(mut cache) = DETECTION_CACHE.lock() {
+        *cache = Some((Instant::now(), detected.clone()));
     }
 
     detected

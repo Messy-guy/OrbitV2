@@ -20,17 +20,21 @@ interface WindowBounds {
 }
 
 export const AgentCanvas: React.FC = () => {
-  const { agents, addAgent } = useAgentStore();
-  const { getActiveWorkspace, activeSpaceIdByProject, setActiveSpace, createSpace, deleteSpace } = useWorkspaceStore();
-  const { 
-    toggleBottomPanel, 
-    activeBottomPanel, 
-    setShareContextOpen, 
-    setAddAgentOpen, 
-    maximizedAgentId, 
-    isMinimapVisible 
-  } = useUIStore();
-  const { checkpoints, currentContext } = useContextStore();
+  const agents = useAgentStore(s => s.agents);
+  const addAgent = useAgentStore(s => s.addAgent);
+  const getActiveWorkspace = useWorkspaceStore(s => s.getActiveWorkspace);
+  const activeSpaceIdByProject = useWorkspaceStore(s => s.activeSpaceIdByProject);
+  const setActiveSpace = useWorkspaceStore(s => s.setActiveSpace);
+  const createSpace = useWorkspaceStore(s => s.createSpace);
+  const deleteSpace = useWorkspaceStore(s => s.deleteSpace);
+  const toggleBottomPanel = useUIStore(s => s.toggleBottomPanel);
+  const activeBottomPanel = useUIStore(s => s.activeBottomPanel);
+  const setShareContextOpen = useUIStore(s => s.setShareContextOpen);
+  const setAddAgentOpen = useUIStore(s => s.setAddAgentOpen);
+  const maximizedAgentId = useUIStore(s => s.maximizedAgentId);
+  const isMinimapVisible = useUIStore(s => s.isMinimapVisible);
+  const checkpoints = useContextStore(s => s.checkpoints);
+  const currentContext = useContextStore(s => s.currentContext);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);

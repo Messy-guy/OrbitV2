@@ -114,68 +114,92 @@ export class UniversalRemoteController {
 
     // 2. Authoritative Desktop Process / Session Lookup
     this.emitDiagnostic('SESSION_LOOKUP', agentId, targetSessionId);
-    const agent = useAgentStore.getState().agents.find((a) => a.id === agentId || a.currentSessionId === targetSessionId);
-    const provider = agent?.provider || 'terminal';
+    const agent = useAgentStore.getState().agents.find(
+      (a) => a.id === agentId || a.currentSessionId === targetSessionId || a.id === targetSessionId || a.currentSessionId === agentId
+    );
+    const canonicalSession = conversationStore.getSession(targetSessionId) || conversationStore.getSession(agentId);
+
+    const resolvedAgentId = agent?.id || canonicalSession?.engine?.id || agentId;
+    const resolvedSessionId = agent?.currentSessionId || canonicalSession?.runtime?.ptySessionId || canonicalSession?.id || targetSessionId;
+    const provider = agent?.provider || canonicalSession?.engine?.provider || 'terminal';
     const profile = agentProfileRegistry.getProfile(provider);
 
-    this.emitDiagnostic('ADAPTER_SELECTED', agentId, targetSessionId, provider, {
+    this.emitDiagnostic('PTY_LOOKUP', resolvedAgentId, resolvedSessionId, provider, {
+      matchedAgentId: agent?.id,
+      matchedSessionId: agent?.currentSessionId,
+      canonicalSessionExists: !!canonicalSession,
+      isTauriAvailable: isTauriAvailable(),
+    });
+
+    this.emitDiagnostic('ADAPTER_SELECTED', resolvedAgentId, resolvedSessionId, provider, {
       profileName: profile.name,
       deliveryTier: profile.deliveryTier,
     });
 
     // 3. Lifecycle State Check
     if (agent && (agent.status === 'error' || (agent as any).status === 'exited')) {
-      this.emitDiagnostic('REMOTE_CONTROL_FAILED', agentId, targetSessionId, provider, {
+      this.emitDiagnostic('REMOTE_CONTROL_FAILED', resolvedAgentId, resolvedSessionId, provider, {
         reason: 'AGENT_OFFLINE',
         agentStatus: agent.status,
       });
       return {
         success: false,
         requestId,
-        sessionId: targetSessionId,
-        agentId,
+        sessionId: resolvedSessionId,
+        agentId: resolvedAgentId,
         deliveryTier: profile.deliveryTier,
         submittedAt: Date.now(),
-        error: `Target agent ${agent.name || agentId} is offline or in error state.`,
+        error: `Target agent ${agent.name || resolvedAgentId} is offline or in error state.`,
         diagnosticCode: 'AGENT_OFFLINE',
       };
     }
 
     // 4. Register pending echo in authoritative queue for passive conversation capture
-    pendingInputEchoQueue.registerPendingEcho(targetSessionId, cleanMessage);
-    if (agentId && agentId !== targetSessionId) {
-      pendingInputEchoQueue.registerPendingEcho(agentId, cleanMessage);
+    pendingInputEchoQueue.registerPendingEcho(resolvedSessionId, cleanMessage);
+    if (resolvedAgentId && resolvedAgentId !== resolvedSessionId) {
+      pendingInputEchoQueue.registerPendingEcho(resolvedAgentId, cleanMessage);
     }
 
     // 5. Update Conversation Store
     conversationStore.getOrCreateSession(
-      targetSessionId,
+      resolvedSessionId,
       agent?.workspaceId || 'default',
       agent?.workspaceId || 'default',
       {
-        id: agent?.id || targetSessionId,
+        id: resolvedAgentId,
         name: agent?.name || profile.name,
         provider,
         transport: profile.deliveryTier === 'structured_acp' ? 'acp' : 'pty',
       }
     );
-    conversationStore.addUserMessage(targetSessionId, cleanMessage);
-    conversationStore.setSessionStatus(targetSessionId, 'working');
+    conversationStore.addUserMessage(resolvedSessionId, cleanMessage);
+    conversationStore.setSessionStatus(resolvedSessionId, 'working');
     if (agent) {
-      useAgentStore.getState().setAgentStatus(agentId, 'working').catch(() => {});
+      useAgentStore.getState().setAgentStatus(resolvedAgentId, 'working').catch(() => {});
     }
 
     // 6. Execute Delivery according to Profile Strategy
-    this.emitDiagnostic('INPUT_DELIVERY_STARTED', agentId, targetSessionId, provider, {
+    this.emitDiagnostic('INPUT_DELIVERY_STARTED', resolvedAgentId, resolvedSessionId, provider, {
       deliveryTier: profile.deliveryTier,
     });
 
     try {
       const submission = profile.formatSubmission(cleanMessage);
 
+      this.emitDiagnostic('INPUT_FORMATTED', resolvedAgentId, resolvedSessionId, provider, {
+        payloadLength: submission.payload.length,
+        submitKey: submission.submitKey === '\r' ? 'CR' : submission.submitKey === '\n' ? 'LF' : 'CUSTOM',
+        preSubmitDelayMs: submission.preSubmitDelayMs || 0,
+      });
+
       if (isTauriAvailable()) {
+        this.emitDiagnostic('PTY_WRITE_STARTED', resolvedAgentId, resolvedSessionId, provider, {
+          targetAgentId: resolvedAgentId,
+          targetSessionId: resolvedSessionId,
+        });
+
         // Send the payload to the EXISTING PTY process
-        await tauriService.sendAgentInput(agentId, targetSessionId, submission.payload);
+        await tauriService.sendAgentInput(resolvedAgentId, resolvedSessionId, submission.payload);
 
         // Pre-submit delay if required by profile (e.g. Codex multiline buffering)
         if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
@@ -183,34 +207,39 @@ export class UniversalRemoteController {
         }
 
         // Send submit key (e.g. '\r' or '\n')
-        await tauriService.sendAgentInput(agentId, targetSessionId, submission.submitKey);
+        await tauriService.sendAgentInput(resolvedAgentId, resolvedSessionId, submission.submitKey);
+
+        this.emitDiagnostic('PTY_WRITE_COMPLETED', resolvedAgentId, resolvedSessionId, provider, {
+          targetAgentId: resolvedAgentId,
+          targetSessionId: resolvedSessionId,
+        });
       } else {
         // Fallback for non-Tauri / mock testing environments
-        console.log(`[Orbit RemoteControl (Web/Mock)] Delivered to ${agentId}: ${submission.payload}`);
+        console.log(`[Orbit RemoteControl (Web/Mock)] Delivered to ${resolvedAgentId}: ${submission.payload}`);
       }
 
-      this.emitDiagnostic('INPUT_SUBMITTED', agentId, targetSessionId, provider, {
+      this.emitDiagnostic('INPUT_SUBMITTED', resolvedAgentId, resolvedSessionId, provider, {
         submitKey: submission.submitKey === '\r' ? 'CR' : submission.submitKey === '\n' ? 'LF' : 'CUSTOM',
       });
 
       return {
         success: true,
         requestId,
-        sessionId: targetSessionId,
-        agentId,
+        sessionId: resolvedSessionId,
+        agentId: resolvedAgentId,
         deliveryTier: profile.deliveryTier,
         submittedAt: Date.now(),
       };
     } catch (err: any) {
       const errorMsg = err?.message || String(err);
-      this.emitDiagnostic('REMOTE_CONTROL_FAILED', agentId, targetSessionId, provider, {
+      this.emitDiagnostic('REMOTE_CONTROL_FAILED', resolvedAgentId, resolvedSessionId, provider, {
         error: errorMsg,
       });
       return {
         success: false,
         requestId,
-        sessionId: targetSessionId,
-        agentId,
+        sessionId: resolvedSessionId,
+        agentId: resolvedAgentId,
         deliveryTier: profile.deliveryTier,
         submittedAt: Date.now(),
         error: errorMsg,

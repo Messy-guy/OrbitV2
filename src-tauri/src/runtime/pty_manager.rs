@@ -73,24 +73,48 @@ impl PtyManager {
         }
     }
 
+    fn find_session_key(map: &HashMap<String, PtySession>, id: &str) -> Option<String> {
+        if map.contains_key(id) {
+            return Some(id.to_string());
+        }
+        for (key, session) in map.iter() {
+            if session.agent_id == id || session.session_id == id {
+                return Some(key.clone());
+            }
+        }
+        None
+    }
+
     pub fn get_role(&self, agent_id: &str) -> String {
         let map = self.roles.lock().unwrap();
-        map.get(agent_id).cloned().unwrap_or_else(|| "raw".to_string())
+        if let Some(r) = map.get(agent_id) {
+            return r.clone();
+        }
+        // Check if agent_id is session_id
+        let sess_map = self.sessions.lock().unwrap();
+        if let Some(k) = Self::find_session_key(&sess_map, agent_id) {
+            if let Some(r) = map.get(&k) {
+                return r.clone();
+            }
+        }
+        "raw".to_string()
     }
 
     pub fn get_history(&self, agent_id: &str) -> String {
         let map = self.sessions.lock().unwrap();
-        if let Some(session) = map.get(agent_id) {
-            let hist = session.output_history.lock().unwrap();
-            hist.clone()
-        } else {
-            String::new()
+        let target_key = Self::find_session_key(&map, agent_id);
+        if let Some(key) = target_key {
+            if let Some(session) = map.get(&key) {
+                let hist = session.output_history.lock().unwrap();
+                return hist.clone();
+            }
         }
+        String::new()
     }
 
     pub fn is_running(&self, agent_id: &str) -> bool {
         let map = self.sessions.lock().unwrap();
-        map.contains_key(agent_id)
+        Self::find_session_key(&map, agent_id).is_some()
     }
 
     pub fn create_session(
@@ -886,10 +910,10 @@ impl PtyManager {
                     Ok(n) => {
                         let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
 
-                        // Append to history buffer
+                        // Append to history buffer with memory safety cap
                         if let Ok(mut hist) = history_arc.lock() {
-                            if hist.len() > 100_000 {
-                                hist.drain(..50_000);
+                            if hist.len() > 40_000 {
+                                hist.drain(..20_000);
                             }
                             hist.push_str(&chunk);
                         }
@@ -983,113 +1007,128 @@ impl PtyManager {
     }
 
     pub fn write(&self, agent_id: &str, data: &str) -> Result<(), String> {
+        self.write_with_fallback(agent_id, "", data)
+    }
+
+    pub fn write_with_fallback(&self, agent_id: &str, session_id: &str, data: &str) -> Result<(), String> {
         let current_role = self.get_role(agent_id);
         let map = self.sessions.lock().unwrap();
 
-        if let Some(session) = map.get(agent_id) {
-            // If in Plan (architect) or Review (reviewer) mode, buffer characters until Enter key is pressed
-            if current_role == "architect" || current_role == "reviewer" {
-                let mut buf_guard = session.line_buffer.lock().unwrap();
+        let target_key = Self::find_session_key(&map, agent_id)
+            .or_else(|| if !session_id.is_empty() { Self::find_session_key(&map, session_id) } else { None });
 
-                for ch in data.chars() {
-                    if ch == '\r' || ch == '\n' {
-                        let full_line = buf_guard.trim().to_string();
-                        buf_guard.clear();
+        if let Some(key) = target_key {
+            if let Some(session) = map.get(&key) {
+                // If in Plan (architect) or Review (reviewer) mode, buffer characters until Enter key is pressed
+                if current_role == "architect" || current_role == "reviewer" {
+                    let mut buf_guard = session.line_buffer.lock().unwrap();
 
-                        // Detect file redirection or destructive file mutation patterns
-                        let is_mutation = full_line.contains(" > ")
-                            || full_line.contains(" >> ")
-                            || full_line.starts_with(">")
-                            || full_line.contains(" | tee ")
-                            || full_line.contains("sed -i")
-                            || full_line.contains("rm -rf")
-                            || full_line.contains("rm -f")
-                            || (full_line.starts_with("rm ") && !full_line.contains("--help"));
+                    for ch in data.chars() {
+                        if ch == '\r' || ch == '\n' {
+                            let full_line = buf_guard.trim().to_string();
+                            buf_guard.clear();
 
-                        if is_mutation {
-                            dbg_log!("[ORBIT GUARD BLOCK] Blocked mutating command in role '{}': {}", current_role, full_line);
-                            let mut writer = session.writer.lock().unwrap();
-                            let warning_msg = format!(
-                                "\r\n\x1b[1;33m[ORBIT ROLE GUARD]\x1b[0m File mutation is blocked in \x1b[1;35m{} Mode\x1b[0m. Switch to \x1b[1;32mCode Mode\x1b[0m to apply changes.\r\n",
-                                current_role.to_uppercase()
-                            );
-                            let _ = writer.write_all(b"\x03"); // Cancel current command line
-                            let _ = writer.write_all(warning_msg.as_bytes());
-                            let _ = writer.flush();
-                            return Ok(());
+                            // Detect file redirection or destructive file mutation patterns
+                            let is_mutation = full_line.contains(" > ")
+                                || full_line.contains(" >> ")
+                                || full_line.starts_with(">")
+                                || full_line.contains(" | tee ")
+                                || full_line.contains("sed -i")
+                                || full_line.contains("rm -rf")
+                                || full_line.contains("rm -f")
+                                || (full_line.starts_with("rm ") && !full_line.contains("--help"));
+
+                            if is_mutation {
+                                dbg_log!("[ORBIT GUARD BLOCK] Blocked mutating command in role '{}': {}", current_role, full_line);
+                                let mut writer = session.writer.lock().unwrap();
+                                let warning_msg = format!(
+                                    "\r\n\x1b[1;33m[ORBIT ROLE GUARD]\x1b[0m File mutation is blocked in \x1b[1;35m{} Mode\x1b[0m. Switch to \x1b[1;32mCode Mode\x1b[0m to apply changes.\r\n",
+                                    current_role.to_uppercase()
+                                );
+                                let _ = writer.write_all(b"\x03"); // Cancel current command line
+                                let _ = writer.write_all(warning_msg.as_bytes());
+                                let _ = writer.flush();
+                                return Ok(());
+                            }
+                        } else if ch == '\x08' || ch == '\x7f' {
+                            // Backspace support
+                            buf_guard.pop();
+                        } else if ch == '\x03' {
+                            // Ctrl+C clears line buffer
+                            buf_guard.clear();
+                        } else {
+                            buf_guard.push(ch);
                         }
-                    } else if ch == '\x08' || ch == '\x7f' {
-                        // Backspace support
-                        buf_guard.pop();
-                    } else if ch == '\x03' {
-                        // Ctrl+C clears line buffer
-                        buf_guard.clear();
-                    } else {
-                        buf_guard.push(ch);
                     }
                 }
+
+                let mut writer = session.writer.lock().unwrap();
+                writer
+                    .write_all(data.as_bytes())
+                    .map_err(|e| format!("Failed to write to PTY: {}", e))?;
+                let _ = writer.flush();
+
+                // Record UserInput event in activity detector
+                let in_evt = SessionEvent::new(
+                    &session.session_id,
+                    &session.agent_id,
+                    &session.workspace_id,
+                    SessionEventType::UserInput,
+                    serde_json::json!({ "text": data }),
+                );
+                self.activity_detector.process_event(&in_evt, &session.workspace_path);
+
+                return Ok(());
             }
-
-            let mut writer = session.writer.lock().unwrap();
-            writer
-                .write_all(data.as_bytes())
-                .map_err(|e| format!("Failed to write to PTY: {}", e))?;
-            let _ = writer.flush();
-
-            // Record UserInput event in activity detector
-            let in_evt = SessionEvent::new(
-                &session.session_id,
-                &session.agent_id,
-                &session.workspace_id,
-                SessionEventType::UserInput,
-                serde_json::json!({ "text": data }),
-            );
-            self.activity_detector.process_event(&in_evt, &session.workspace_path);
-
-            Ok(())
-        } else {
-            Err("No active PTY session found for agent".to_string())
         }
+        Err("No active PTY session found for agent".to_string())
     }
 
     pub fn resize(&self, agent_id: &str, rows: u16, cols: u16) -> Result<(), String> {
         let map = self.sessions.lock().unwrap();
-        if let Some(session) = map.get(agent_id) {
-            let master = session.master.lock().unwrap();
-            master
-                .resize(PtySize {
-                    rows: if rows > 0 { rows } else { 30 },
-                    cols: if cols > 0 { cols } else { 100 },
-                    pixel_width: 0,
-                    pixel_height: 0,
-                })
-                .map_err(|e| format!("Failed to resize PTY: {}", e))?;
-            Ok(())
-        } else {
-            Err("No active PTY session found to resize".to_string())
+        let target_key = Self::find_session_key(&map, agent_id);
+        if let Some(key) = target_key {
+            if let Some(session) = map.get(&key) {
+                let master = session.master.lock().unwrap();
+                master
+                    .resize(PtySize {
+                        rows: if rows > 0 { rows } else { 30 },
+                        cols: if cols > 0 { cols } else { 100 },
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    })
+                    .map_err(|e| format!("Failed to resize PTY: {}", e))?;
+                return Ok(());
+            }
         }
+        Err("No active PTY session found to resize".to_string())
     }
 
     pub fn interrupt(&self, agent_id: &str) -> Result<(), String> {
         let map = self.sessions.lock().unwrap();
-        if let Some(session) = map.get(agent_id) {
-            let mut writer = session.writer.lock().unwrap();
-            // Send ETX (Ctrl+C) to pseudo-terminal
-            writer
-                .write_all(b"\x03")
-                .map_err(|e| format!("Failed to write SIGINT to PTY: {}", e))?;
-            let _ = writer.flush();
-            Ok(())
-        } else {
-            Err("No active PTY session found to interrupt".to_string())
+        let target_key = Self::find_session_key(&map, agent_id);
+        if let Some(key) = target_key {
+            if let Some(session) = map.get(&key) {
+                let mut writer = session.writer.lock().unwrap();
+                // Send ETX (Ctrl+C) to pseudo-terminal
+                writer
+                    .write_all(b"\x03")
+                    .map_err(|e| format!("Failed to write SIGINT to PTY: {}", e))?;
+                let _ = writer.flush();
+                return Ok(());
+            }
         }
+        Err("No active PTY session found to interrupt".to_string())
     }
 
     pub fn terminate(&self, agent_id: &str) {
         let mut map = self.sessions.lock().unwrap();
-        if let Some(session) = map.remove(agent_id) {
-            let mut child = session.child.lock().unwrap();
-            let _ = child.kill();
+        let target_key = Self::find_session_key(&map, agent_id);
+        if let Some(key) = target_key {
+            if let Some(session) = map.remove(&key) {
+                let mut child = session.child.lock().unwrap();
+                let _ = child.kill();
+            }
         }
     }
 }

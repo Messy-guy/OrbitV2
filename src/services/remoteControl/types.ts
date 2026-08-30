@@ -70,7 +70,11 @@ export interface RemoteControlResult {
 export type RemoteDiagnosticEvent = 
   | 'REMOTE_CONTROL_REQUEST'
   | 'SESSION_LOOKUP'
+  | 'PTY_LOOKUP'
   | 'ADAPTER_SELECTED'
+  | 'INPUT_FORMATTED'
+  | 'PTY_WRITE_STARTED'
+  | 'PTY_WRITE_COMPLETED'
   | 'INPUT_DELIVERY_STARTED'
   | 'INPUT_SUBMITTED'
   | 'AGENT_STATE_CHANGED'

@@ -83,7 +83,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       lineHeight: settings.terminalLineHeight || 1.25,
       letterSpacing: 0,
       convertEol: false,
-      scrollback: settings.terminalScrollback || 10000,
+      scrollback: settings.terminalScrollback || 2000,
       allowTransparency: false,
       theme: isLightTheme ? {
         background: '#ffffff',

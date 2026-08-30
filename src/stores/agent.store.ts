@@ -65,6 +65,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   initializeEventListeners: () => {
     if (get().isEventListenerInitialized || !isTauriAvailable()) return;
 
+    // Batched terminal log updates to prevent React main thread congestion
+    let pendingLogsByAgent: Record<string, TerminalLine[]> = {};
+    let batchTimer: any = null;
+
+    const flushBatchedLogs = () => {
+      if (Object.keys(pendingLogsByAgent).length === 0) return;
+      const snapshot = pendingLogsByAgent;
+      pendingLogsByAgent = {};
+      batchTimer = null;
+
+      set((state) => {
+        const nextLogs = { ...state.terminalLogs };
+        for (const [agentId, newLines] of Object.entries(snapshot)) {
+          const current = nextLogs[agentId] || [];
+          const merged = [...current, ...newLines];
+          nextLogs[agentId] = merged.length > 150 ? merged.slice(-150) : merged;
+        }
+        return { terminalLogs: nextLogs };
+      });
+    };
+
     // Listen to real-time stdout/stderr from Tauri Rust PTY runtime
     tauriService.onAgentOutput((payload) => {
       const { agentId, stream, text } = payload;
@@ -75,12 +96,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         timestamp: payload.timestamp || Date.now(),
       };
 
-      set((state) => ({
-        terminalLogs: {
-          ...state.terminalLogs,
-          [agentId]: [...(state.terminalLogs[agentId] || []), newLine],
-        },
-      }));
+      if (!pendingLogsByAgent[agentId]) {
+        pendingLogsByAgent[agentId] = [];
+      }
+      pendingLogsByAgent[agentId].push(newLine);
+
+      if (!batchTimer) {
+        batchTimer = setTimeout(flushBatchedLogs, 40);
+      }
     });
 
     // Listen to PTY session status updates (started, stopped, ready, error)
@@ -139,10 +162,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             undefined,
             undefined,
             agent.profileId
-          ).then((pid) => {
+          ).then(async (pid) => {
             set((state) => ({
-              agents: state.agents.map((a) => (a.id === agent.id ? { ...a, pid } : a)),
+              agents: state.agents.map((a) => (a.id === agent.id ? { ...a, pid, status: 'working' } : a)),
             }));
+            try {
+              const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+              const { conversationStore } = await import('../services/conversation/ConversationStore');
+              conversationCaptureService.bindSession(
+                agent.id,
+                workspaceId,
+                workspaceId,
+                {
+                  id: agent.id,
+                  name: agent.name,
+                  provider: agent.provider,
+                },
+                agent.name
+              );
+              conversationStore.setRuntimeAlive(agent.id, true, pid, 'working');
+            } catch {}
           }).catch((err) => {
             console.warn(`PTY session attach note for ${agent.name}:`, err);
           });
@@ -285,8 +324,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           initialRole
         );
         set((state) => ({
-          agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid } : a)),
+          agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid, status: 'working' } : a)),
         }));
+
+        // Authoritatively bind and activate in Universal Conversation Store
+        try {
+          const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+          const { conversationStore } = await import('../services/conversation/ConversationStore');
+          conversationCaptureService.bindSession(
+            newAgent.id,
+            workspaceId,
+            workspaceId,
+            {
+              id: newAgent.id,
+              name: newAgent.name,
+              provider: newAgent.provider,
+            },
+            newAgent.name
+          );
+          conversationStore.setRuntimeAlive(newAgent.id, true, realPid, 'working');
+        } catch {}
 
         // Mount native progressive-disclosure skills into .agents/skills or .claude/skills
         if (customModeSkills.length > 0) {

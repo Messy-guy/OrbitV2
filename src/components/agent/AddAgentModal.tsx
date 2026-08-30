@@ -47,7 +47,16 @@ export const AddAgentModal: React.FC = () => {
   const [customModel, setCustomModel] = useState('');
   const [customProfile, setCustomProfile] = useState('default');
   const [isCreatingNewProfile, setIsCreatingNewProfile] = useState(false);
-  const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>([]);
+  const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>(() =>
+    AVAILABLE_AGENT_PRESETS.map((p) => ({
+      provider: p.provider,
+      name: p.name,
+      path: `/usr/local/bin/${p.provider}`,
+      version: p.model,
+      isAvailable: true,
+      description: p.description,
+    }))
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
 
@@ -93,7 +102,8 @@ export const AddAgentModal: React.FC = () => {
       setCustomProfile('default');
       setIsCreatingNewProfile(false);
       setInstallOutput(null);
-      refreshDetection();
+      // Fast background refresh without blocking modal presentation
+      agentService.detectInstalledAgents().then(setDetectedAgents).catch(() => {});
     }
   }, [isAddAgentOpen]);
 

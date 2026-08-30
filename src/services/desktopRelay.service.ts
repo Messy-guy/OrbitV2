@@ -268,7 +268,13 @@ class DesktopRelayService {
     }, 200);
   }
 
-  async reconcileLiveProcesses() {
+  private lastReconcileTime = 0;
+
+  async reconcileLiveProcesses(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastReconcileTime < 5000) return;
+    this.lastReconcileTime = now;
+
     if (isTauriAvailable()) {
       const canonicalSessions = conversationStore.getAllSessions();
       for (const session of canonicalSessions) {

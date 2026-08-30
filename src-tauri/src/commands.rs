@@ -197,11 +197,11 @@ pub fn start_agent_session(
 pub fn send_agent_input(
     state: State<'_, AppState>,
     agent_id: String,
-    _session_id: String,
+    session_id: String,
     input: String,
 ) -> Result<(), String> {
-    // Send raw PTY byte stream directly as typed (e.g. letters, backspaces, enter keys)
-    state.pty_manager.write(&agent_id, &input)
+    // Send raw PTY byte stream directly as typed, supporting both agent_id and session_id lookup
+    state.pty_manager.write_with_fallback(&agent_id, &session_id, &input)
 }
 
 #[tauri::command]
@@ -709,6 +709,7 @@ pub async fn install_agent_cli(command: String) -> Result<String, String> {
         return Err(format!("Installer exited with error:\n{}{}", stdout, stderr));
     }
 
+    crate::discovery::invalidate_detection_cache();
     Ok(if stdout.is_empty() { stderr } else { stdout })
 }
 
