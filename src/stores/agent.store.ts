@@ -141,50 +141,45 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const messagesMap: Record<string, Message[]> = {};
 
       for (const agent of agents) {
-        const agentSessions = await sessionService.getAgentSessions(agent.id);
-        sessionsMap[agent.id] = agentSessions;
+        let agentSessions = await sessionService.getAgentSessions(agent.id);
+        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+        const { conversationStore } = await import('../services/conversation/ConversationStore');
+        const canonicalSessions = conversationStore.getSessionsForAgent(agent.id);
 
-        const activeSess = agent.currentSessionId || agentSessions[0]?.id;
-        if (activeSess) {
-          activeSessionMap[agent.id] = activeSess;
-          messagesMap[activeSess] = await sessionService.getMessages(activeSess);
+        let activeSess = agent.currentSessionId || agentSessions[0]?.id || canonicalSessions[0]?.id;
+        if (!activeSess) {
+          const newSess = await sessionService.createSession(agent.id, workspaceId, `${agent.name} Session`);
+          activeSess = newSess.id;
+          agentSessions = [newSess];
+        } else {
+          await sessionService.restoreSession(activeSess, agent.id, workspaceId, agent.name);
         }
 
-        // If in Tauri desktop mode and workspace path exists, spawn PTY session
+        // Authoritatively bind and restore the existing canonical session with the stable activeSess ID
+        conversationCaptureService.bindSession(
+          activeSess,
+          workspaceId,
+          workspaceId,
+          {
+            id: agent.id,
+            name: agent.name,
+            provider: agent.provider,
+          },
+          agent.name
+        );
+
+        sessionsMap[agent.id] = agentSessions;
+        activeSessionMap[agent.id] = activeSess;
+        messagesMap[activeSess] = await sessionService.getMessages(activeSess);
+
+        // Check if agent process is currently running in Tauri runtime
         if (isTauriAvailable() && projectPath && activeSess) {
-          agentService.startAgentProcess(
-            projectPath,
-            agent.id,
-            activeSess,
-            agent.provider,
-            undefined,
-            workspaceId,
-            undefined,
-            undefined,
-            agent.profileId
-          ).then(async (pid) => {
-            set((state) => ({
-              agents: state.agents.map((a) => (a.id === agent.id ? { ...a, pid, status: 'working' } : a)),
-            }));
-            try {
-              const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
-              const { conversationStore } = await import('../services/conversation/ConversationStore');
-              conversationCaptureService.bindSession(
-                agent.id,
-                workspaceId,
-                workspaceId,
-                {
-                  id: agent.id,
-                  name: agent.name,
-                  provider: agent.provider,
-                },
-                agent.name
-              );
-              conversationStore.setRuntimeAlive(agent.id, true, pid, 'working');
-            } catch {}
-          }).catch((err) => {
-            console.warn(`PTY session attach note for ${agent.name}:`, err);
-          });
+          const isRunning = await tauriService.isAgentProcessRunning(agent.id).catch(() => false);
+          if (isRunning) {
+            conversationStore.setRuntimeAlive(activeSess, true, undefined, 'working');
+          } else {
+            conversationStore.setRuntimeAlive(activeSess, false, undefined, 'offline');
+          }
         }
       }
 
@@ -332,7 +327,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
           const { conversationStore } = await import('../services/conversation/ConversationStore');
           conversationCaptureService.bindSession(
-            newAgent.id,
+            newSession.id,
             workspaceId,
             workspaceId,
             {
@@ -342,7 +337,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             },
             newAgent.name
           );
-          conversationStore.setRuntimeAlive(newAgent.id, true, realPid, 'working');
+          conversationStore.setRuntimeAlive(newSession.id, true, realPid, 'working');
         } catch {}
 
         // Mount native progressive-disclosure skills into .agents/skills or .claude/skills
@@ -469,6 +464,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   createNewSession: async (agentId: string, workspaceId: string, title?: string) => {
     const newSession = await sessionService.createSession(agentId, workspaceId, title);
+    const agent = get().agents.find((a) => a.id === agentId);
+    if (agent) {
+      try {
+        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+        conversationCaptureService.bindSession(
+          newSession.id,
+          workspaceId,
+          workspaceId,
+          {
+            id: agent.id,
+            name: agent.name,
+            provider: agent.provider,
+          },
+          newSession.title
+        );
+      } catch {}
+    }
+
     set((state) => ({
       sessions: {
         ...state.sessions,

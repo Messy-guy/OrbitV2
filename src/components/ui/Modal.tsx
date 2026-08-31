@@ -50,17 +50,17 @@ export const Modal: React.FC<ModalProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
             onClick={onClose}
             className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/35 to-black/50 backdrop-blur-sm pointer-events-auto"
           />
 
           {/* Dialog Container */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.98, y: 8 }}
+            initial={{ opacity: 0, scale: 0.98, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 6 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, scale: 0.98, y: 4 }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
             className={twMerge(
               clsx(
                 'relative w-full surface-elevated rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.8)] overflow-hidden z-10 flex flex-col border border-border-hover/80',

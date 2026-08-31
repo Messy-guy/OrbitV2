@@ -33,7 +33,7 @@ export class PtyConversationClassifier {
   /**
    * Classifies a single line of terminal output into a semantic CaptureDecision
    */
-  static classifyLine(line: string, latestUserPrompt?: string, sessionId?: string): CaptureDecision {
+  static classifyLine(line: string, latestUserPrompt?: string, sessionId?: string, turnId?: string): CaptureDecision {
     const trimmed = line.trim();
     if (!trimmed) {
       return { type: 'terminal_only', reason: 'empty_line' };
@@ -52,7 +52,7 @@ export class PtyConversationClassifier {
     // ----------------------------------------------------------------------
     // 1. AUTHORITATIVE USER ECHO SUPPRESSION (via InputEchoSuppressor)
     // ----------------------------------------------------------------------
-    const echoCheck = InputEchoSuppressor.checkLine(sessionId || '', line, latestUserPrompt);
+    const echoCheck = InputEchoSuppressor.checkLine(sessionId || '', line, latestUserPrompt, turnId);
     if (echoCheck.isEcho) {
       return { type: 'user_echo', text: cleanText };
     }
@@ -233,7 +233,7 @@ export class PtyConversationClassifier {
   /**
    * Classifies an entire snapshot of candidate new lines
    */
-  static classifyLines(candidateLines: string[], latestUserPrompt?: string, sessionId?: string): ClassifiedScreenOutput {
+  static classifyLines(candidateLines: string[], latestUserPrompt?: string, sessionId?: string, turnId?: string): ClassifiedScreenOutput {
     const cleanLines: string[] = [];
     const activities: ActivitySummary[] = [];
     const decisions: CaptureDecision[] = [];
@@ -242,7 +242,7 @@ export class PtyConversationClassifier {
     let isThinking = false;
 
     for (const line of candidateLines) {
-      const decision = this.classifyLine(line, latestUserPrompt, sessionId);
+      const decision = this.classifyLine(line, latestUserPrompt, sessionId, turnId);
       decisions.push(decision);
 
       switch (decision.type) {

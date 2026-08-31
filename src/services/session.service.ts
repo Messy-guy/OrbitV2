@@ -1,13 +1,13 @@
 import { Session, Message } from '../types/orbit';
-import { INITIAL_SESSIONS } from '../mock/sessions';
-import { INITIAL_MESSAGES } from '../mock/messages';
 import { isTauriAvailable, tauriService } from './tauri.service';
+import { conversationStore } from './conversation/ConversationStore';
 
 export interface ISessionService {
   getSessions(workspaceId: string): Promise<Session[]>;
   getSessionById(sessionId: string): Promise<Session | undefined>;
   getAgentSessions(agentId: string): Promise<Session[]>;
   createSession(agentId: string, workspaceId: string, title?: string): Promise<Session>;
+  restoreSession(sessionId: string, agentId?: string, workspaceId?: string, title?: string): Promise<Session>;
   getMessages(sessionId: string): Promise<Message[]>;
   addMessage(message: Omit<Message, 'id' | 'timestamp'>): Promise<Message>;
 }
@@ -15,6 +15,32 @@ export interface ISessionService {
 export class HybridSessionService implements ISessionService {
   private fallbackSessions: Session[] = [];
   private messages: Record<string, Message[]> = {};
+
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('orbit_sessions_store_v1');
+      if (raw) {
+        this.fallbackSessions = JSON.parse(raw);
+      }
+      const rawMsgs = localStorage.getItem('orbit_messages_store_v1');
+      if (rawMsgs) {
+        this.messages = JSON.parse(rawMsgs);
+      }
+    } catch {}
+  }
+
+  private saveToStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem('orbit_sessions_store_v1', JSON.stringify(this.fallbackSessions));
+      localStorage.setItem('orbit_messages_store_v1', JSON.stringify(this.messages));
+    } catch {}
+  }
 
   async getSessions(workspaceId: string): Promise<Session[]> {
     if (isTauriAvailable()) {
@@ -29,12 +55,84 @@ export class HybridSessionService implements ISessionService {
   }
 
   async getSessionById(sessionId: string): Promise<Session | undefined> {
-    const all = this.fallbackSessions;
-    return all.find(s => s.id === sessionId);
+    const direct = this.fallbackSessions.find(s => s.id === sessionId);
+    if (direct) return direct;
+
+    const canonical = conversationStore.getSession(sessionId);
+    if (canonical) {
+      return {
+        id: canonical.id,
+        agentId: canonical.engine.id,
+        workspaceId: canonical.workspaceId,
+        title: canonical.title,
+        status: canonical.status === 'offline' ? 'paused' : 'active',
+        createdAt: canonical.createdAt,
+        updatedAt: canonical.updatedAt,
+        messageCount: canonical.conversation.turns.length,
+        lastActivityTime: 'Just now',
+      };
+    }
+    return undefined;
   }
 
   async getAgentSessions(agentId: string): Promise<Session[]> {
-    return this.fallbackSessions.filter(s => s.agentId === agentId);
+    const existing = this.fallbackSessions.filter(s => s.agentId === agentId);
+    if (existing.length > 0) return existing;
+
+    // Check canonical ConversationStore
+    const canonicalList = conversationStore.getSessionsForAgent(agentId);
+    if (canonicalList.length > 0) {
+      const mapped: Session[] = canonicalList.map(c => ({
+        id: c.id,
+        agentId: c.engine.id,
+        workspaceId: c.workspaceId,
+        title: c.title,
+        status: c.status === 'offline' ? 'paused' : 'active',
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        messageCount: c.conversation.turns.length,
+        lastActivityTime: 'Just now',
+      }));
+      for (const s of mapped) {
+        if (!this.fallbackSessions.some(e => e.id === s.id)) {
+          this.fallbackSessions.push(s);
+        }
+      }
+      this.saveToStorage();
+      return mapped;
+    }
+
+    return [];
+  }
+
+  async restoreSession(sessionId: string, agentId?: string, workspaceId?: string, title?: string): Promise<Session> {
+    let existing = this.fallbackSessions.find(s => s.id === sessionId);
+    if (existing) {
+      existing.status = 'active';
+      existing.updatedAt = Date.now();
+      this.saveToStorage();
+      return existing;
+    }
+
+    const canonical = conversationStore.getSession(sessionId);
+    const restored: Session = {
+      id: sessionId,
+      agentId: agentId || canonical?.engine?.id || sessionId,
+      workspaceId: workspaceId || canonical?.workspaceId || 'default',
+      title: title || canonical?.title || 'Interactive Session',
+      status: 'active',
+      createdAt: canonical?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      messageCount: canonical?.conversation.turns.length || 0,
+      lastActivityTime: 'Just now',
+    };
+
+    this.fallbackSessions.push(restored);
+    if (!this.messages[sessionId]) {
+      this.messages[sessionId] = [];
+    }
+    this.saveToStorage();
+    return restored;
   }
 
   async createSession(agentId: string, workspaceId: string, title?: string): Promise<Session> {
@@ -62,6 +160,7 @@ export class HybridSessionService implements ISessionService {
 
     this.fallbackSessions.push(newSession);
     this.messages[newSession.id] = [];
+    this.saveToStorage();
     return newSession;
   }
 
@@ -88,6 +187,9 @@ export class HybridSessionService implements ISessionService {
       session.lastActivityTime = 'Just now';
     }
 
+    this.saveToStorage();
     return newMessage;
   }
 }
+
+export const sessionService = new HybridSessionService();

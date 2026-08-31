@@ -17,7 +17,7 @@ try {
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const bottomMargin = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 14;
+  const bottomMargin = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : Math.max(insets.bottom, 14);
 
   // Filter routes so only active visible tab screens render
   const visibleRoutes = state.routes.filter((route) => {
@@ -118,6 +118,7 @@ const styles = StyleSheet.create({
   },
   dockContainer: {
     width: '100%',
+    maxWidth: 440,
     height: 68,
     borderRadius: 9999,
     overflow: 'hidden',

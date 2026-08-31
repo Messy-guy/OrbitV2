@@ -24,6 +24,10 @@ export interface EngineAdapter {
   
   sendMessage(sessionId: string, message: string): Promise<void>;
   
+  startTurn?(sessionId: string, userPrompt: string, turnId?: string, userMessageId?: string): void;
+
+  commitTurn?(sessionId: string, turnId?: string): void;
+
   interrupt(sessionId: string): Promise<void>;
   
   dispose(sessionId: string): Promise<void>;

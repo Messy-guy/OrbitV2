@@ -3,6 +3,7 @@ import {
   View, Text, Modal, Pressable, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StyleSheet,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   X, Send, Play, Pause, Bot, AlertCircle,
 } from 'lucide-react-native';
@@ -30,6 +31,7 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   const [inputCommand, setInputCommand] = useState('');
 
   // Directly subscribe to live store by agent ID to get streaming real-time updates
@@ -69,108 +71,129 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
   const canResume = agent.capabilities?.resume ?? true;
 
   return (
-    <Modal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.root}>
+    <Modal
+      visible={isOpen}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+      statusBarTranslucent={true}
+    >
+      <View style={[styles.root, { paddingTop: Platform.OS === 'android' ? Math.max(insets.top, 12) : 0 }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+          style={styles.keyboardView}
         >
-          {/* Top Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={styles.avatar}>
-                <Bot size={18} color="#f97316" />
-              </View>
-              <View style={styles.titleColumn}>
-                <Text style={styles.agentName} numberOfLines={1}>
-                  {agent.title || `@${agent.name.toUpperCase()}`}
-                </Text>
-                <View style={styles.statusRow}>
-                  <View style={[styles.statusDot, isOffline ? styles.dotOffline : isWorking ? styles.dotWorking : styles.dotIdle]} />
-                  <Text style={[styles.statusText, isOffline && { color: '#f59e0b' }]}>
-                    {isOffline ? 'OFFLINE • RUNTIME UNAVAILABLE' : `${agent.provider.toUpperCase()} • ${agent.status.toUpperCase()}`}
+          <View style={styles.contentContainer}>
+            {/* Top Header */}
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                <View style={styles.avatar}>
+                  <Bot size={18} color="#f97316" />
+                </View>
+                <View style={styles.titleColumn}>
+                  <Text style={styles.agentName} numberOfLines={1}>
+                    {agent.title || `@${agent.name.toUpperCase()}`}
                   </Text>
+                  <View style={styles.statusRow}>
+                    <View style={[styles.statusDot, isOffline ? styles.dotOffline : isWorking ? styles.dotWorking : styles.dotIdle]} />
+                    <Text style={[styles.statusText, isOffline && { color: '#f59e0b' }]}>
+                      {isOffline ? 'OFFLINE • RUNTIME UNAVAILABLE' : `${agent.provider.toUpperCase()} • ${agent.status.toUpperCase()}`}
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </View>
 
-            <View style={styles.headerActions}>
-              {isWorking && (
-                <Pressable
-                  style={styles.actionButton}
-                  onPress={() => {
-                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                    mobileRelayService.sendAction('PAUSE', agent.id, agent.workspaceId);
-                  }}
-                >
-                  <Pause size={13} color="#f4f4f5" />
-                </Pressable>
-              )}
-
-              {isStopped && canResume && !isOffline && (
-                <Pressable style={[styles.actionButton, styles.resumeButton]} onPress={handleResumeSession}>
-                  <Play size={13} color="#10b981" />
-                </Pressable>
-              )}
-
-              <Pressable style={styles.closeButton} onPress={onClose}>
-                <X size={16} color="#a1a1aa" />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Quick Directive Chips */}
-          {!isOffline && (
-            <View style={styles.topUtilityBar}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickScroll}>
-                {QUICK_COMMANDS.map((cmd) => (
-                  <Pressable key={cmd} style={styles.chip} onPress={() => handleSendCommand(cmd)}>
-                    <Text style={styles.chipText}>{cmd}</Text>
+              <View style={styles.headerActions}>
+                {isWorking && (
+                  <Pressable
+                    style={styles.actionButton}
+                    onPress={() => {
+                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                      mobileRelayService.sendAction('PAUSE', agent.id, agent.workspaceId);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Pause size={14} color="#f4f4f5" />
                   </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          )}
+                )}
 
-          {/* MAIN CONVERSATION VIEWPORT */}
-          <ConversationTimeline
-            messages={chatHistory}
-            agentName={agent.name}
-            isWorking={isWorking}
-          />
+                {isStopped && canResume && !isOffline && (
+                  <Pressable
+                    style={[styles.actionButton, styles.resumeButton]}
+                    onPress={handleResumeSession}
+                    hitSlop={8}
+                  >
+                    <Play size={14} color="#10b981" />
+                  </Pressable>
+                )}
 
-          {/* Bottom Input Bar / Offline Notice */}
-          <View style={styles.inputContainer}>
-            {isOffline ? (
-              <View style={styles.offlineBanner}>
-                <AlertCircle size={14} color="#f59e0b" />
-                <Text style={styles.offlineBannerText}>
-                  Desktop agent is offline · Reconnect your computer to continue conversation
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder={`Message @${agent.name}...`}
-                  placeholderTextColor="#71717a"
-                  value={inputCommand}
-                  onChangeText={setInputCommand}
-                  onSubmitEditing={() => handleSendCommand()}
-                  returnKeyType="send"
-                  multiline={false}
-                  blurOnSubmit={false}
-                  autoCorrect={false}
-                />
-                <Pressable
-                  style={[styles.sendButton, !inputCommand.trim() && styles.sendButtonDisabled]}
-                  onPress={() => handleSendCommand()}
-                  disabled={!inputCommand.trim()}
-                >
-                  <Send size={15} color={inputCommand.trim() ? '#f4f4f5' : '#52525b'} />
+                <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
+                  <X size={17} color="#a1a1aa" />
                 </Pressable>
+              </View>
+            </View>
+
+            {/* Quick Directive Chips */}
+            {!isOffline && (
+              <View style={styles.topUtilityBar}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.quickScroll}
+                >
+                  {QUICK_COMMANDS.map((cmd) => (
+                    <Pressable
+                      key={cmd}
+                      style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                      onPress={() => handleSendCommand(cmd)}
+                    >
+                      <Text style={styles.chipText}>{cmd}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
               </View>
             )}
+
+            {/* MAIN CONVERSATION VIEWPORT */}
+            <ConversationTimeline
+              messages={chatHistory}
+              agentName={agent.name}
+              isWorking={isWorking}
+            />
+
+            {/* Bottom Input Bar / Offline Notice */}
+            <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+              {isOffline ? (
+                <View style={styles.offlineBanner}>
+                  <AlertCircle size={14} color="#f59e0b" />
+                  <Text style={styles.offlineBannerText}>
+                    Desktop agent is offline · Reconnect your computer to continue conversation
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder={`Message @${agent.name}...`}
+                    placeholderTextColor="#71717a"
+                    value={inputCommand}
+                    onChangeText={setInputCommand}
+                    multiline={true}
+                    blurOnSubmit={false}
+                    autoCorrect={false}
+                  />
+                  <Pressable
+                    style={[styles.sendButton, !inputCommand.trim() && styles.sendButtonDisabled]}
+                    onPress={() => handleSendCommand()}
+                    disabled={!inputCommand.trim()}
+                    hitSlop={6}
+                  >
+                    <Send size={15} color={inputCommand.trim() ? '#f4f4f5' : '#52525b'} />
+                  </Pressable>
+                </View>
+              )}
+            </View>
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -262,6 +285,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
+  keyboardView: {
+    flex: 1,
+  },
+  contentContainer: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 800,
+    alignSelf: 'center',
+  },
   topUtilityBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -277,21 +309,25 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   chip: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  chipPressed: {
+    opacity: 0.6,
+    backgroundColor: 'rgba(251, 146, 60, 0.15)',
+  },
   chipText: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#a1a1aa',
     fontWeight: '500',
   },
   inputContainer: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: 10,
     backgroundColor: '#121214',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
@@ -301,20 +337,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#18181b',
     borderRadius: 22,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   textInput: {
     flex: 1,
-    height: 38,
-    fontSize: 13,
+    minHeight: 36,
+    maxHeight: 110,
+    fontSize: 13.5,
     color: '#f4f4f5',
+    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    paddingRight: 8,
   },
   sendButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#f97316',
     alignItems: 'center',
     justifyContent: 'center',

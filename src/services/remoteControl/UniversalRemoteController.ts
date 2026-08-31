@@ -117,10 +117,14 @@ export class UniversalRemoteController {
     const agent = useAgentStore.getState().agents.find(
       (a) => a.id === agentId || a.currentSessionId === targetSessionId || a.id === targetSessionId || a.currentSessionId === agentId
     );
-    const canonicalSession = conversationStore.getSession(targetSessionId) || conversationStore.getSession(agentId);
+    const canonicalSession =
+      conversationStore.getSession(targetSessionId) ||
+      (agent?.currentSessionId ? conversationStore.getSession(agent.currentSessionId) : undefined) ||
+      conversationStore.getSession(agentId) ||
+      conversationStore.getSessionsForAgent(agentId)[0];
 
     const resolvedAgentId = agent?.id || canonicalSession?.engine?.id || agentId;
-    const resolvedSessionId = agent?.currentSessionId || canonicalSession?.runtime?.ptySessionId || canonicalSession?.id || targetSessionId;
+    const resolvedSessionId = canonicalSession?.id || agent?.currentSessionId || targetSessionId;
     const provider = agent?.provider || canonicalSession?.engine?.provider || 'terminal';
     const profile = agentProfileRegistry.getProfile(provider);
 
@@ -154,7 +158,13 @@ export class UniversalRemoteController {
       };
     }
 
-    // 4. Register pending echo in authoritative queue for passive conversation capture
+    const turnId = request.turnId || `turn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    // 4. Authoritatively freeze capture baseline and register pending echo before PTY delivery
+    conversationCaptureService.startTurn(resolvedSessionId, cleanMessage, turnId);
+    if (resolvedAgentId && resolvedAgentId !== resolvedSessionId) {
+      conversationCaptureService.startTurn(resolvedAgentId, cleanMessage, turnId);
+    }
     pendingInputEchoQueue.registerPendingEcho(resolvedSessionId, cleanMessage);
     if (resolvedAgentId && resolvedAgentId !== resolvedSessionId) {
       pendingInputEchoQueue.registerPendingEcho(resolvedAgentId, cleanMessage);

@@ -52,6 +52,7 @@ export interface RemoteControlRequest {
   sessionId: string;
   agentId: string;
   message: string;
+  turnId?: string;
   projectId?: string;
   timestamp: number;
 }

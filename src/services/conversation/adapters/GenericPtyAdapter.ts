@@ -50,17 +50,34 @@ export class GenericPtyAdapter implements EngineAdapter {
     }
   }
 
-  async sendMessage(sessionId: string, message: string): Promise<void> {
-    const cleanText = message.trim();
-    if (!cleanText) return;
-
+  startTurn(sessionId: string, userPrompt: string, turnId?: string, userMessageId?: string): void {
+    const cleanText = (userPrompt || '').trim();
     let capture = this.captureSessions.get(sessionId);
     if (!capture) {
       capture = new PtyCaptureSession(sessionId, 30, 100);
       this.captureSessions.set(sessionId, capture);
     }
-    // Freeze current terminal state into the TurnBaseline before the agent responds
-    capture.startTurn(`turn_${Date.now()}`, cleanText);
+    const resolvedTurnId = turnId || `turn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    capture.startTurn(resolvedTurnId, cleanText, userMessageId);
+  }
+
+  commitTurn(sessionId: string, turnId?: string): void {
+    const capture = this.captureSessions.get(sessionId);
+    if (capture) {
+      capture.commitTurn(turnId);
+    }
+    const timer = this.commitTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.commitTimers.delete(sessionId);
+    }
+  }
+
+  async sendMessage(sessionId: string, message: string): Promise<void> {
+    const cleanText = message.trim();
+    if (!cleanText) return;
+
+    this.startTurn(sessionId, cleanText);
 
     if (isTauriAvailable()) {
       const agent = useAgentStore.getState().agents.find((a) => a.id === sessionId || a.currentSessionId === sessionId);

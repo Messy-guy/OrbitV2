@@ -210,12 +210,13 @@ class DesktopRelayService {
     });
 
     this.unsubscribeAgentStore = useAgentStore.subscribe(() => {
-      // Ensure all current desktop agents are bound in the conversation capture service
-      const { agents } = useAgentStore.getState();
+      // Ensure all current desktop agents are bound in the conversation capture service using active sessionId
+      const { agents, activeSessionIdByAgent } = useAgentStore.getState();
       const activeWs = useWorkspaceStore.getState().getActiveWorkspace();
       for (const a of agents) {
+        const sessId = activeSessionIdByAgent[a.id] || a.currentSessionId || a.id;
         conversationCaptureService.bindSession(
-          a.id,
+          sessId,
           a.workspaceId || activeWs?.id || 'default_project',
           a.workspaceId || activeWs?.id || 'default_project',
           {
@@ -237,8 +238,9 @@ class DesktopRelayService {
     if (isTauriAvailable()) {
       tauriService.onAgentOutput((payload) => {
         try {
-          // Passive observer: never disrupts interactive terminal
-          conversationCaptureService.handlePtyOutput(payload.agentId, payload.text);
+          // Passive observer: route to session ID matching the agent
+          const sessId = payload.sessionId || useAgentStore.getState().activeSessionIdByAgent[payload.agentId] || payload.agentId;
+          conversationCaptureService.handlePtyOutput(sessId, payload.text);
           this.scheduleSync();
         } catch (err) {
           console.warn('[DesktopRelay] Passive conversation observer error (terminal unaffected):', err);
@@ -249,7 +251,8 @@ class DesktopRelayService {
 
       tauriService.onAgentStatus((payload) => {
         try {
-          conversationCaptureService.handleProcessStatus(payload.agentId, payload.status, payload.pid);
+          const sessId = payload.sessionId || useAgentStore.getState().activeSessionIdByAgent[payload.agentId] || payload.agentId;
+          conversationCaptureService.handleProcessStatus(sessId, payload.status, payload.pid);
           this.scheduleSync();
         } catch (err) {
           console.warn('[DesktopRelay] Process status observer error (terminal unaffected):', err);
@@ -279,7 +282,7 @@ class DesktopRelayService {
       const canonicalSessions = conversationStore.getAllSessions();
       for (const session of canonicalSessions) {
         try {
-          const isRunning = await tauriService.isAgentProcessRunning(session.id);
+          const isRunning = await tauriService.isAgentProcessRunning(session.engine?.id || session.id);
           if (isRunning) {
             if (!session.runtime?.isAlive) {
               conversationStore.setRuntimeAlive(session.id, true);

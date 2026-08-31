@@ -31,6 +31,13 @@ const QUICK_INSTALL_PRESETS = [
   { name: 'Open Interpreter', exec: 'interpreter', cmd: 'pip install open-interpreter', desc: 'Natural language computer terminal control' },
 ];
 
+let globalDetectedAgentsCache: DetectedAgentDto[] | null = null;
+if (typeof window !== 'undefined') {
+  agentService.detectInstalledAgents().then(res => {
+    globalDetectedAgentsCache = res;
+  }).catch(() => {});
+}
+
 export const AddAgentModal: React.FC = () => {
   const { isAddAgentOpen, setAddAgentOpen, spawnerParentAgentId } = useUIStore();
   const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
@@ -48,6 +55,7 @@ export const AddAgentModal: React.FC = () => {
   const [customProfile, setCustomProfile] = useState('default');
   const [isCreatingNewProfile, setIsCreatingNewProfile] = useState(false);
   const [detectedAgents, setDetectedAgents] = useState<DetectedAgentDto[]>(() =>
+    globalDetectedAgentsCache ||
     AVAILABLE_AGENT_PRESETS.map((p) => ({
       provider: p.provider,
       name: p.name,
@@ -102,14 +110,21 @@ export const AddAgentModal: React.FC = () => {
       setCustomProfile('default');
       setIsCreatingNewProfile(false);
       setInstallOutput(null);
-      // Fast background refresh without blocking modal presentation
-      agentService.detectInstalledAgents().then(setDetectedAgents).catch(() => {});
+      if (globalDetectedAgentsCache) {
+        setDetectedAgents(globalDetectedAgentsCache);
+      }
+      // Non-blocking background sync
+      agentService.detectInstalledAgents().then((res) => {
+        globalDetectedAgentsCache = res;
+        setDetectedAgents(res);
+      }).catch(() => {});
     }
   }, [isAddAgentOpen]);
 
   const refreshDetection = async () => {
     try {
       const res = await agentService.detectInstalledAgents();
+      globalDetectedAgentsCache = res;
       setDetectedAgents(res);
     } catch {}
   };

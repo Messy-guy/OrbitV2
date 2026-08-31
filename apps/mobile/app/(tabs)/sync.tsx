@@ -123,21 +123,22 @@ export default function SyncScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.appGreeting}>Workstation</Text>
-          <Text style={styles.pageTitle}>Sync & Connect</Text>
+      <View style={styles.responsiveWrapper}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.appGreeting}>Workstation</Text>
+            <Text style={styles.pageTitle}>Sync & Connect</Text>
+          </View>
+
+          <AstryxBadge
+            label={isConnected ? 'Connected' : 'Offline'}
+            variant={isConnected ? 'success' : 'neutral'}
+            showDot={isConnected}
+          />
         </View>
 
-        <AstryxBadge
-          label={isConnected ? 'Connected' : 'Offline'}
-          variant={isConnected ? 'success' : 'neutral'}
-          showDot={isConnected}
-        />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Real-Time Connected Device Hero Card */}
         <GlassCard active={isConnected}>
           <View style={styles.cardHeader}>
@@ -278,6 +279,7 @@ export default function SyncScreen() {
           </GlassCard>
         )}
       </ScrollView>
+      </View>
 
       {/* QR Scanner Modal */}
       <Modal visible={scannerOpen} animationType="slide" presentationStyle="fullScreen">
@@ -313,6 +315,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#0B0A0D',
+  },
+  responsiveWrapper: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',

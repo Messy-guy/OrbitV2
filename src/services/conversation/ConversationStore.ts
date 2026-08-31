@@ -297,6 +297,42 @@ class AuthoritativeConversationStore {
     this.notify();
   }
 
+  getSessionsForAgent(agentId: string): OrbitSession[] {
+    return this.getAllSessions().filter((s) => s.engine.id === agentId || s.id === agentId);
+  }
+
+  restoreSession(sessionId: string, runtimeMeta?: Partial<import('../../types/conversation').RuntimeReference>): OrbitSession | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    if (runtimeMeta) {
+      session.runtime = { ...session.runtime, ...runtimeMeta };
+    }
+    session.updatedAt = Date.now();
+    this.notify();
+    return session;
+  }
+
+  rehydrateFromList(list: OrbitSession[]) {
+    this.sessions.clear();
+    for (const s of list) {
+      s.runtime = {
+        isAlive: false,
+        pid: undefined,
+        lastHeartbeat: s.runtime?.lastHeartbeat || Date.now(),
+      };
+      if (s.status === 'working' || s.status === 'waiting') {
+        s.status = 'offline';
+      }
+      this.sessions.set(s.id, s);
+    }
+    this.notify();
+  }
+
+  clearAll() {
+    this.sessions.clear();
+    this.notify();
+  }
+
   setSessionStatus(sessionId: string, status: SessionStatus) {
     const session = this.sessions.get(sessionId);
     if (!session) return;

@@ -195,23 +195,6 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         }
     }
 
-    // 4. Try running 'where' on Windows or 'which' on Unix
-    #[cfg(target_os = "windows")]
-    let lookup_cmd = "where";
-    #[cfg(not(target_os = "windows"))]
-    let lookup_cmd = "which";
-
-    for name in &expanded_names {
-        if let Ok(output) = Command::new(lookup_cmd).arg(name).output() {
-            if output.status.success() {
-                let path_str = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").trim().to_string();
-                if !path_str.is_empty() && Path::new(&path_str).is_file() {
-                    return Some(PathBuf::from(path_str));
-                }
-            }
-        }
-    }
-
     None
 }
 
@@ -231,7 +214,7 @@ pub fn get_cli_version(path: &Path, version_flag: &str) -> Option<String> {
 pub fn detect_all_agents() -> Vec<DetectedAgent> {
     if let Ok(cache) = DETECTION_CACHE.lock() {
         if let Some((timestamp, ref agents)) = *cache {
-            if timestamp.elapsed() < Duration::from_secs(60) {
+            if timestamp.elapsed() < Duration::from_secs(120) {
                 return agents.clone();
             }
         }

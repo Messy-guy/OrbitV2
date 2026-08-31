@@ -110,6 +110,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: OrbitTokens.radii.lg,
     borderTopRightRadius: OrbitTokens.radii.lg,
     maxHeight: '85%',
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
   },
   headerBar: {
     flexDirection: 'row',

@@ -42,111 +42,116 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      {/* Top Header Strip: Greeting + Notification Bell + Connection Indicator */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.appGreeting}>Orbit Cockpit</Text>
-          <Text style={styles.pageTitle}>Workspaces</Text>
-        </View>
+      <View style={styles.responsiveWrapper}>
+        {/* Top Header Strip: Greeting + Notification Bell + Connection Indicator */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.appGreeting}>Orbit Cockpit</Text>
+            <Text style={styles.pageTitle}>Workspaces</Text>
+          </View>
 
-        <View style={styles.headerActions}>
-          {/* Action Approvals Bell Icon */}
-          <Pressable
-            onPress={() => {
-              try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              } catch {}
-              setApprovalsModalOpen(true);
-            }}
-            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
-          >
-            <Bell size={18} color={pendingApprovalsCount > 0 ? '#FB923C' : '#D6C7B8'} />
-            {pendingApprovalsCount > 0 && (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>{pendingApprovalsCount}</Text>
-              </View>
-            )}
-          </Pressable>
-
-          {/* Sync / Status Pill */}
-          <Pressable
-            onPress={() => router.push('/(tabs)/sync')}
-            style={({ pressed }) => [styles.statusPill, pressed && styles.statusPillPressed]}
-          >
-            <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotOffline]} />
-            <Text style={styles.statusText}>
-              {isConnected ? 'Connected' : 'Offline'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Active Agents Emergency Bar */}
-      <SwarmEmergencyBar
-        activeAgentsCount={runningCount}
-        isDesktopOnline={isConnected}
-      />
-
-      {/* Filter Tabs */}
-      <View style={styles.filterRow}>
-        {(['all', 'active', 'issues'] as FilterType[]).map((tabKey) => {
-          const isSelected = filter === tabKey;
-          const label = tabKey === 'all' ? 'All Projects' : tabKey === 'active' ? 'Active' : 'Issues';
-          const count = tabKey === 'all' ? projects.length : tabKey === 'active' ? activeCount : issuesCount;
-
-          return (
+          <View style={styles.headerActions}>
+            {/* Action Approvals Bell Icon */}
             <Pressable
-              key={tabKey}
               onPress={() => {
                 try {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 } catch {}
-                setFilter(tabKey);
+                setApprovalsModalOpen(true);
               }}
-              style={[styles.filterChip, isSelected && styles.filterChipSelected]}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+              hitSlop={8}
             >
-              <Text style={[styles.filterChipText, isSelected && styles.filterChipTextSelected]}>
-                {label}
-              </Text>
-              <View style={[styles.chipBadge, isSelected && styles.chipBadgeSelected]}>
-                <Text style={[styles.chipBadgeText, isSelected && styles.chipBadgeTextSelected]}>
-                  {count}
-                </Text>
-              </View>
+              <Bell size={18} color={pendingApprovalsCount > 0 ? '#FB923C' : '#D6C7B8'} />
+              {pendingApprovalsCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{pendingApprovalsCount}</Text>
+                </View>
+              )}
             </Pressable>
-          );
-        })}
-      </View>
 
-      {/* Live Project Stream (Zero-Cache & Real Desktop Metadata) */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIconCircle}>
-            <FolderGit2 size={26} color="#FB923C" />
+            {/* Sync / Status Pill */}
+            <Pressable
+              onPress={() => router.push('/(tabs)/sync')}
+              style={({ pressed }) => [styles.statusPill, pressed && styles.statusPillPressed]}
+              hitSlop={8}
+            >
+              <View style={[styles.statusDot, isConnected ? styles.dotConnected : styles.dotOffline]} />
+              <Text style={styles.statusText}>
+                {isConnected ? 'Connected' : 'Offline'}
+              </Text>
+            </Pressable>
           </View>
-          <Text style={styles.emptyTitle}>
-            {isConnected ? 'No Workspaces Open' : 'Workstation Disconnected'}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            {isConnected
-              ? 'Open a project in Orbit on your desktop to inspect spawned agents and conversation history.'
-              : 'Pair your computer in the Sync tab or open a cached workspace to read previous conversations.'}
-          </Text>
         </View>
-      ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <ProjectCard
-              project={item}
-              onPress={() => router.push(`/project/${item.id}`)}
-            />
-          )}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
+
+        {/* Active Agents Emergency Bar */}
+        <SwarmEmergencyBar
+          activeAgentsCount={runningCount}
+          isDesktopOnline={isConnected}
         />
-      )}
+
+        {/* Filter Tabs */}
+        <View style={styles.filterRow}>
+          {(['all', 'active', 'issues'] as FilterType[]).map((tabKey) => {
+            const isSelected = filter === tabKey;
+            const label = tabKey === 'all' ? 'All Projects' : tabKey === 'active' ? 'Active' : 'Issues';
+            const count = tabKey === 'all' ? projects.length : tabKey === 'active' ? activeCount : issuesCount;
+
+            return (
+              <Pressable
+                key={tabKey}
+                onPress={() => {
+                  try {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } catch {}
+                  setFilter(tabKey);
+                }}
+                style={[styles.filterChip, isSelected && styles.filterChipSelected]}
+                hitSlop={4}
+              >
+                <Text style={[styles.filterChipText, isSelected && styles.filterChipTextSelected]}>
+                  {label}
+                </Text>
+                <View style={[styles.chipBadge, isSelected && styles.chipBadgeSelected]}>
+                  <Text style={[styles.chipBadgeText, isSelected && styles.chipBadgeTextSelected]}>
+                    {count}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Live Project Stream (Zero-Cache & Real Desktop Metadata) */}
+        {filtered.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconCircle}>
+              <FolderGit2 size={26} color="#FB923C" />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {isConnected ? 'No Workspaces Open' : 'Workstation Disconnected'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              {isConnected
+                ? 'Open a project in Orbit on your desktop to inspect spawned agents and conversation history.'
+                : 'Pair your computer in the Sync tab or open a cached workspace to read previous conversations.'}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ProjectCard
+                project={item}
+                onPress={() => router.push(`/project/${item.id}`)}
+              />
+            )}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+      </View>
 
       {/* Approvals Notification Modal */}
       <ApprovalsModal
@@ -161,6 +166,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#0B0A0D',
+  },
+  responsiveWrapper: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 840,
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',

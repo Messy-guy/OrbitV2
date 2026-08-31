@@ -4,8 +4,10 @@
  */
 export interface TurnBaseline {
   turnId: string;
+  userMessageId?: string;
   userPrompt: string;
   createdAt: number;
+  screenVersion: number;
   screenGeneration: number;
   baselineOccurrences: Map<string, number>;
   baselineLines: string[];

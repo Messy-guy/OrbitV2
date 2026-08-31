@@ -40,8 +40,8 @@ export class ScreenFingerprint {
     // Canonical comparison key (case-insensitive, whitespace-collapsed)
     return cleaned
       .toLowerCase()
-      .replace(/^[|│║┃>❯_┌└├╔╚╠─═—\-_]+\s*/, '')
-      .replace(/\s*[|│║┃>❯_┐┘┤╗╝╣─═—\-_]+$/, '')
+      .replace(/^[›>❯$#%|│┃║_┌└├╔╚╠─═—\-_•*~\s]+/g, '')
+      .replace(/[|│┃║_┐┘┤╗╝╣─═—\-_•*~\s]+$/g, '')
       .replace(/\s+/g, ' ')
       .trim();
   }

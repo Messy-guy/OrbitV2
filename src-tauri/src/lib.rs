@@ -33,6 +33,11 @@ pub fn run() {
         storage,
     };
 
+    // Pre-warm agent detection in background thread so opening modal is instantaneous
+    std::thread::spawn(|| {
+        let _ = discovery::detect_all_agents();
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

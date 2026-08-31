@@ -1,6 +1,7 @@
 export interface PendingInputEcho {
   id: string;
   sessionId: string;
+  turnId?: string;
 
   // Original user content
   content: string;
@@ -31,8 +32,8 @@ export class PendingInputEchoQueue {
   normalizeText(text: string): string {
     return text
       .toLowerCase()
-      .replace(/^[›>❯$#%|│┃║_┌└├╔╚╠─═—\-_•*~]+\s*/g, '')
-      .replace(/\s*[|│┃║_┐┘┤╗╝╣─═—\-_]+$/g, '')
+      .replace(/^[›>❯$#%|│┃║_┌└├╔╚╠─═—\-_•*~\s]+/g, '')
+      .replace(/[|│┃║_┐┘┤╗╝╣─═—\-_•*~\s]+$/g, '')
       .replace(/^(user|you|human|input|prompt|command|plan):\s*/i, '')
       .replace(/^\/plan\s+/i, '')
       .replace(/[\u200B-\u200D\uFEFF]/g, '')
@@ -43,7 +44,7 @@ export class PendingInputEchoQueue {
   /**
    * Registers an authoritative user input as a pending terminal echo for the given session
    */
-  registerPendingEcho(sessionId: string, content: string, sequence?: number): PendingInputEcho {
+  registerPendingEcho(sessionId: string, content: string, turnId?: string, sequence?: number): PendingInputEcho {
     const clean = content.trim();
     const rawLines = clean.split('\n').map((l) => l.trim()).filter(Boolean);
     const normalizedContent = this.normalizeText(clean);
@@ -53,6 +54,7 @@ export class PendingInputEchoQueue {
     const entry: PendingInputEcho = {
       id: `echo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       sessionId,
+      turnId,
       content: clean,
       normalizedContent,
       normalizedLines,
@@ -78,11 +80,15 @@ export class PendingInputEchoQueue {
   /**
    * Returns active, unconsumed pending echoes for a session
    */
-  getPendingEchoes(sessionId: string): PendingInputEcho[] {
+  getPendingEchoes(sessionId: string, activeTurnId?: string): PendingInputEcho[] {
     const queue = this.queues.get(sessionId);
     if (!queue) return [];
     const now = Date.now();
-    return queue.filter((item) => !item.consumed && now - item.submittedAt < 120_000);
+    return queue.filter((item) => {
+      if (item.consumed || now - item.submittedAt >= 120_000) return false;
+      if (activeTurnId && item.turnId && item.turnId !== activeTurnId) return false;
+      return true;
+    });
   }
 
   /**
@@ -99,13 +105,26 @@ export class PendingInputEchoQueue {
   }
 
   /**
+   * Clears or consumes all echoes for a completed turn
+   */
+  consumeTurnEchoes(sessionId: string, turnId: string): void {
+    const queue = this.queues.get(sessionId);
+    if (!queue) return;
+    for (const item of queue) {
+      if (item.turnId === turnId) {
+        item.consumed = true;
+      }
+    }
+  }
+
+  /**
    * Matches a candidate terminal line against pending echoes for this session
    */
-  findMatchingEcho(sessionId: string, candidateLine: string): PendingInputEcho | null {
+  findMatchingEcho(sessionId: string, candidateLine: string, activeTurnId?: string): PendingInputEcho | null {
     const cleanCandidate = this.normalizeText(candidateLine);
     if (!cleanCandidate) return null;
 
-    const pending = this.getPendingEchoes(sessionId);
+    const pending = this.getPendingEchoes(sessionId, activeTurnId);
     for (const echo of pending) {
       // 1. Exact normalized match (e.g. "› hello" -> "hello" === "hello")
       if (cleanCandidate === echo.normalizedContent) {
@@ -117,10 +136,11 @@ export class PendingInputEchoQueue {
         return echo;
       }
 
-      // 3. Prefix or wrapping match for long prompts
+      // 3. Substring / wrapping match for wrapped long prompts (only when candidate is part of echo prompt)
       if (
-        (echo.normalizedContent.length > 20 && cleanCandidate.length > 10 && echo.normalizedContent.startsWith(cleanCandidate)) ||
-        (cleanCandidate.length > 20 && echo.normalizedContent.length > 10 && cleanCandidate.startsWith(echo.normalizedContent))
+        echo.normalizedContent.length > 20 &&
+        cleanCandidate.length > 8 &&
+        echo.normalizedContent.includes(cleanCandidate)
       ) {
         return echo;
       }

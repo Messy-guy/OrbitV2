@@ -106,7 +106,11 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 14,
+    paddingBottom: 24,
     gap: 8,
+    width: '100%',
+    maxWidth: 780,
+    alignSelf: 'center',
   },
   emptyContainer: {
     flex: 1,
@@ -114,6 +118,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
     gap: 10,
+    width: '100%',
+    maxWidth: 500,
+    alignSelf: 'center',
   },
   emptyIconBox: {
     width: 60,

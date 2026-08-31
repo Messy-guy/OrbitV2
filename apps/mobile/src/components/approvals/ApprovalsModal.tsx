@@ -25,33 +25,35 @@ export const ApprovalsModal: React.FC<ApprovalsModalProps> = ({ isOpen, onClose 
   return (
     <Modal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        {/* Modal Header */}
-        <View style={styles.header}>
-          <View style={styles.headerTitleGroup}>
-            <View style={styles.iconCircle}>
-              <ShieldCheck size={20} color="#FB923C" />
+        <View style={styles.responsiveWrapper}>
+          {/* Modal Header */}
+          <View style={styles.header}>
+            <View style={styles.headerTitleGroup}>
+              <View style={styles.iconCircle}>
+                <ShieldCheck size={20} color="#FB923C" />
+              </View>
+              <View>
+                <Text style={styles.title}>Action Approvals</Text>
+                <Text style={styles.subtitle}>Authorize commands & agent actions</Text>
+              </View>
             </View>
-            <View>
-              <Text style={styles.title}>Action Approvals</Text>
-              <Text style={styles.subtitle}>Authorize commands & agent actions</Text>
-            </View>
+
+            <Pressable
+              onPress={() => {
+                try {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                } catch {}
+                onClose();
+              }}
+              style={styles.closeButton}
+              hitSlop={8}
+            >
+              <X size={18} color="#FFF7ED" />
+            </Pressable>
           </View>
 
-          <Pressable
-            onPress={() => {
-              try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              } catch {}
-              onClose();
-            }}
-            style={styles.closeButton}
-          >
-            <X size={18} color="#FFF7ED" />
-          </Pressable>
-        </View>
-
-        {/* Content */}
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Content */}
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {!approvals || approvals.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconCircle}>
@@ -122,6 +124,7 @@ export const ApprovalsModal: React.FC<ApprovalsModalProps> = ({ isOpen, onClose 
             ))
           )}
         </ScrollView>
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -131,6 +134,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#0B0A0D',
+  },
+  responsiveWrapper: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',

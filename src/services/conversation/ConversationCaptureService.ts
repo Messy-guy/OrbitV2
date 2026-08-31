@@ -128,6 +128,24 @@ class ConversationCaptureService {
     return session;
   }
 
+  startTurn(sessionId: string, userPrompt: string, turnId?: string, userMessageId?: string): void {
+    const adapter = this.getAdapterForSession(sessionId);
+    if (adapter.startTurn) {
+      adapter.startTurn(sessionId, userPrompt, turnId, userMessageId);
+    } else {
+      genericPtyAdapter.startTurn(sessionId, userPrompt, turnId, userMessageId);
+    }
+  }
+
+  commitTurn(sessionId: string, turnId?: string): void {
+    const adapter = this.getAdapterForSession(sessionId);
+    if (adapter.commitTurn) {
+      adapter.commitTurn(sessionId, turnId);
+    } else {
+      genericPtyAdapter.commitTurn(sessionId, turnId);
+    }
+  }
+
   /**
    * Authoritatively submit a user message to a session and dispatch to the engine adapter
    */
@@ -135,13 +153,18 @@ class ConversationCaptureService {
     const cleanText = message.trim();
     if (!cleanText) return;
 
-    // Register pending echo in authoritative queue for session
+    const turnId = `turn_u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    // 1. Authoritatively freeze baseline in adapter before sending input
+    this.startTurn(sessionId, cleanText, turnId);
+
+    // 2. Register pending echo in authoritative queue for session
     pendingInputEchoQueue.registerPendingEcho(sessionId, cleanText);
 
-    // 1. Authoritatively record the user turn in the canonical conversation store
+    // 3. Authoritatively record the user turn in the canonical conversation store
     conversationStore.addUserMessage(sessionId, cleanText);
 
-    // 2. Dispatch to the engine adapter for execution
+    // 4. Dispatch to the engine adapter for execution
     const adapter = this.getAdapterForSession(sessionId);
     await adapter.sendMessage(sessionId, cleanText);
   }

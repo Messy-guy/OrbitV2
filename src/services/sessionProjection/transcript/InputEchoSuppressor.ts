@@ -10,15 +10,15 @@ export class InputEchoSuppressor {
   /**
    * Tests whether a raw or formatted line from the terminal output is an echo of an authoritative user prompt.
    */
-  static checkLine(sessionId: string, line: string, latestUserPrompt?: string): SuppressionResult {
+  static checkLine(sessionId: string, line: string, latestUserPrompt?: string, turnId?: string): SuppressionResult {
     const trimmed = line.trim();
     if (!trimmed) {
       return { isEcho: false, matchedEcho: null, cleanedText: '' };
     }
 
-    // 1. Authoritative check against the PendingInputEchoQueue for this session
+    // 1. Authoritative check against the PendingInputEchoQueue for this session and active turn
     if (sessionId) {
-      const matchedEcho = pendingInputEchoQueue.findMatchingEcho(sessionId, trimmed);
+      const matchedEcho = pendingInputEchoQueue.findMatchingEcho(sessionId, trimmed, turnId);
       if (matchedEcho) {
         return {
           isEcho: true,
@@ -40,7 +40,8 @@ export class InputEchoSuppressor {
         lineNorm.startsWith(`${promptNorm} │`) ||
         lineNorm.startsWith(`${promptNorm} |`) ||
         (promptNorm.length > 8 && lineNorm === promptNorm) ||
-        (promptNorm.length > 15 && (lineNorm.startsWith(promptNorm) || promptNorm.startsWith(lineNorm)))
+        (promptNorm.length > 15 && lineNorm.length > 6 && promptNorm.includes(lineNorm)) ||
+        (lineNorm.length > 15 && promptNorm.length > 6 && lineNorm.includes(promptNorm))
       ) {
         return {
           isEcho: true,
