@@ -69,6 +69,7 @@ export interface Agent {
   model: string;
   profileId?: string; // Custom isolated config profile name e.g. "work-account", "default"
   role?: AgentRoleType;
+  operationalMode?: 'plan' | 'code' | 'audit';
   taskDirective?: string; // Direct user task assigned on spawn
   sourceAgentId?: string; // If chained from previous worker
   status: AgentStatus;
@@ -84,6 +85,7 @@ export interface Session {
   agentId: string;
   workspaceId: string;
   title: string;
+  operationalMode?: 'plan' | 'code' | 'audit';
   status: 'active' | 'paused' | 'completed';
   createdAt: number;
   updatedAt: number;

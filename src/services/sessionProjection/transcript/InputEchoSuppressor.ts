@@ -1,4 +1,5 @@
 import { pendingInputEchoQueue, PendingInputEcho } from '../input/PendingInputEchoQueue';
+import { ScreenFingerprint } from '../state/ScreenFingerprint';
 
 export interface SuppressionResult {
   isEcho: boolean;
@@ -10,7 +11,11 @@ export class InputEchoSuppressor {
   /**
    * Tests whether a raw or formatted line from the terminal output is an echo of an authoritative user prompt.
    */
-  static checkLine(sessionId: string, line: string, latestUserPrompt?: string, turnId?: string): SuppressionResult {
+  static checkLine(sessionId: string, rawLine: string, latestUserPrompt?: string, turnId?: string): SuppressionResult {
+    // INV — strip terminal decoration BEFORE comparison so a rendered echo
+    // ("❯ hello", "hello    19:05 d", "│ hello │") resolves to the canonical
+    // prompt ("hello") across every matching path below.
+    const line = ScreenFingerprint.cleanLineContent(rawLine || '');
     const trimmed = line.trim();
     if (!trimmed) {
       return { isEcho: false, matchedEcho: null, cleanedText: '' };
@@ -33,15 +38,35 @@ export class InputEchoSuppressor {
       const promptNorm = pendingInputEchoQueue.normalizeText(latestUserPrompt);
       const lineNorm = pendingInputEchoQueue.normalizeText(trimmed);
 
+    if (
+      lineNorm === promptNorm ||
+      lineNorm.startsWith(`${promptNorm}─`) ||
+      lineNorm.startsWith(`${promptNorm}-`) ||
+      lineNorm.startsWith(`${promptNorm} │`) ||
+      lineNorm.startsWith(`${promptNorm} |`) ||
+      (promptNorm.length > 8 && lineNorm === promptNorm) ||
+      (promptNorm.length > 15 && lineNorm.length > 6 && promptNorm.includes(lineNorm)) ||
+      (lineNorm.length > 15 && promptNorm.length > 6 && lineNorm.includes(promptNorm))
+    ) {
+      return {
+        isEcho: true,
+        matchedEcho: null,
+        cleanedText: trimmed,
+      };
+    }
+
+    // 3. Prompt echo re-rendered with right-aligned TUI metadata on the same row
+    //    (e.g. prompt "hello" rendered as "hello    19:05 d" in Copilot/Mimo).
+    //    The suffix must be SHORT and digit-dominated (timestamps, counters,
+    //    durations) — never ordinary words, so a legitimate reply line that
+    //    merely starts with the prompt text ("Hello! How can I help…") is safe.
+    if (lineNorm.startsWith(promptNorm) && promptNorm.length >= 2) {
+      const suffix = lineNorm.slice(promptNorm.length);
       if (
-        lineNorm === promptNorm ||
-        lineNorm.startsWith(`${promptNorm}─`) ||
-        lineNorm.startsWith(`${promptNorm}-`) ||
-        lineNorm.startsWith(`${promptNorm} │`) ||
-        lineNorm.startsWith(`${promptNorm} |`) ||
-        (promptNorm.length > 8 && lineNorm === promptNorm) ||
-        (promptNorm.length > 15 && lineNorm.length > 6 && promptNorm.includes(lineNorm)) ||
-        (lineNorm.length > 15 && promptNorm.length > 6 && lineNorm.includes(promptNorm))
+        suffix.length > 0 &&
+        suffix.length <= 12 &&
+        /\d/.test(suffix) &&
+        /^[\s\d:.,%\-]*[a-z]?[\s\d:.,%\-]*$/.test(suffix)
       ) {
         return {
           isEcho: true,
@@ -49,6 +74,7 @@ export class InputEchoSuppressor {
           cleanedText: trimmed,
         };
       }
+    }
     }
 
     return {

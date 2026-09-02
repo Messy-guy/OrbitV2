@@ -242,6 +242,32 @@ class MobileRelayService {
   emergencyStopAll() {
     this.sendAction('EMERGENCY_STOP_ALL');
   }
+
+  registerDevicePushToken(registration: {
+    userId: string;
+    token: string;
+    platform: 'ios' | 'android';
+    appVersion?: string;
+    environment?: 'development' | 'preview' | 'production';
+  }) {
+    if (this.socket?.connected) {
+      this.socket.emit('mobile:register_push_token', registration);
+    }
+  }
+
+  sendAttentionUpdate(attention: {
+    deviceId: string;
+    connected: boolean;
+    appState: 'active' | 'background' | 'terminated';
+    activeProjectId?: string;
+    activeAgentId?: string;
+    activeSessionId?: string;
+    lastHeartbeatAt: number;
+  }) {
+    if (this.socket?.connected) {
+      this.socket.emit('mobile:attention_update', attention);
+    }
+  }
 }
 
 export const mobileRelayService = new MobileRelayService();

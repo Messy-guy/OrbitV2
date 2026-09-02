@@ -155,11 +155,12 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
               </View>
             )}
 
-            {/* MAIN CONVERSATION VIEWPORT */}
+            {/* MAIN CONVERSATION VIEWPORT — strictly scoped to this session */}
             <ConversationTimeline
               messages={chatHistory}
               agentName={agent.name}
               isWorking={isWorking}
+              sessionId={agent.id}
             />
 
             {/* Bottom Input Bar / Offline Notice */}

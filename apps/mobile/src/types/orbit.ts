@@ -87,6 +87,13 @@ export interface ActivitySummary {
 export interface MobileAgentChatMessage {
   id: string;
   agentId: string;
+  /**
+   * INV-1/9/10 — the Orbit sessionId this message belongs to. Every message
+   * carries its session identity; renderers discard anything not matching the
+   * active session instead of merging it into the local projection.
+   */
+  sessionId?: string;
+  turnId?: string;
   sender: 'user' | 'agent' | 'system';
   content: string;
   thought?: string;

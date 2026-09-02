@@ -9,13 +9,27 @@ interface ConversationTimelineProps {
   messages: MobileAgentChatMessage[];
   agentName: string;
   isWorking?: boolean;
+  /**
+   * INV-10 — the active session this timeline renders. Any message whose
+   * identity does not match is DISCARDED (never merged into the projection).
+   * Falls back to `agentId`-matching when the desktop build predates the
+   * explicit `sessionId` field.
+   */
+  sessionId?: string;
 }
 
 export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
-  messages,
+  messages: allMessages,
   agentName,
   isWorking,
+  sessionId,
 }) => {
+  // INV-10 — session-scoped projection: only messages owned by the active
+  // session are ever rendered. A switch resets this list wholesale; messages
+  // from a previous session can never accumulate into the new view.
+  const messages = sessionId
+    ? allMessages.filter((m) => (m.sessionId ? m.sessionId === sessionId : m.agentId === sessionId))
+    : allMessages;
   const scrollRef = useRef<ScrollView>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);

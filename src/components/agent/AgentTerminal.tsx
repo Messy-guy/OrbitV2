@@ -25,7 +25,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const unlistenRef = useRef<(() => void) | null>(null);
   const isBootedRef = useRef(false);
 
-  const { resizeTerminal, activeSessionIdByAgent } = useAgentStore();
+  const { resizeTerminal } = useAgentStore();
   const { getActiveWorkspace } = useWorkspaceStore();
   const theme = useSettingsStore(s => s.theme);
 
@@ -156,7 +156,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         throw new Error('Tauri runtime not available.');
       }
 
-      // 2. Subscribe to output events
+      // 2. Subscribe to output events with immediate high-throughput PTY stream writing
       const unlistenOutput = await tauriService.onAgentOutput((payload) => {
         if (payload.agentId === agentRef.current.id && termRef.current) {
           termRef.current.write(payload.text);
@@ -177,8 +177,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
         if (isAnyModalOpen) return;
 
+        const liveActiveSess = useAgentStore.getState().activeSessionIdByAgent[agentRef.current.id];
         const activeSessId =
-          activeSessionIdByAgent[agentRef.current.id] ||
+          liveActiveSess ||
           agentRef.current.currentSessionId ||
           'default';
 
@@ -195,7 +196,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
             setPhase('error');
           } else if (payload.status === 'exited' || payload.status === 'stopped') {
             setPhase('exited');
-          } else if (payload.status === 'active' || payload.status === 'running') {
+          } else if (payload.status === 'active' || payload.status === 'running' || payload.status === 'working' || payload.status === 'ready') {
             setPhase('active');
           }
         }
@@ -211,8 +212,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       const projPath = ws?.projectPath || '';
       const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
 
-      // Check if session is already running in Rust before starting
-      const isAlreadyRunning = await tauriService.isAgentProcessRunning(agentRef.current.id);
+      // Check if session is already running in Rust before starting (tolerate query errors:
+      // a failure here should not fail the whole spawn — just attempt a fresh session)
+      const isAlreadyRunning = await tauriService.isAgentProcessRunning(agentRef.current.id).catch(() => false);
 
       if (!isAlreadyRunning) {
         if (agentRef.current.role) {
@@ -241,10 +243,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       resizeTerminal(agentRef.current.id, rows, cols);
       term.focus();
 
-      // 6. Replay history if any (seamless reattach)
-      const history = await tauriService.getAgentTerminalHistory(agentRef.current.id);
-      if (history && history.length > 0 && termRef.current) {
-        termRef.current.write(history);
+      // 6. Replay history on reattach to an existing process — tolerate query errors
+      if (isAlreadyRunning) {
+        const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
+        if (history && history.length > 0 && termRef.current) {
+          termRef.current.write(history);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -257,11 +261,21 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
     // 7. Responsive auto-resize observer & PTY SIGWINCH synchronization
     let resizeTimer: NodeJS.Timeout | null = null;
+    let lastAppliedRows = 0;
+    let lastAppliedCols = 0;
+
     const triggerRefit = () => {
       try {
         fitAddon.fit();
-        if (term.rows && term.cols && term.rows >= 4 && term.cols >= 20) {
-          resizeTerminal(agentRef.current.id, term.rows, term.cols);
+        if (
+          term.rows &&
+          term.cols &&
+          term.rows >= 4 &&
+          term.cols >= 20 &&
+          (term.rows !== lastAppliedRows || term.cols !== lastAppliedCols)
+        ) {
+          lastAppliedRows = term.rows;
+          lastAppliedCols = term.cols;
           if (isTauriAvailable()) {
             tauriService.resizeAgentTerminal(agentRef.current.id, term.rows, term.cols).catch(() => {});
           }
@@ -270,9 +284,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     };
 
     const handleResize = () => {
-      triggerRefit();
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(triggerRefit, 50);
+      resizeTimer = setTimeout(triggerRefit, 60);
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -280,9 +293,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
     // Initial refit sequence
     requestAnimationFrame(triggerRefit);
-    setTimeout(triggerRefit, 100);
-    setTimeout(triggerRefit, 400);
-    setTimeout(triggerRefit, 1200);
+    setTimeout(triggerRefit, 150);
 
     const prevUnlisten = unlistenRef.current;
     unlistenRef.current = () => {

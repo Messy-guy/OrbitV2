@@ -12,6 +12,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { PairMobileModal } from './components/auth/PairMobileModal';
 import { ProUpgradeModal } from './components/agent/ProUpgradeModal';
 import { SkillBrowserModal } from './components/skills/SkillBrowserModal';
+import { OnboardingModal } from './components/onboarding/OnboardingModal';
 import { UpdateNotifier } from './components/layout/UpdateNotifier';
 import { useSettingsStore, applyThemeTokens } from './stores/settings.store';
 import { useUIStore } from './stores/ui.store';
@@ -74,6 +75,7 @@ export const App: React.FC = () => {
         currentCount={currentRunningAgents}
         maxSlots={maxAllowedSlots}
       />
+      <OnboardingModal />
       <UpdateNotifier />
     </div>
   );

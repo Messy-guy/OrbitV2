@@ -93,12 +93,16 @@ export class PtyConversationClassifier {
 
     // ----------------------------------------------------------------------
     // 3. TOOL ACTIVITIES, FILE OPERATIONS, & TEST RUNS
+    //    Strict shapes only: verb + file path/extension, or verb + a known CLI
+    //    command. Loose "Running <anything>" matching swallowed real assistant
+    //    prose ("Running tests, builds, and linting. I can work directly…").
     // ----------------------------------------------------------------------
     const toolMatch =
-      cleanText.match(/^(?:Reading|Writing|Editing|Running|Executing|Checking|Viewing)\s+([a-zA-Z0-9_.\-/]+)/i) ||
+      cleanText.match(/^(?:Reading|Writing|Editing|Viewing|Checking)\s+([\w.\-\/]+\.[a-zA-Z0-9]{1,6}|[~\/][\w.\-\/]+)/i) ||
+      cleanText.match(/^(?:Running|Executing)\s+(?:cargo|npm|pnpm|yarn|node|python\d?|pytest|vitest|jest|make|docker|git|go|tsc|eslint|ruff|bun|deno|shell|bash|sh|command)\b.{0,40}$/i) ||
       cleanText.match(/^[✱●○◆■✓✕*⚡]\s*(?:Glob|Read|Write|Edit|Bash|Command|Search|Fetch|Grep|Linter|Test|Listing|Checking|Resolving)\s+([^\r\n]+)/i);
 
-    if (toolMatch && cleanText.length < 120) {
+    if (toolMatch && cleanText.length < 90) {
       const isCmd = /Running|Executing|Bash|Command/i.test(cleanText);
       return {
         type: 'activity',
@@ -142,7 +146,7 @@ export class PtyConversationClassifier {
     // 4.2 CLI startup banners & version headers
     if (
       /^(Welcome to|Signing in|Logged in as)/i.test(cleanText) ||
-      /^(OpenCode|Claude Code|Antigravity|AGY|Codex|Gemini|Aider|OpenHands|Devin|QuantumCoder|AI Agent)\s*(?:CLI|Code|Assist)?\s*v?[0-9.]+/i.test(cleanText) ||
+      /^(OpenCode|Claude Code|Antigravity|AGY|Codex|Gemini|Aider|OpenHands|Devin|QuantumCoder|AI Agent|Cline)\s*(?:CLI|Code|Assist)?\s*v?[0-9.]+/i.test(cleanText) ||
       /^[a-zA-Z0-9_\-.\s]+(?:CLI|Code|Assist)?\s+v\d+\.\d+/i.test(cleanText) ||
       /^[a-zA-Z0-9_\-.\s]+\s+\(v\d+\.\d+/i.test(cleanText)
     ) {
@@ -151,7 +155,10 @@ export class PtyConversationClassifier {
 
     // 4.3 Model, Provider, Token, Cost, Pricing, and Telemetry Info
     if (
-      /^(Model|Provider|Engine|LLM|Mode|Tokens?|Tokens Used|Context|Cost|Pricing|Speed|Duration|Latency|Temperature|Max tokens|Top[-_]?p):\s*/i.test(cleanText) ||
+      /^(Model|Provider|Engine|LLM|Mode|Tokens?|Tokens Used|Context|Cost|Pricing|Speed|Duration|Latency|Temperature|Max tokens|Top[-_]?p|Changes|AI Credits|Credits):\s*/i.test(cleanText) ||
+      /^Changes\s+[+\-0-9\s]+/i.test(cleanText) ||
+      /^AI Credits\s+[0-9.]+/i.test(cleanText) ||
+      /^Resume\s+copilot/i.test(cleanText) ||
       /Tokens:\s*\d+.*Cost:\s*\$?[0-9.]+/i.test(cleanText) ||
       /Cost:\s*\$?[0-9.]+/i.test(cleanText) ||
       /\b\d+\s*tokens?\b.*\b\$\d+(\.\d+)?\b/i.test(cleanText) ||
@@ -167,7 +174,8 @@ export class PtyConversationClassifier {
     if (
       /^(Request[-_ ]?ID|Session[-_ ]?ID|Trace[-_ ]?ID|Transaction[-_ ]?ID|Corr[-_ ]?ID|Run[-_ ]?ID):\s*[a-zA-Z0-9_\-.]+/i.test(trimmed) ||
       /^ID:\s*(?:req|sess|trace|run)_[a-zA-Z0-9_\-.]+/i.test(trimmed) ||
-      /^id:\s*[a-zA-Z0-9_\-.]+/i.test(trimmed)
+      /^id:\s*[a-zA-Z0-9_\-.]+/i.test(trimmed) ||
+      /^Resume\s+[a-zA-Z0-9_\-.]+/i.test(trimmed)
     ) {
       return { type: 'terminal_only', reason: 'identifier_metadata' };
     }
@@ -212,6 +220,57 @@ export class PtyConversationClassifier {
     // 4.9 Standalone Workspace Paths
     if (/^(\/(home|Users|var|tmp|etc)[a-zA-Z0-9_.\-/]+|~[a-zA-Z0-9_.\-/]+)$/i.test(trimmed)) {
       return { type: 'terminal_only', reason: 'path_header' };
+    }
+
+    // 4.10 Agent TUI runtime chrome (Copilot / Mimo / Claude Code class):
+    //      MCP status, session resume banners, usage/cost session lines, model
+    //      chips, shortcut footers, and bare counters/timestamps. All of these
+    //      repaint every TUI frame and must never surface as assistant prose.
+    if (
+      /^mcp\s+servers?\b/i.test(cleanText) ||
+      /mcp servers? (?:re)?loaded|server connected|servers connected/i.test(cleanText) ||
+      /^(?:resuming|resumed)\s+session/i.test(cleanText) ||
+      /^session(?:\s+and\s+usage)?\b.*\b(?:used|cost|tokens?|credits?)\b/i.test(cleanText) ||
+      // Session-usage metadata rendered mid-line next to the workspace path
+      // (e.g. "~/project/orbit    Session: 0.34AIC used")
+      /\bsession\s*[:：].{0,24}\b(?:used|tokens?|cost|credits?)/i.test(cleanText) ||
+      /^session\s*[:：]/i.test(trimmed) ||
+      // Model chips like "Auto — claude-haiku-4.5", "Auto → gpt-5.2-codex"
+      (cleanText.length < 45 && /\b(?:claude|haiku|sonnet|opus|gpt|gemini|deepseek|qwen|llama|mistral|codestral|glm|kimi|grok)[a-z0-9.\-_/]*[-_]\d+(?:\.\d+)?/i.test(cleanText) && /^(auto|model|switched?|using)\b/i.test(cleanText)) ||
+      // Shortcut footers: "Working esc interrupt", "tab switch mode ctrl+p settings …"
+      /esc\s+interrupt/i.test(cleanText) ||
+      /tab\s+(?:next\s+)?tab\b|switch mode|open sidebar/i.test(cleanText) ||
+      (/\/\s*commands\b/i.test(cleanText) && /\?\s*help\b/i.test(cleanText)) ||
+      /^\/\s*commands$|^\?\s*help$|^\$\s*subagent$/i.test(cleanText) ||
+      // Codex/Copilot STATUS BAR: "Working·1na low·~/proj", "gpt-5.6-luna low · ~/Desktop/…"
+      // (status/model word + middot separators, optionally ending in the workspace path)
+      (/^(?:working|thinking|generating|resuming|waiting)\b/i.test(cleanText) && /·|•/.test(cleanText)) ||
+      (/·|•/.test(cleanText) && /[~\/](?:home|Users|Desktop|var|tmp|etc|mnt|srv)[a-zA-Z0-9_.\-\/]*$/i.test(cleanText.trim())) ||
+      // Bare counters / token tallies / durations / timestamps ("95", "292 2.92", "41 B", "00:24")
+      /^[\d\s.,:%\-—–]+$/.test(trimmed) ||
+      /^\d{1,2}:\d{2}(?::\d{2})?$/.test(trimmed) ||
+      /^\d+(?:\.\d+)?\s*[msbBkK]$/.test(trimmed) ||
+      // Lone spinner/status symbols repainted every frame ("⏺", "⊙", "→", "✓" alone)
+      /^[⏺⏻⏼●○◉◎◆■□▪▫✱✓✕✔✖⚡·•▸▹←↑→↓⇄↹⌘⏎\s]{1,2}$/.test(trimmed) ||
+      // Spinner-frame fragments where the cursor overwrote "Th" ("ought for 1s …")
+      /\bought for\s+\d/i.test(cleanText)
+    ) {
+      return { type: 'terminal_only', reason: 'tui_runtime_chrome' };
+    }
+
+    // 4.11 Standalone spinner / status prefix fragments (cursor overwrites during
+    //      in-place redraws, e.g. "orking esc", "enerating…"). Salvage-free drop:
+    //      the same content is captured cleanly by a full-frame repaint.
+    if (/^[a-z]?[·•⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⋮\s]*(?:orking|enerating|hinking|esuming|onnecting|loading)\b/i.test(cleanText)) {
+      return {
+        type: 'activity',
+        activity: {
+          id: `act_think_${Date.now()}`,
+          category: 'other',
+          summary: 'Working',
+          startedAt: Date.now(),
+        },
+      };
     }
 
     // ----------------------------------------------------------------------

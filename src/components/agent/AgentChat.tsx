@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { CornerDownLeft, ArrowLeftRight, Copy, Check } from 'lucide-react';
+import { CornerDownLeft, ArrowLeftRight, Copy, Check, Sparkles } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { ToolActivity } from './ToolActivity';
+import { AgentSkillPickerModal } from '../skills/AgentSkillPickerModal';
 
 interface AgentChatProps {
   agent: Agent;
@@ -15,6 +16,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   const { getActiveWorkspace } = useWorkspaceStore();
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -30,9 +32,20 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   }, [sessionMessages]);
 
   const handleSend = (textToSend?: string) => {
-    const text = textToSend || input;
-    if (!text.trim()) return;
-    sendMessage(agent.id, sessionId, text.trim(), activeWorkspace?.projectPath);
+    const text = (textToSend || input).trim();
+    if (!text) return;
+
+    // Intercept Orbit Slash Commands
+    if (text === '/skill' || text === '/skills') {
+      setIsSkillPickerOpen(true);
+      setInput('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+      return;
+    }
+
+    sendMessage(agent.id, sessionId, text, activeWorkspace?.projectPath);
     setInput('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -209,6 +222,13 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
           </button>
         </div>
       </div>
+
+      {/* Direct Agent Skill Picker Modal from /skill */}
+      <AgentSkillPickerModal
+        isOpen={isSkillPickerOpen}
+        onClose={() => setIsSkillPickerOpen(false)}
+        agentId={agent.id}
+      />
     </div>
   );
 };

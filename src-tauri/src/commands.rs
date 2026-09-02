@@ -160,8 +160,12 @@ pub fn create_session(state: State<'_, AppState>, session: Session) -> Result<()
 }
 
 // PTY Runtime
+// NOTE: All PTY commands run their blocking work on a background thread via
+// tauri::async_runtime::spawn_blocking so the Tauri command/UI thread is never
+// blocked while a native pseudo-terminal is opened, spawned, resized, or killed.
+// This is the primary fix for UI stutter when many agent CLIs run at once.
 #[tauri::command]
-pub fn start_agent_session(
+pub async fn start_agent_session(
     app: AppHandle,
     state: State<'_, AppState>,
     workspace_path: String,
@@ -175,33 +179,49 @@ pub fn start_agent_session(
     cols: Option<u16>,
     role: Option<String>,
 ) -> Result<u32, String> {
+    // Cheap state mutations (role file writes) stay on the calling thread.
     if let Some(r) = role.as_deref() {
         state.pty_manager.set_role(&agent_id, r);
     }
 
-    state.pty_manager.create_session(
-        app,
-        workspace_id.unwrap_or_else(|| "default-ws".to_string()),
-        workspace_path,
-        agent_id,
-        session_id,
-        provider,
-        profile_id,
-        prompt,
-        rows.unwrap_or(30),
-        cols.unwrap_or(100),
-    )
+    let pty_manager = state.pty_manager.clone();
+    let ws_id = workspace_id.unwrap_or_else(|| "default-ws".to_string());
+    let rows_val = rows.unwrap_or(30);
+    let cols_val = cols.unwrap_or(100);
+
+    // Open + spawn the PTY on a blocking worker thread so the UI stays responsive.
+    tauri::async_runtime::spawn_blocking(move || {
+        pty_manager.create_session(
+            app,
+            ws_id,
+            workspace_path,
+            agent_id,
+            session_id,
+            provider,
+            profile_id,
+            prompt,
+            rows_val,
+            cols_val,
+        )
+    })
+    .await
+    .map_err(|e| format!("Failed to spawn PTY session: {}", e))?
 }
 
 #[tauri::command]
-pub fn send_agent_input(
+pub async fn send_agent_input(
     state: State<'_, AppState>,
     agent_id: String,
     session_id: String,
     input: String,
 ) -> Result<(), String> {
+    let pty_manager = state.pty_manager.clone();
     // Send raw PTY byte stream directly as typed, supporting both agent_id and session_id lookup
-    state.pty_manager.write_with_fallback(&agent_id, &session_id, &input)
+    tauri::async_runtime::spawn_blocking(move || {
+        pty_manager.write_with_fallback(&agent_id, &session_id, &input)
+    })
+    .await
+    .map_err(|e| format!("Failed to write PTY input: {}", e))?
 }
 
 #[tauri::command]
@@ -225,46 +245,63 @@ pub fn get_agent_mcp_tools(
 }
 
 #[tauri::command]
-pub fn resize_agent_terminal(
+pub async fn resize_agent_terminal(
     state: State<'_, AppState>,
     agent_id: String,
     rows: u16,
     cols: u16,
 ) -> Result<(), String> {
-    state.pty_manager.resize(&agent_id, rows, cols)
+    let pty_manager = state.pty_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || pty_manager.resize(&agent_id, rows, cols))
+        .await
+        .map_err(|e| format!("Failed to resize PTY terminal: {}", e))?
 }
 
 #[tauri::command]
-pub fn interrupt_agent_session(
+pub async fn interrupt_agent_session(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<(), String> {
-    state.pty_manager.interrupt(&agent_id)
+    let pty_manager = state.pty_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || pty_manager.interrupt(&agent_id))
+        .await
+        .map_err(|e| format!("Failed to interrupt PTY session: {}", e))?
 }
 
 #[tauri::command]
-pub fn get_agent_terminal_history(
+pub async fn get_agent_terminal_history(
     state: State<'_, AppState>,
     agent_id: String,
-) -> String {
-    state.pty_manager.get_history(&agent_id)
+) -> Result<String, String> {
+    let pty_manager = state.pty_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok(pty_manager.get_history(&agent_id)))
+        .await
+        .map_err(|e| format!("Failed to read PTY history: {}", e))?
 }
 
 #[tauri::command]
-pub fn is_agent_process_running(
+pub async fn is_agent_process_running(
     state: State<'_, AppState>,
     agent_id: String,
-) -> bool {
-    state.pty_manager.is_running(&agent_id)
+) -> Result<bool, String> {
+    let pty_manager = state.pty_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok(pty_manager.is_running(&agent_id)))
+        .await
+        .map_err(|e| format!("Failed to query PTY process state: {}", e))?
 }
 
 #[tauri::command]
-pub fn stop_agent_session(
+pub async fn stop_agent_session(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<(), String> {
-    state.pty_manager.terminate(&agent_id);
-    Ok(())
+    let pty_manager = state.pty_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pty_manager.terminate(&agent_id);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Failed to stop PTY session: {}", e))?
 }
 
 // Phase 3: Git State
@@ -637,12 +674,45 @@ pub fn get_agent_usage_stats(
 
 #[tauri::command]
 pub fn write_project_skill_file(project_path: String, relative_path: String, content: String) -> Result<bool, String> {
-    let full_path = std::path::Path::new(&project_path).join(&relative_path);
-    if let Some(parent) = full_path.parent() {
+    let base = std::path::Path::new(&project_path);
+    if !base.is_dir() {
+        return Err("Target project path is not a valid directory".to_string());
+    }
+
+    // Security: normalize and verify that destination stays strictly inside project_path
+    let full_path = base.join(&relative_path);
+    let normalized = full_path.components().collect::<std::path::PathBuf>();
+    if !normalized.starts_with(base) {
+        return Err("Path traversal attempt detected: skill write blocked".to_string());
+    }
+
+    if let Some(parent) = normalized.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create skill directory: {}", e))?;
     }
-    std::fs::write(&full_path, content).map_err(|e| format!("Failed to write skill file: {}", e))?;
+    std::fs::write(&normalized, content).map_err(|e| format!("Failed to write skill file: {}", e))?;
     Ok(true)
+}
+
+#[tauri::command]
+pub fn remove_project_skill_file(project_path: String, relative_path: String) -> Result<bool, String> {
+    let base = std::path::Path::new(&project_path);
+    let full_path = base.join(&relative_path);
+    let normalized = full_path.components().collect::<std::path::PathBuf>();
+    if !normalized.starts_with(base) {
+        return Err("Path traversal attempt detected: skill removal blocked".to_string());
+    }
+
+    if normalized.is_file() {
+        let _ = std::fs::remove_file(&normalized);
+        // Clean up parent directory if empty
+        if let Some(parent) = normalized.parent() {
+            if parent.starts_with(base) && parent != base {
+                let _ = std::fs::remove_dir(parent); // only removes if empty
+            }
+        }
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 #[tauri::command]

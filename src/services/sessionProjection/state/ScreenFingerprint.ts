@@ -28,6 +28,15 @@ export class ScreenFingerprint {
       }
     }
 
+    // Trailing TUI artifacts: cursor bars / box remnants painted at the line end
+    // by full-screen redraws ("…need. |"), and right-aligned frame timestamps
+    // ("hello    19:05 d"). Leading whitespace/indentation is strictly preserved.
+    clean = clean.replace(/\s*[|│┃║┐┘┤╗╝╣─]+\s*$/, '');
+    const tsStrip = clean.match(/^(.+?)\s{2,}\d{1,2}:\d{2}(?::\d{2})?\s*[a-z]?$/);
+    if (tsStrip && tsStrip[1] && tsStrip[1].trim().length > 0) {
+      clean = tsStrip[1].trimEnd();
+    }
+
     return clean;
   }
 
@@ -44,6 +53,20 @@ export class ScreenFingerprint {
       .replace(/[|│┃║_┐┘┤╗╝╣─═—\-_•*~\s]+$/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /**
+   * INV — single comparison path for TERMINAL ECHO identity.
+   *
+   * Agents re-render prompts with TUI decoration: `❯ hello`, `│ hello │`,
+   * `hello    19:05 d` (right-aligned frame timestamp + cursor artifact),
+   * `> hello`. All of these must fingerprint IDENTICALLY to the canonical
+   * prompt so the session prompt ledger and echo suppressor recognize them.
+   * This is identity normalization for comparison only — it does not remove
+   * anything from the canonical conversation.
+   */
+  static terminalEchoFingerprint(line: string): string {
+    return this.fingerprintLine(this.cleanLineContent(line || ''));
   }
 
   /**

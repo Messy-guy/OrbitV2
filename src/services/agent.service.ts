@@ -6,6 +6,7 @@ export interface IAgentService {
   getAgents(workspaceId: string): Promise<Agent[]>;
   addAgent(workspaceId: string, provider: AgentProvider, customName?: string, customModel?: string, profileId?: string): Promise<Agent>;
   removeAgent(agentId: string): Promise<void>;
+  saveAgent(agent: Agent): Promise<void>;
   updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent>;
   detectInstalledAgents(): Promise<DetectedAgentDto[]>;
   startAgentProcess(
@@ -97,6 +98,23 @@ export class HybridAgentService implements IAgentService {
       }
     }
     this.fallbackAgents = this.fallbackAgents.filter(a => a.id !== agentId);
+  }
+
+  async saveAgent(agent: Agent): Promise<void> {
+    const idx = this.fallbackAgents.findIndex(a => a.id === agent.id);
+    if (idx >= 0) {
+      this.fallbackAgents[idx] = { ...agent };
+    } else {
+      this.fallbackAgents.push({ ...agent });
+    }
+
+    if (isTauriAvailable()) {
+      try {
+        await tauriService.saveAgent(agent);
+      } catch (e) {
+        console.warn('Tauri saveAgent failed', e);
+      }
+    }
   }
 
   async updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent> {

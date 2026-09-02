@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/auth.store';
 import { useAgentStore } from '../stores/agent.store';
 import { useWorkspaceStore } from '../stores/workspace.store';
+import { useSkillStore } from '../stores/skill.store';
 import { isTauriAvailable, tauriService } from './tauri.service';
 import { conversationStore } from './conversation/ConversationStore';
 import { conversationCaptureService } from './conversation/ConversationCaptureService';
@@ -135,6 +136,30 @@ class DesktopRelayService {
         this.broadcastLiveTelemetry();
       });
 
+      // Track Mobile Attention State (§9, §39) for Foreground Suppression
+      this.socket.on('mobile:attention_update', (attentionState: any) => {
+        if (attentionState && attentionState.deviceId) {
+          import('./notifications/PushGateway').then(({ pushGateway }) => {
+            pushGateway.updateMobileAttention(attentionState);
+          }).catch(() => {});
+        }
+      });
+
+      // Secure Server-side Device Push Token Registration (§12, §13, §14)
+      this.socket.on('mobile:register_push_token', (payload: any) => {
+        if (payload && payload.token && payload.userId) {
+          import('./notifications/DeviceRegistry').then(({ deviceRegistry }) => {
+            deviceRegistry.registerDevice({
+              userId: payload.userId,
+              token: payload.token,
+              platform: payload.platform || 'ios',
+              appVersion: payload.appVersion,
+              environment: payload.environment || 'development',
+            });
+          }).catch(() => {});
+        }
+      });
+
       // Handle mobile remote commands and conversation messages
       this.socket.on('desktop:execute_action', async (action: any) => {
         const actionType = String(action.type || action.action || '');
@@ -147,7 +172,7 @@ class DesktopRelayService {
           const sessionId = String(action.sessionId || payload?.sessionId || agentId);
 
           if (input !== undefined && agentId) {
-            await universalRemoteController.deliverRemoteMessage({
+            const result = await universalRemoteController.deliverRemoteMessage({
               requestId,
               agentId,
               sessionId,
@@ -156,7 +181,21 @@ class DesktopRelayService {
               timestamp: Date.now(),
             }).catch((e) => {
               console.warn('[Desktop Relay] Failed to deliver remote message via universalRemoteController:', e);
+              return { success: false, sessionId, error: String(e) } as any;
             });
+            if (result && result.success === false) {
+              // Surface the failure: reconcile the streaming turn and mark the
+              // session so mobile shows a failed state instead of an eternal
+              // "thinking & working..." with no reply.
+              console.error(
+                `[SESSION] remote delivery failed session=${result.sessionId || sessionId}: ${result.error || 'unknown'}`
+              );
+              try {
+                const { conversationStore: cs } = await import('./conversation/ConversationStore');
+                cs.reconcileStreamingTurns(result.sessionId || sessionId);
+                cs.setSessionStatus(result.sessionId || sessionId, 'error');
+              } catch {}
+            }
           }
         } else if (actionType === 'PAUSE' || actionType === 'KILL' || actionType === 'STOP') {
           if (isTauriAvailable()) {
@@ -339,7 +378,7 @@ class DesktopRelayService {
       // Map sessions to canonical mobile representation
       const mappedAgents = canonicalSessions.map((session) => {
         // Find matching live agent store if present
-        const liveAgent = agents.find((a) => a.id === session.id);
+        const liveAgent = agents.find((a) => a.id === session.id || a.id === session.engine?.id || a.currentSessionId === session.id);
         const isRuntimeLive = !!session.runtime?.isAlive && session.status !== 'offline';
         const effectiveStatus = isRuntimeLive ? session.status : 'offline';
 
@@ -363,6 +402,10 @@ class DesktopRelayService {
             chatHistory.push({
               id: msg.id,
               agentId: session.id,
+              // INV-9/10 — every mobile message carries its Orbit session and
+              // turn identity so the mobile projection can reject foreign events.
+              sessionId: session.id,
+              turnId: turn.id,
               sender: msg.role === 'user' ? 'user' : 'agent',
               content: rawContent,
               thought: thoughtActivity?.summary,
@@ -379,11 +422,14 @@ class DesktopRelayService {
           }
         }
 
+        const equippedSkills = liveAgent ? useSkillStore.getState().getEquippedSkills(liveAgent.id) : [];
+
         return {
           id: session.id,
           name: session.engine.name || session.title,
           provider: session.engine.provider,
           role: liveAgent?.role || 'raw',
+          operationalMode: liveAgent?.operationalMode || (liveAgent?.role === 'architect' ? 'plan' : liveAgent?.role === 'reviewer' ? 'audit' : 'code'),
           workspaceId: session.workspaceId,
           projectId: session.projectId,
           status: effectiveStatus,
@@ -399,6 +445,12 @@ class DesktopRelayService {
           chatHistory,
           conversation: session.conversation,
           capabilities: session.capabilities,
+          equippedSkills: equippedSkills.map((s) => ({
+            id: s.id,
+            name: s.name,
+            shortLabel: s.shortLabel,
+            category: s.category,
+          })),
           runtime: {
             isAlive: isRuntimeLive,
             pid: session.runtime?.pid,

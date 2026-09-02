@@ -17,6 +17,12 @@ pub struct PtySession {
     pub rows: u16,
     pub cols: u16,
     pub created_at: i64,
+    /// True when the provider is a full-screen/interactive TUI agent (Mimo, Vibe,
+    /// Qwen, Muse, Qoder, …, or a raw shell). Such agents render their own input
+    /// box, so Orbit must forward every keystroke raw and NEVER buffer them in
+    /// `line_buffer` (the architect/reviewer role guard would otherwise swallow
+    /// user input before it reaches the agent's TUI).
+    pub direct_cli: bool,
 }
 
 impl PtySession {
@@ -31,6 +37,7 @@ impl PtySession {
         child: Box<dyn Child + Send + Sync>,
         rows: u16,
         cols: u16,
+        direct_cli: bool,
     ) -> Self {
         Self {
             session_id,
@@ -46,6 +53,7 @@ impl PtySession {
             rows,
             cols,
             created_at: chrono_now_millis(),
+            direct_cli,
         }
     }
 }

@@ -17,13 +17,37 @@ use commands::{
     resize_agent_terminal, save_agent, save_checkpoint, save_project_context,
     send_agent_input, set_agent_role, get_agent_mcp_tools, start_agent_session, stop_agent_session, get_agent_terminal_history,
     is_agent_process_running, get_project_activity, generate_context_draft, apply_context_draft,
-    record_user_decision, resolve_project_issue, get_agent_usage_stats, write_project_skill_file, install_agent_cli, open_external_url, AppState,
+    record_user_decision, resolve_project_issue, get_agent_usage_stats, write_project_skill_file, remove_project_skill_file, install_agent_cli, open_external_url, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use storage::StorageManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Log every panic to the Orbit debug file before it unwinds. Without this,
+    // thread panics (e.g. a poisoned Mutex during PTY teardown) surface only as
+    // opaque "task N panicked" JoinErrors with no root cause. Capturing the
+    // backtrace here makes the actual first failure diagnosable.
+    std::panic::set_hook(Box::new(|info| {
+        let log_path = std::env::temp_dir().join("orbit-debug.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+            use std::io::Write;
+            let payload = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic payload".to_string());
+            let _ = writeln!(f, "\n===== ORBIT PANIC: {} =====", payload);
+            let location = info.location().map(|l| format!(" at {}:{}", l.file(), l.line()))
+                .unwrap_or_default();
+            let _ = writeln!(f, "location: {}", location);
+            let full_bt = std::backtrace::Backtrace::capture().to_string();
+            let bt: Vec<&str> = full_bt.lines().take(6).collect();
+            if !bt.is_empty() {
+                let _ = writeln!(f, "backtrace:\n{}", bt.join("\n"));
+            }
+            let _ = writeln!(f, "===== END ORBIT PANIC =====\n");
+        }
+    }));
+
     let activity_detector = Arc::new(ActivityDetector::new());
     let pty_manager = Arc::new(PtyManager::new(activity_detector.clone()));
     let storage = Arc::new(StorageManager::new());
@@ -80,6 +104,7 @@ pub fn run() {
             resolve_project_issue,
             get_agent_usage_stats,
             write_project_skill_file,
+            remove_project_skill_file,
             install_agent_cli,
             open_external_url,
         ])

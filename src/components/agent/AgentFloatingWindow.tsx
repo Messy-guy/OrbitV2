@@ -30,6 +30,8 @@ import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
 import { useSkillStore } from '../../stores/skill.store';
 import { SkillItem } from '../../types/skills';
+import { AgentSkillPickerModal } from '../skills/AgentSkillPickerModal';
+import { ProviderSkillAdapterService } from '../../services/providerSkillAdapter.service';
 import { tauriService } from '../../services';
 import { clsx } from 'clsx';
 
@@ -60,9 +62,10 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
   const { agents, removeAgent, setAgentRole } = useAgentStore();
   const { activeSessionIdByAgent } = useAgentStore();
   const { setShareContextOpen, maximizedAgentId, setMaximizedAgentId } = useUIStore();
-  const { equipSkillToAgent, getEquippedSkills, unequipSkillFromAgent } = useSkillStore();
+  const { equipSkillToAgent, getEquippedSkills, unequipSkillFromAgent, assignmentsByAgent } = useSkillStore();
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragOverType, setDragOverType] = useState<'role' | 'skill' | null>(null);
+  const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
 
   const equippedSkills = getEquippedSkills(agent.id);
   const parentAgent = agent.parentId ? agents.find(a => a.id === agent.parentId) : null;
@@ -241,11 +244,11 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
       enableResizing={!isMaximized}
       bounds="parent"
       className={clsx(
-        "rounded-2xl flex flex-col overflow-hidden transition-[border-color,box-shadow,opacity] duration-200",
+        "rounded-2xl flex flex-col overflow-hidden border",
         isActive 
-          ? "border-border-active shadow-[0_16px_48px_-8px_rgba(0,0,0,0.7)] ring-1 ring-white/10" 
-          : "border-border/70 opacity-95 shadow-[0_8px_32px_-4px_rgba(0,0,0,0.5)]",
-        isDragging && "shadow-[0_28px_64px_rgba(0,0,0,0.8)] border-border-highlight cursor-grabbing ring-2 ring-emerald-500/30 scale-[1.002]"
+          ? "border-border-active shadow-lg ring-1 ring-white/10" 
+          : "border-border/70 shadow-md",
+        isDragging && "border-border-highlight cursor-grabbing ring-2 ring-emerald-500/30"
       )}
       style={{
         zIndex: isMaximized ? 9999 : zIndex,
@@ -254,10 +257,7 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
         flexDirection: 'column',
         transform: 'translate3d(0,0,0)',
         backfaceVisibility: 'hidden',
-        willChange: isDragging ? 'transform' : 'auto',
-        backgroundColor: 'var(--bg-panel, rgba(15, 16, 21, 0.88))',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+        backgroundColor: 'var(--bg-panel, #0f1015)',
       }}
       onMouseDown={onFocus}
       onDragOver={handleDragOver}
@@ -277,7 +277,7 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
 
       {/* Top Titlebar */}
       <div
-        className="floating-window-header h-8.5 px-3.5 border-b border-border/80 flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated/90 backdrop-blur-md transition-colors"
+        className="floating-window-header h-8.5 px-3.5 border-b border-border/80 flex items-center justify-between select-none cursor-grab active:cursor-grabbing flex-shrink-0 bg-panel-elevated transition-colors"
         onDoubleClick={handleToggleMaximize}
       >
         {/* Left: Provider Icon + Agent Name + Work Area Badge + Active Skill Badges */}
@@ -320,8 +320,20 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
           )}
         </div>
 
-        {/* Right: Quick Actions (Copy, Checkpoint, Handoff) + Window Controls */}
+        {/* Right: Quick Actions (+ Skill, Copy, Checkpoint, Handoff) + Window Controls */}
         <div className="flex items-center gap-1 no-drag">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsSkillPickerOpen(true);
+            }}
+            className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-md transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0"
+            title="Equip an AI Skill to this Agent"
+          >
+            <Plus size={10} />
+            <span>Skill</span>
+          </button>
+
           <button
             onClick={async (e) => {
               e.stopPropagation();
@@ -400,6 +412,13 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
           </div>
         )}
       </div>
+
+      {/* Direct Agent Skill Picker Modal */}
+      <AgentSkillPickerModal
+        isOpen={isSkillPickerOpen}
+        onClose={() => setIsSkillPickerOpen(false)}
+        agentId={agent.id}
+      />
     </Rnd>
   );
 };

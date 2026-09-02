@@ -12,6 +12,41 @@ pub fn invalidate_detection_cache() {
     }
 }
 
+/// Detect editor-sandboxed CLI shims that cannot run from the host.
+///
+/// Example: the GitHub Copilot launcher inside VS Code's globalStorage
+/// (`.../github.copilot-chat/copilotCli/copilot`) is a tiny shell script that execs
+/// the VS Code binary from INSIDE the editor's Flatpak/app sandbox
+/// (`ELECTRON_RUN_AS_NODE=1 /app/extra/vscode/code ...`). That interpreter never
+/// exists when Orbit (running on the host) spawns it, so the shim dies instantly
+/// with `…: not found` and exit code 1. Scan the shim for literal absolute paths
+/// that are missing on this host — any missing referenced interpreter means the
+/// shim is unusable outside its sandbox.
+pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    // Only editor-managed shim locations (Flatpak .var/app or XDG .config/Code).
+    let is_editor_shim = s.contains("copilotCli")
+        && (s.contains(".var/app/") || s.contains(".config/Code") || s.contains("/Code/"));
+    if !is_editor_shim {
+        return false;
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return true, // unreadable shim — treat as unusable
+    };
+    // Skip the shebang; any literal absolute path referenced afterwards that does
+    // not exist on this host means the shim cannot run here.
+    for line in content.lines().skip(1) {
+        for token in line.split_whitespace() {
+            let t = token.trim_matches(|c| c == '"' || c == '\'');
+            if t.starts_with('/') && t.len() > 4 && !Path::new(t).exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> {
     // 1. Check custom extra paths first
     for path_str in extra_paths {
@@ -103,6 +138,11 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
             expanded_names.push("continue".to_string());
             expanded_names.push("cn".to_string());
             expanded_names.push("continuedev".to_string());
+        }
+        if trimmed.contains("freebuff") {
+            expanded_names.push("freebuff".to_string());
+            expanded_names.push("freebuff-ai".to_string());
+            expanded_names.push("freebuff-cli".to_string());
         }
         if trimmed.contains("vibe") || trimmed.contains("mistral") {
             expanded_names.push("vibe".to_string());
@@ -198,17 +238,9 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     None
 }
 
-pub fn get_cli_version(path: &Path, version_flag: &str) -> Option<String> {
-    if let Ok(output) = Command::new(path).arg(version_flag).output() {
-        if output.status.success() || !output.stdout.is_empty() {
-            let out_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let first_line = out_str.lines().next().unwrap_or("").trim().to_string();
-            if !first_line.is_empty() {
-                return Some(first_line);
-            }
-        }
-    }
-    None
+pub fn get_cli_version(path: &Path, _version_flag: &str) -> Option<String> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    Some(format!("Installed ({})", name))
 }
 
 pub fn detect_all_agents() -> Vec<DetectedAgent> {
@@ -404,25 +436,51 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     }
 
     // 8. Detect GitHub Copilot CLI
-    if let Some(copilot_path) = find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
-        let version = get_cli_version(&copilot_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "copilot".to_string(),
-            name: "GITHUB COPILOT".to_string(),
-            path: copilot_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Official GitHub Copilot CLI — Code generation & shell explanation harness".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "copilot".to_string(),
-            name: "GITHUB COPILOT".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "GitHub Copilot CLI (not installed)".to_string(),
-        });
+    // Standalone installs first; the VS Code-internal shim is a last resort and is
+    // rejected when its sandbox-internal interpreter is missing on this host.
+    let copilot_extra = [
+        "/home/leo/.local/share/orbit/engines/copilot/node_modules/.bin/copilot",
+        "/home/leo/.npm-global/bin/copilot",
+        "/home/leo/.nvm/versions/node/v24.18.1/bin/copilot",
+        "/home/leo/.local/share/pnpm/copilot",
+        "/home/leo/.local/bin/copilot",
+        "/usr/local/bin/copilot",
+        "/usr/bin/copilot",
+        "/home/leo/.var/app/com.visualstudio.code/config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
+        "/home/leo/.config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
+    ];
+    match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &copilot_extra) {
+        Some(copilot_path) if is_unusable_sandbox_shim(&copilot_path) => {
+            detected.push(DetectedAgent {
+                provider: "copilot".to_string(),
+                name: "GITHUB COPILOT".to_string(),
+                path: copilot_path.to_string_lossy().to_string(),
+                version: None,
+                is_available: false,
+                description: "GitHub Copilot CLI shim found only inside the VS Code sandbox — install the standalone CLI: npm install -g @github/copilot".to_string(),
+            });
+        }
+        Some(copilot_path) => {
+            let version = get_cli_version(&copilot_path, "--version");
+            detected.push(DetectedAgent {
+                provider: "copilot".to_string(),
+                name: "GITHUB COPILOT".to_string(),
+                path: copilot_path.to_string_lossy().to_string(),
+                version,
+                is_available: true,
+                description: "Official GitHub Copilot CLI — Code generation & shell explanation harness".to_string(),
+            });
+        }
+        None => {
+            detected.push(DetectedAgent {
+                provider: "copilot".to_string(),
+                name: "GITHUB COPILOT".to_string(),
+                path: "".to_string(),
+                version: None,
+                is_available: false,
+                description: "GitHub Copilot CLI (not installed) — install with: npm install -g @github/copilot".to_string(),
+            });
+        }
     }
 
     // 9. Detect Goose CLI
@@ -536,7 +594,17 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     }
 
     // 14. Detect Mistral Vibe CLI
-    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]) {
+    let vibe_extra = [
+        "/home/leo/.var/app/com.visualstudio.code/data/uv/tools/mistral-vibe/bin/vibe",
+        "/home/leo/.local/share/uv/tools/mistral-vibe/bin/vibe",
+        "/home/leo/.local/bin/vibe",
+        "/home/leo/.cargo/bin/vibe",
+        "/home/leo/.npm-global/bin/vibe",
+        "/home/leo/.nvm/versions/node/v24.18.1/bin/vibe",
+        "/usr/local/bin/vibe",
+        "/usr/bin/vibe",
+    ];
+    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &vibe_extra) {
         let version = get_cli_version(&vibe_path, "--version");
         detected.push(DetectedAgent {
             provider: "vibe".to_string(),
@@ -558,7 +626,15 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     }
 
     // 15. Detect Qoder CLI
-    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
+    let qoder_extra = [
+        "/home/leo/.qoder/bin/qodercli",
+        "/home/leo/.qoder/bin/qoder",
+        "/home/leo/.local/bin/qodercli",
+        "/home/leo/.local/bin/qoder",
+        "/usr/local/bin/qodercli",
+        "/usr/bin/qodercli",
+    ];
+    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &qoder_extra) {
         let version = get_cli_version(&qoder_path, "--version");
         detected.push(DetectedAgent {
             provider: "qoder".to_string(),

@@ -130,17 +130,33 @@ export interface EngineManifest {
 }
 
 export type OrbitEngineEvent =
-  | { type: 'user_message'; text: string; messageId?: string; timestamp: number }
-  | { type: 'assistant_delta'; text: string; thought?: string; timestamp: number }
-  | { type: 'assistant_completed'; text: string; thought?: string; timestamp: number }
-  | { type: 'activity_started'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; timestamp: number }
-  | { type: 'activity_updated'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; timestamp: number }
-  | { type: 'activity_completed'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; timestamp: number }
-  | { type: 'approval_requested'; id: string; title: string; action: string; metadata?: Record<string, any>; timestamp: number }
-  | { type: 'error'; message: string; timestamp: number }
+  | { type: 'user_message'; text: string; messageId?: string; turnId?: string; timestamp: number }
+  | { type: 'assistant_delta'; text: string; thought?: string; turnId?: string; timestamp: number }
+  | { type: 'assistant_completed'; text: string; thought?: string; turnId?: string; timestamp: number }
+  | { type: 'activity_started'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; turnId?: string; timestamp: number }
+  | { type: 'activity_updated'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; turnId?: string; timestamp: number }
+  | { type: 'activity_completed'; category: ActivitySummary['category']; summary: string; detail?: ActivityDetail; turnId?: string; timestamp: number }
+  | { type: 'approval_requested'; id: string; title: string; action: string; metadata?: Record<string, any>; turnId?: string; timestamp: number }
+  | { type: 'error'; message: string; turnId?: string; timestamp: number }
   | { type: 'session_status_changed'; status: SessionStatus; timestamp: number }
   | { type: 'session_completed'; timestamp: number }
   | { type: 'session_interrupted'; timestamp: number };
+
+/**
+ * Session restoration lifecycle for Orbit sessions (INV-2 / §4):
+ *
+ *   CREATED → RESTORING → REATTACHING → READY
+ *   CREATED → RESTORING → NEW_SESSION_REQUIRED → READY
+ *
+ * During RESTORING/REATTACHING no canonical conversation events may be emitted;
+ * only persisted conversation data may populate the UI.
+ */
+export type SessionRestoreLifecycle =
+  | 'CREATED'
+  | 'RESTORING'
+  | 'REATTACHING'
+  | 'NEW_SESSION_REQUIRED'
+  | 'READY';
 
 export interface OrbitSession {
   id: string;
@@ -152,6 +168,15 @@ export interface OrbitSession {
   conversation: Conversation;
   capabilities: EngineCapabilities;
   runtime: RuntimeReference;
+  /**
+   * INV-3 — the CLI's OWN internal session/resume identifier, when the provider
+   * supports persistent sessions (opencode `--continue`, codex `exec resume`,
+   * …). NEVER overwrite Orbit identity (`id`) with this value; they are
+   * deliberately separate state domains.
+   */
+  cliSessionId?: string;
+  /** Restoration lifecycle state (see SessionRestoreLifecycle). */
+  lifecycleState?: SessionRestoreLifecycle;
   createdAt: number;
   updatedAt: number;
 }

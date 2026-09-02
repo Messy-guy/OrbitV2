@@ -2,9 +2,11 @@ import { useAgentStore } from '../../stores/agent.store';
 import { conversationStore } from '../conversation/ConversationStore';
 import { conversationCaptureService } from '../conversation/ConversationCaptureService';
 import { pendingInputEchoQueue } from '../sessionProjection/input/PendingInputEchoQueue';
-import { isTauriAvailable, tauriService } from '../tauri.service';
+import { isTauriAvailable } from '../tauri.service';
 import { agentProfileRegistry } from './AgentInteractionProfileRegistry';
+import { deliverMessageToPty } from './ptyDelivery';
 import {
+  AgentInteractionProfile,
   RemoteControlRequest,
   RemoteControlResult,
   RemoteDiagnosticEvent,
@@ -196,37 +198,15 @@ export class UniversalRemoteController {
     try {
       const submission = profile.formatSubmission(cleanMessage);
 
-      this.emitDiagnostic('INPUT_FORMATTED', resolvedAgentId, resolvedSessionId, provider, {
-        payloadLength: submission.payload.length,
-        submitKey: submission.submitKey === '\r' ? 'CR' : submission.submitKey === '\n' ? 'LF' : 'CUSTOM',
-        preSubmitDelayMs: submission.preSubmitDelayMs || 0,
+      // Wait for the agent's interactive surface (Mimo/Vibe/etc. TUI input box) to be
+      // live before writing, then deliver with the profile's submit strategy
+      // (per-char for TUI agents; the submit key is always sent).
+      await deliverMessageToPty(resolvedAgentId, resolvedSessionId, cleanMessage, profile);
+
+      this.emitDiagnostic('PTY_WRITE_COMPLETED', resolvedAgentId, resolvedSessionId, provider, {
+        targetAgentId: resolvedAgentId,
+        targetSessionId: resolvedSessionId,
       });
-
-      if (isTauriAvailable()) {
-        this.emitDiagnostic('PTY_WRITE_STARTED', resolvedAgentId, resolvedSessionId, provider, {
-          targetAgentId: resolvedAgentId,
-          targetSessionId: resolvedSessionId,
-        });
-
-        // Send the payload to the EXISTING PTY process
-        await tauriService.sendAgentInput(resolvedAgentId, resolvedSessionId, submission.payload);
-
-        // Pre-submit delay if required by profile (e.g. Codex multiline buffering)
-        if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, submission.preSubmitDelayMs));
-        }
-
-        // Send submit key (e.g. '\r' or '\n')
-        await tauriService.sendAgentInput(resolvedAgentId, resolvedSessionId, submission.submitKey);
-
-        this.emitDiagnostic('PTY_WRITE_COMPLETED', resolvedAgentId, resolvedSessionId, provider, {
-          targetAgentId: resolvedAgentId,
-          targetSessionId: resolvedSessionId,
-        });
-      } else {
-        // Fallback for non-Tauri / mock testing environments
-        console.log(`[Orbit RemoteControl (Web/Mock)] Delivered to ${resolvedAgentId}: ${submission.payload}`);
-      }
 
       this.emitDiagnostic('INPUT_SUBMITTED', resolvedAgentId, resolvedSessionId, provider, {
         submitKey: submission.submitKey === '\r' ? 'CR' : submission.submitKey === '\n' ? 'LF' : 'CUSTOM',
@@ -242,6 +222,11 @@ export class UniversalRemoteController {
       };
     } catch (err: any) {
       const errorMsg = err?.message || String(err);
+      // INV — delivery failures must be LOUD. A silent failure strands the
+      // mobile message as "thinking & working..." forever with no trace.
+      console.error(
+        `[SESSION] remote delivery FAILED agent=${resolvedAgentId} session=${resolvedSessionId} provider=${provider}: ${errorMsg}`
+      );
       this.emitDiagnostic('REMOTE_CONTROL_FAILED', resolvedAgentId, resolvedSessionId, provider, {
         error: errorMsg,
       });

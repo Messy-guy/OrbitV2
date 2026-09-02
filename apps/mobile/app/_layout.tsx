@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import '../global.css';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
+import { mobileNotificationService } from '../src/services/notification.service';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,6 +16,30 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Initialize push notification lifecycle & channels (§12, §30, §33)
+    mobileNotificationService.initialize().catch((err) => {
+      console.warn('[RootLayout] Notification init error:', err);
+    });
+
+    // Deep Link Navigation Handler (§11, §31)
+    mobileNotificationService.setDeepLinkHandler((data) => {
+      console.log('🚀 [DeepLink] Navigating from notification tap:', data);
+      if (data.projectId) {
+        router.push({
+          pathname: '/project/[id]',
+          params: {
+            id: data.projectId,
+            targetAgentId: data.agentId,
+            targetSessionId: data.sessionId,
+          },
+        });
+      }
+    });
+  }, [router]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <StatusBar style="light" />

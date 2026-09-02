@@ -71,7 +71,8 @@ export const ClaudeProfile: AgentInteractionProfile = {
     };
   },
   isReady(output: string): boolean {
-    return output.includes('❯') || output.includes('>');
+    // Only ready when Claude's interactive prompt is live, never on its startup banner.
+    return /❯/.test(output) || /\n> \s*$/.test(output) || /type a message/i.test(output);
   },
 };
 
@@ -98,7 +99,8 @@ export const CodexProfile: AgentInteractionProfile = {
     };
   },
   isReady(output: string): boolean {
-    return output.includes('❯') || output.includes('OpenAI') || output.includes('Codex');
+    // Qwen Code: ready only when its interactive prompt is live.
+    return /❯/.test(output) || /\n> \s*$/.test(output) || /Type a message|type a message/i.test(output);
   },
 };
 
@@ -152,13 +154,22 @@ export const FreebuffProfile: AgentInteractionProfile = {
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
-      preSubmitDelayMs: 15,
+      preSubmitDelayMs: 25,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    // Freebuff / MiMo render their own TUI; only treat as ready once the input/prompt
+    // surface is live (footer mode bar or the input placeholder), never on the splash.
+    return /(MiMo|Freebuff)\s*(Auto|•|·)/i.test(output) ||
+      /Type your message/i.test(output) ||
+      /❯/.test(output) ||
+      /Build\s*·\s*MiMo/i.test(output) ||
+      /\n> \s*$/.test(output);
   },
 };
 
@@ -180,6 +191,10 @@ export const ClineProfile: AgentInteractionProfile = {
       postSubmitFlush: true,
     };
   },
+  isReady(output: string): boolean {
+    // Cline prompts for input only after startup; never match its banner.
+    return /❯/.test(output) || /\n>\s*$/.test(output) || />\s*$/.test(output) || /type a message|describe the change|ask cline|what would you like/i.test(output);
+  },
 };
 
 /**
@@ -192,13 +207,17 @@ export const CopilotProfile: AgentInteractionProfile = {
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
-      preSubmitDelayMs: 20,
+      preSubmitDelayMs: 25,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    // Copilot CLI is ready when its prompt is live; never on the startup banner.
+    return /❯/.test(output) || /\n> \s*$/.test(output) || /type a message|type ask/i.test(output);
   },
 };
 
@@ -220,6 +239,9 @@ export const GooseProfile: AgentInteractionProfile = {
       postSubmitFlush: true,
     };
   },
+  isReady(output: string): boolean {
+    return /❯/.test(output) || /\n> \s*$/.test(output) || /type a message|goose\s*>/i.test(output);
+  },
 };
 
 /**
@@ -239,6 +261,9 @@ export const KiroProfile: AgentInteractionProfile = {
       preSubmitDelayMs: 15,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    return /❯/.test(output) || /\n> \s*$/.test(output) || /kiro\s*>/i.test(output);
   },
 };
 
@@ -271,14 +296,28 @@ export const MimoProfile: AgentInteractionProfile = {
   deliveryTier: 'pty_interactive',
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
+  // Burst delivery by default (remote messages must be instant). Chunked pacing via
+  // `interKeyDelayMs` stays available as an opt-in if Mimo's Textual input ever
+  // proves to coalesce bursts and drop characters.
+  requiresFocus: true,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
-      preSubmitDelayMs: 15,
+      preSubmitDelayMs: 120,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    // Mimo's TUI is only ready once the input box + mode footer are visible
+    // (e.g. "Type your message...", "Build · MiMo Auto"). Never match on the
+    // splash (which renders "MIMO CODE" as box-art), so a remote message is not
+    // injected while the TUI is still starting up.
+    return /Type your message/i.test(output) ||
+      /(Build|Plan|Chat)\s*·\s*MiMo/i.test(output) ||
+      /MiMo\s*Auto\s*\(/i.test(output) ||
+      /\n> \s*$/.test(output);
   },
 };
 
@@ -292,13 +331,16 @@ export const MuseProfile: AgentInteractionProfile = {
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
-      preSubmitDelayMs: 15,
+      preSubmitDelayMs: 25,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    return /(Muse|Meta)\s*•/i.test(output) || /Type your message/i.test(output) || /❯/.test(output);
   },
 };
 
@@ -312,13 +354,17 @@ export const VibeProfile: AgentInteractionProfile = {
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
       preSubmitDelayMs: 25,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    // Vibe is a full-screen Textual TUI; ready only when its prompt/status bar is live.
+    return /Type a message|type a message/i.test(output) || /Codestral/i.test(output) || /\n> \s*$/.test(output);
   },
 };
 
@@ -332,13 +378,16 @@ export const QoderProfile: AgentInteractionProfile = {
   submitKey: '\r',
   capabilities: defaultPtyCapabilities,
   formatSubmission(message: string): FormattedSubmission {
-    const clean = message.trim();
+    const clean = message.replace(/[\r\n]+$/, '').trim();
     return {
       payload: clean,
       submitKey: '\r',
-      preSubmitDelayMs: 15,
+      preSubmitDelayMs: 25,
       postSubmitFlush: true,
     };
+  },
+  isReady(output: string): boolean {
+    return /(Qoder|qoder)\s*•/i.test(output) || /Type your message/i.test(output) || /❯/.test(output);
   },
 };
 

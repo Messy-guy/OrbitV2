@@ -1,185 +1,54 @@
 import { EngineAdapter, StartSessionOptions, Unsubscribe } from './EngineAdapter';
 import { EngineCapabilities, OrbitEngineEvent, ConversationTurn, ActivitySummary } from '../../../types/conversation';
+import { genericPtyAdapter } from './GenericPtyAdapter';
 import { PtyCaptureSession } from '../../sessionProjection/state/PtyCaptureSession';
-import { isTauriAvailable, tauriService } from '../../tauri.service';
 
 export class AgyAdapter implements EngineAdapter {
   readonly id = 'antigravity';
   readonly name = 'Antigravity CLI (AGY)';
 
-  private captureSessions: Map<string, PtyCaptureSession> = new Map();
-  private subscribers: Map<string, Set<(event: OrbitEngineEvent) => void>> = new Map();
-  private commitTimers: Map<string, NodeJS.Timeout> = new Map();
-
   capabilities(): EngineCapabilities {
-    return {
-      streaming: true,
-      structuredEvents: true,
-      structuredToolCalls: true,
-      approvals: true,
-      sessionResume: true,
-      historyRecovery: true,
-      fileEvents: true,
-      commandEvents: true,
-      thinkingEvents: true,
-      nativeConversationHistory: true,
-    };
+    return genericPtyAdapter.capabilities();
+  }
+
+  ensureSessionPrimed(sessionId: string) {
+    genericPtyAdapter.ensureSessionPrimed(sessionId);
+  }
+
+  getCaptureSession(sessionId: string): PtyCaptureSession | undefined {
+    return genericPtyAdapter.getCaptureSession(sessionId);
+  }
+
+  startTurn(sessionId: string, userPrompt: string, turnId?: string, userMessageId?: string): void {
+    genericPtyAdapter.startTurn(sessionId, userPrompt, turnId, userMessageId);
+  }
+
+  commitTurn(sessionId: string, turnId?: string): void {
+    genericPtyAdapter.commitTurn(sessionId, turnId);
   }
 
   async startSession(options: StartSessionOptions): Promise<void> {
-    const { sessionId, projectPath, taskDirective, workspaceId } = options;
-    if (!this.captureSessions.has(sessionId)) {
-      this.captureSessions.set(sessionId, new PtyCaptureSession(sessionId, 30, 100));
-    }
-
-    if (isTauriAvailable()) {
-      await tauriService.startAgentSession(
-        projectPath,
-        sessionId,
-        sessionId,
-        'antigravity',
-        taskDirective,
-        workspaceId,
-        24,
-        80
-      ).catch((err) => {
-        console.warn(`[AgyAdapter] Failed to start AGY session:`, err);
-      });
-    }
+    return genericPtyAdapter.startSession(options);
   }
 
   async sendMessage(sessionId: string, message: string): Promise<void> {
-    const cleanText = message.trim();
-    if (!cleanText) return;
-
-    let capture = this.captureSessions.get(sessionId);
-    if (!capture) {
-      capture = new PtyCaptureSession(sessionId, 30, 100);
-      this.captureSessions.set(sessionId, capture);
-    }
-    capture.startTurn(`turn_${Date.now()}`, cleanText);
-
-    if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(sessionId, sessionId, cleanText).catch((err) => {
-        console.warn(`[AgyAdapter] Failed to send input to AGY:`, err);
-      });
-      await new Promise((r) => setTimeout(r, 30));
-      await tauriService.sendAgentInput(sessionId, sessionId, '\r').catch((err) => {
-        console.warn(`[AgyAdapter] Failed to send submit key to AGY:`, err);
-      });
-    }
+    return genericPtyAdapter.sendMessage(sessionId, message);
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    if (isTauriAvailable()) {
-      await tauriService.sendAgentInput(sessionId, sessionId, '\x03').catch(() => {});
-    }
+    return genericPtyAdapter.interrupt(sessionId);
   }
 
   async dispose(sessionId: string): Promise<void> {
-    if (isTauriAvailable()) {
-      await tauriService.stopAgentSession(sessionId).catch(() => {});
-    }
-    const capture = this.captureSessions.get(sessionId);
-    if (capture) {
-      capture.dispose();
-      this.captureSessions.delete(sessionId);
-    }
-    this.subscribers.delete(sessionId);
-    const timer = this.commitTimers.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      this.commitTimers.delete(sessionId);
-    }
+    return genericPtyAdapter.dispose(sessionId);
   }
 
   subscribe(sessionId: string, callback: (event: OrbitEngineEvent) => void): Unsubscribe {
-    if (!this.subscribers.has(sessionId)) {
-      this.subscribers.set(sessionId, new Set());
-    }
-    this.subscribers.get(sessionId)!.add(callback);
-    return () => {
-      this.subscribers.get(sessionId)?.delete(callback);
-    };
+    return genericPtyAdapter.subscribe(sessionId, callback);
   }
 
-  private emit(sessionId: string, event: OrbitEngineEvent) {
-    const subs = this.subscribers.get(sessionId);
-    if (subs) {
-      for (const cb of subs) {
-        try {
-          cb(event);
-        } catch (err) {
-          console.error('[AgyAdapter] Emit error:', err);
-        }
-      }
-    }
-  }
-
-  /**
-   * Process raw stdout from AGY PTY runtime through stateful differential capture
-   */
   processRawOutput(sessionId: string, bytes: string) {
-    let capture = this.captureSessions.get(sessionId);
-    if (!capture) {
-      capture = new PtyCaptureSession(sessionId, 30, 100);
-      this.captureSessions.set(sessionId, capture);
-    }
-
-    try {
-      const result = capture.processPtyBytes(bytes);
-
-      // 1. Emit tool activities
-      for (const act of result.activities) {
-        this.emit(sessionId, {
-          type: 'activity_started',
-          category: act.category,
-          summary: act.summary,
-          detail: act.details?.[0],
-          timestamp: Date.now(),
-        });
-      }
-
-      // 2. Emit compact thinking
-      if (result.thought) {
-        this.emit(sessionId, {
-          type: 'activity_started',
-          category: 'other',
-          summary: result.thought,
-          timestamp: Date.now(),
-        });
-      }
-
-      // 3. Emit assistant delta only for true newly appeared user-facing text
-      const userText = result.userFacingText;
-      if (userText && userText.trim().length > 2 && !/^(Plan|Build|Chat|Explore):/i.test(userText.trim())) {
-        this.emit(sessionId, {
-          type: 'assistant_delta',
-          text: userText,
-          thought: result.thought,
-          timestamp: Date.now(),
-        });
-
-        // Debounce commit when AGY output settles for 900ms
-        const existingTimer = this.commitTimers.get(sessionId);
-        if (existingTimer) clearTimeout(existingTimer);
-
-        const timer = setTimeout(() => {
-          this.commitTimers.delete(sessionId);
-          capture?.commitTurn();
-          this.emit(sessionId, {
-            type: 'assistant_completed',
-            text: userText,
-            thought: result.thought,
-            timestamp: Date.now(),
-          });
-        }, 900);
-
-        this.commitTimers.set(sessionId, timer);
-      }
-    } catch (err) {
-      console.warn('[AgyAdapter] Passive observation parsing error (terminal unaffected):', err);
-    }
+    genericPtyAdapter.processRawOutput(sessionId, bytes);
   }
 
   /**

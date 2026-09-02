@@ -148,7 +148,7 @@ impl ActivityDetector {
             .clone()
     }
 
-    pub fn process_event(&self, event: &SessionEvent, project_path: &str) {
+    pub fn process_event(&self, event: &SessionEvent, _project_path: &str) {
         let mut map = self.states.lock().unwrap();
         let state = map.entry(event.workspace_id.clone()).or_insert_with(|| ProjectActivityState {
             workspace_id: event.workspace_id.clone(),
@@ -191,17 +191,24 @@ impl ActivityDetector {
             }
             _ => {}
         }
+    }
 
-        // Refresh Git state periodically (cached with 5-second throttle to eliminate subprocess thrashing)
-        if !project_path.is_empty() {
-            let git_st = get_cached_git_state(project_path);
-            state.changed_files = git_st.modified_files.clone();
-            state.git_state = git_st;
+    /// Refresh Git state for a workspace OUTSIDE the PTY reader hot path.
+    ///
+    /// This must NEVER be called from the PTY reader thread: `inspect_git_state` spawns up to
+    /// four `git` subprocesses and blocks (while also holding the `states` mutex). Calling it
+    /// per output chunk stalled the PTY read loop and made agent CLIs appear frozen — the
+    /// primary low-end/multi-agent stall. A dedicated low-frequency background thread calls this
+    /// instead, so the reader thread only ever does lock-light in-memory work.
+    pub fn refresh_git_state(&self, workspace_id: &str, project_path: &str) {
+        if project_path.is_empty() {
+            return;
         }
+        let git_st = get_cached_git_state(project_path);
 
         // Calculate freshness: decay based on modified files vs last checkpoint
-        let uncommitted_count = state.changed_files.len();
-        state.context_freshness = if uncommitted_count == 0 {
+        let uncommitted_count = git_st.modified_files.len();
+        let freshness = if uncommitted_count == 0 {
             100
         } else if uncommitted_count <= 2 {
             92
@@ -212,6 +219,24 @@ impl ActivityDetector {
         } else {
             45
         };
+
+        let mut map = self.states.lock().unwrap();
+        let state = map.entry(workspace_id.to_string()).or_insert_with(|| ProjectActivityState {
+            workspace_id: workspace_id.to_string(),
+            active_agent_id: None,
+            recent_commands: Vec::new(),
+            changed_files: Vec::new(),
+            recent_issues: Vec::new(),
+            last_build: None,
+            last_test: None,
+            git_state: GitState::default(),
+            last_activity_at: chrono::Utc::now().timestamp_millis(),
+            last_checkpoint_time: None,
+            context_freshness: 100,
+        });
+        state.changed_files = git_st.modified_files.clone();
+        state.git_state = git_st;
+        state.context_freshness = freshness;
     }
 
     fn parse_technical_signals(&self, state: &mut ProjectActivityState, text: &str, timestamp: i64) {

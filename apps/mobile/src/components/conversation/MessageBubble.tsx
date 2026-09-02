@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Platform, ScrollView } from 'react-n
 import { Bot, User, Copy, Check, Sparkles } from 'lucide-react-native';
 import { MobileAgentChatMessage } from '../../types/orbit';
 import { ActivityCard } from './ActivityCard';
+import { normalizeMobileAssistantContent } from '../../utils/normalizeAssistant';
 import * as Haptics from 'expo-haptics';
 
 interface MessageBubbleProps {
@@ -146,7 +147,9 @@ const MessageBubbleComponent: React.FC<MessageBubbleProps> = ({ message, agentNa
 
   // Split entire content by fenced code blocks (```lang ... ```)
   const renderedBody = useMemo(() => {
-    const content = message.content || '';
+    // INV-19/20 — render-boundary defense: strip any surviving terminal
+    // artifacts before display (the data boundary already normalized this).
+    const content = normalizeMobileAssistantContent(message.content || '');
     if (!content) {
       if (message.streaming) {
         return (

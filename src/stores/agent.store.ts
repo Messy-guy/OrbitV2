@@ -49,6 +49,7 @@ interface AgentState {
   clearTerminal: (agentId: string) => void;
   interruptAgent: (agentId: string) => void;
   addDirectMessage: (sessionId: string, message: Message) => void;
+  upsertAssistantMessage: (sessionId: string, message: Message & { _streaming?: boolean }) => void;
   updateGridLayouts: (layouts: AgentGridTileLayout[]) => void;
 }
 
@@ -102,7 +103,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       pendingLogsByAgent[agentId].push(newLine);
 
       if (!batchTimer) {
-        batchTimer = setTimeout(flushBatchedLogs, 40);
+        batchTimer = setTimeout(flushBatchedLogs, 250);
       }
     });
 
@@ -140,48 +141,107 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const activeSessionMap: Record<string, string> = {};
       const messagesMap: Record<string, Message[]> = {};
 
-      for (const agent of agents) {
-        let agentSessions = await sessionService.getAgentSessions(agent.id);
-        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
-        const { conversationStore } = await import('../services/conversation/ConversationStore');
-        const canonicalSessions = conversationStore.getSessionsForAgent(agent.id);
+      const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+      const { conversationStore } = await import('../services/conversation/ConversationStore');
 
-        let activeSess = agent.currentSessionId || agentSessions[0]?.id || canonicalSessions[0]?.id;
-        if (!activeSess) {
-          const newSess = await sessionService.createSession(agent.id, workspaceId, `${agent.name} Session`);
-          activeSess = newSess.id;
-          agentSessions = [newSess];
-        } else {
-          await sessionService.restoreSession(activeSess, agent.id, workspaceId, agent.name);
-        }
+      // Load every agent's sessions/messages in parallel instead of serially awaiting
+      // each round-trip. On a workspace with many agents this removes N*4 sequential
+      // IPC round-trips before the grid renders (a major low-end startup stall).
+      await Promise.all(
+        agents.map(async (agent) => {
+          // INV-2 / §21 — explicit restoration state machine per agent:
+          //   CREATED → RESTORING → REATTACHING → READY
+          //   CREATED → RESTORING → NEW_SESSION_REQUIRED → READY
+          // A persisted, recoverable session is ALWAYS reused with its original
+          // Orbit sessionId; a new session is created ONLY when none exists.
+          const restorationPhase = agent.currentSessionId ? 'RESTORING' : 'RESTORING';
 
-        // Authoritatively bind and restore the existing canonical session with the stable activeSess ID
-        conversationCaptureService.bindSession(
-          activeSess,
-          workspaceId,
-          workspaceId,
-          {
-            id: agent.id,
-            name: agent.name,
-            provider: agent.provider,
-          },
-          agent.name
-        );
+          let agentSessions = await sessionService.getAgentSessions(agent.id);
+          const canonicalSessions = conversationStore.getSessionsForAgent(agent.id);
 
-        sessionsMap[agent.id] = agentSessions;
-        activeSessionMap[agent.id] = activeSess;
-        messagesMap[activeSess] = await sessionService.getMessages(activeSess);
+          // INV-2 — select the most recent VALID persisted session (createdAt desc,
+          // then updatedAt desc). Never merge sessions; never fabricate identity.
+          const orderedPersisted = [...agentSessions].sort((a, b) => {
+            const ta = a.createdAt || 0;
+            const tb = b.createdAt || 0;
+            if (tb !== ta) return tb - ta;
+            return (b.updatedAt || 0) - (a.updatedAt || 0);
+          });
 
-        // Check if agent process is currently running in Tauri runtime
-        if (isTauriAvailable() && projectPath && activeSess) {
-          const isRunning = await tauriService.isAgentProcessRunning(agent.id).catch(() => false);
-          if (isRunning) {
-            conversationStore.setRuntimeAlive(activeSess, true, undefined, 'working');
+          // Priority: persisted currentSessionId → most recent persisted session →
+          // most recent canonical session (restored across desktop restarts).
+          let activeSess =
+            agent.currentSessionId ||
+            orderedPersisted[0]?.id ||
+            canonicalSessions[0]?.id ||
+            '';
+
+          if (activeSess) {
+            // Verify the chosen identity actually exists; fall back to the most
+            // recent persisted session if the persisted pointer is stale.
+            const existsInPersisted = orderedPersisted.some((s) => s.id === activeSess);
+            if (!existsInPersisted && orderedPersisted[0]?.id) {
+              console.warn(
+                `[SESSION] agent=${agent.id} persisted pointer ${activeSess} not in store — falling back to most recent persisted session`
+              );
+              activeSess = orderedPersisted[0].id;
+            }
+            console.log(
+              `[SESSION] agent=${agent.id} provider=${agent.provider} reusing sessionId=${activeSess} (phase=${restorationPhase}→REATTACHING)`
+            );
+            await sessionService.restoreSession(activeSess, agent.id, workspaceId, agent.name);
           } else {
-            conversationStore.setRuntimeAlive(activeSess, false, undefined, 'offline');
+            // Case C — process and provider session unrecoverable, and NO persisted
+            // session exists: create a fresh session with an empty conversation.
+            console.log(`[SESSION] agent=${agent.id} no persisted session — creating new (NEW_SESSION_REQUIRED)`);
+            const newSess = await sessionService.createSession(agent.id, workspaceId, `${agent.name} Session`);
+            activeSess = newSess.id;
+            agentSessions = [newSess];
           }
-        }
-      }
+
+          // Keep the rendered Agent object aligned with the authoritative session
+          // selected above. AgentTerminal uses `agent.currentSessionId` when it
+          // attaches the PTY; leaving a stale/empty value here creates a synthetic
+          // session id and makes the restored CLI appear disconnected from its
+          // persisted conversation.
+          if (agent.currentSessionId !== activeSess) {
+            agent.currentSessionId = activeSess;
+            await agentService.saveAgent(agent);
+          }
+
+          // Authoritatively bind and restore the existing canonical session with the stable activeSess ID
+          conversationCaptureService.bindSession(
+            activeSess,
+            workspaceId,
+            workspaceId,
+            {
+              id: agent.id,
+              name: agent.name,
+              provider: agent.provider,
+            },
+            agent.name
+          );
+
+          sessionsMap[agent.id] = agentSessions;
+          activeSessionMap[agent.id] = activeSess;
+          messagesMap[activeSess] = await sessionService.getMessages(activeSess);
+
+          // §21 — recovery decision:
+          //   Case A — live process exists → reuse sessionId, reattach (no new
+          //            conversation, no duplicate process spawn).
+          //   Case B — process gone but session recoverable → reuse sessionId;
+          //            the terminal tile spawns the CLI on demand (AgentTerminal),
+          //            preserving the same Orbit identity.
+          //   Case C — handled above (NEW_SESSION_REQUIRED).
+          if (isTauriAvailable() && projectPath && activeSess) {
+            const isRunning = await tauriService.isAgentProcessRunning(agent.id).catch(() => false);
+            console.log(
+              `[SESSION] agent=${agent.id} session=${activeSess} recovery=${isRunning ? 'REATTACHING(live-process)' : 'REUSING(process-gone)'} → READY`
+            );
+            conversationStore.setRuntimeAlive(activeSess, isRunning, undefined, isRunning ? 'working' : 'offline');
+          }
+        })
+      );
 
       // Compute grid layout
       const gridLayouts: AgentGridTileLayout[] = agents.map((agent, index) => {
@@ -230,11 +290,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const rawAgent = await agentService.addAgent(workspaceId, provider, customName, customModel, profileId);
     const newSession = await sessionService.createSession(rawAgent.id, workspaceId, `Session 01`);
 
+    const derivedOperationalMode: 'plan' | 'code' | 'audit' =
+      initialRole === 'architect' ? 'plan' : initialRole === 'reviewer' ? 'audit' : 'code';
+
+    newSession.operationalMode = derivedOperationalMode;
+
     const newAgent: Agent = {
       ...rawAgent,
       spaceId: spaceId || 'default',
       profileId: profileId || 'default',
       role: initialRole || 'raw',
+      operationalMode: derivedOperationalMode,
       parentId,
       workerType,
       taskDirective,
@@ -243,6 +309,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       viewMode: 'terminal',
       pid: undefined,
     };
+
+    // Persist full newAgent record including currentSessionId
+    await agentService.saveAgent(newAgent);
 
     set((state) => {
       const existingCount = state.agents.length;
@@ -322,10 +391,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           agents: state.agents.map((a) => (a.id === newAgent.id ? { ...a, pid: realPid, status: 'working' } : a)),
         }));
 
-        // Authoritatively bind and activate in Universal Conversation Store
+        // Authoritatively bind and activate in Universal Conversation Store & Universal Mode Enforcer
         try {
           const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
           const { conversationStore } = await import('../services/conversation/ConversationStore');
+          const { universalModeEnforcer } = await import('../services/operationalMode');
+          
+          universalModeEnforcer.registerSession(
+            newSession.id,
+            newAgent.id,
+            newAgent.provider,
+            workspaceId,
+            projectPath,
+            derivedOperationalMode
+          );
+
           conversationCaptureService.bindSession(
             newSession.id,
             workspaceId,
@@ -525,13 +605,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       agents: state.agents.map((a) => (a.id === agentId ? { ...a, status: 'working' } : a)),
     }));
 
-    // If Tauri is available, write to real PTY stdin directly
+    // If Tauri is available, deliver through the canonical profile-aware pipeline:
+    // turn freeze + pending echo registration + interaction profile (submit key, TUI
+    // readiness wait, per-char typing). A raw `sendAgentInput(content)` would type the
+    // text into a TUI agent's input box WITHOUT the submit key — the text sits
+    // unsubmitted and the agent appears frozen (the Mimo chat bug).
     const targetAgent = get().agents.find((a) => a.id === agentId);
     if (isTauriAvailable() && targetAgent) {
       try {
-        await agentService.sendAgentInput(agentId, sessionId, content);
+        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+        await conversationCaptureService.submitUserMessage(sessionId, content);
         return;
       } catch (e) {
+        console.warn('Profile-aware PTY delivery failed:', e);
         // sendAgentInput failed — session may be dead. Restart it cleanly (no prompt),
         // then deliver the message after the TUI has had time to initialize.
         // NEVER pass user message content as `prompt` to startAgentProcess — that
@@ -547,14 +633,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               undefined, // No prompt — restart clean, send input separately
               workspaceId
             );
-            // Wait for TUI to mount, then send the message via normal input path
+            // Wait for TUI to mount, then deliver via the canonical profile path
             setTimeout(async () => {
               try {
-                await agentService.sendAgentInput(agentId, sessionId, content);
+                const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+                await conversationCaptureService.submitUserMessage(sessionId, content);
               } catch (err) {
-                console.warn('Delayed sendAgentInput after restart failed:', err);
+                console.warn('Delayed profile-aware delivery after restart failed:', err);
               }
-            }, 1500);
+            }, 2000);
             return;
           } catch (err) {
             console.warn('Real agent launch error:', err);
@@ -590,11 +677,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return;
     }
 
-    // In native Tauri mode, send directly to PTY master
+    // In native Tauri mode, deliver through the canonical profile-aware pipeline
+    // (submit key included — a bare command typed with no `\r` never executes).
     const targetAgent = get().agents.find((a) => a.id === agentId);
     if (isTauriAvailable() && targetAgent) {
       try {
-        await agentService.sendAgentInput(agentId, sessionId, command);
+        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+        await conversationCaptureService.submitUserMessage(sessionId, command);
         return;
       } catch (e) {
         // If no active process, restart cleanly (no command as prompt) then send
@@ -610,11 +699,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             );
             setTimeout(async () => {
               try {
-                await agentService.sendAgentInput(agentId, sessionId, command);
+                const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+                await conversationCaptureService.submitUserMessage(sessionId, command);
               } catch (err) {
-                console.warn('Tauri PTY delayed sendAgentInput error:', err);
+                console.warn('Tauri PTY delayed profile-aware delivery error:', err);
               }
-            }, 1500);
+            }, 2000);
             return;
           } catch (err) {
             console.warn('Tauri PTY startAgentProcess error:', err);
@@ -702,6 +792,28 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         [sessionId]: [...(state.messages[sessionId] || []), message],
       },
     }));
+  },
+
+  // Streaming-aware upsert for mirrored agent replies: replaces the in-flight
+  // streaming assistant message while it streams, and finalizes (or appends) it
+  // when the turn completes. Prevents duplicate bubbles per delta.
+  upsertAssistantMessage: (sessionId: string, message: Message & { _streaming?: boolean }) => {
+    set((state) => {
+      const existing = state.messages[sessionId] || [];
+      const last = existing[existing.length - 1];
+      const isStreamingBubble = last && last.role === 'agent' && (last as any)._streaming;
+
+      const next = isStreamingBubble
+        ? [...existing.slice(0, -1), message]
+        : [...existing, message];
+
+      return {
+        messages: {
+          ...state.messages,
+          [sessionId]: next,
+        },
+      };
+    });
   },
 
   updateGridLayouts: (layouts: AgentGridTileLayout[]) => {

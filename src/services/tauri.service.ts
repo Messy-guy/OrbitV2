@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { markPtySpawn } from './remoteControl/ptySpawnTracker';
 import {
   Agent,
   AgentUsageStats,
@@ -133,7 +134,7 @@ export const tauriService = {
     role?: string
   ): Promise<number> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
-    return invoke<number>('start_agent_session', {
+    const pid = await invoke<number>('start_agent_session', {
       workspacePath,
       agentId,
       sessionId,
@@ -145,6 +146,11 @@ export const tauriService = {
       cols,
       role,
     });
+    // Record the spawn instant so PTY delivery can distinguish a freshly-spawned
+    // TUI (needs its short readiness gate) from an established, ready process
+    // (must receive remote messages instantly).
+    markPtySpawn(agentId);
+    return pid;
   },
 
   async sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void> {
@@ -325,6 +331,16 @@ export const tauriService = {
       return await invoke<boolean>('write_project_skill_file', { projectPath, relativePath, content });
     } catch (e) {
       console.warn('write_project_skill_file fallback:', e);
+      return false;
+    }
+  },
+
+  async removeProjectSkillFile(projectPath: string, relativePath: string): Promise<boolean> {
+    if (!isTauriAvailable()) return false;
+    try {
+      return await invoke<boolean>('remove_project_skill_file', { projectPath, relativePath });
+    } catch (e) {
+      console.warn('remove_project_skill_file fallback:', e);
       return false;
     }
   },
