@@ -70,7 +70,7 @@ export const Modal: React.FC<ModalProps> = ({
             )}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/80 bg-panel-elevated/90 backdrop-blur-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 bg-panel-elevated/90 backdrop-blur-md">
               <div>
                 <h3 className="text-[13px] font-bold text-text-primary tracking-wider font-mono uppercase">{title}</h3>
                 {subtitle && <p className="text-[11px] text-text-muted mt-0.5 font-sans leading-relaxed">{subtitle}</p>}
@@ -84,7 +84,7 @@ export const Modal: React.FC<ModalProps> = ({
             </div>
 
             {/* Modal Body */}
-            <div className="p-4 overflow-y-auto max-h-[75vh]">
+            <div className="p-6 overflow-y-auto max-h-[75vh]">
               {children}
             </div>
           </motion.div>
