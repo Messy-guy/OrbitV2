@@ -15,6 +15,8 @@ if (Platform.OS !== 'web' && !isExpoGo) {
         shouldShowAlert: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
         priority: Notifications.AndroidNotificationPriority.HIGH,
       }),
     });

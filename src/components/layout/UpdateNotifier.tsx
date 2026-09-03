@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, Download, RefreshCw, X } from 'lucide-react';
-import { isTauriAvailable } from '../../services';
+import { Sparkles, Download, RefreshCw, X, ExternalLink } from 'lucide-react';
+import { isTauriAvailable, tauriService } from '../../services';
+import { check, Update } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
+import packageJson from '../../../package.json';
 
 export const UpdateNotifier: React.FC = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -8,48 +11,82 @@ export const UpdateNotifier: React.FC = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [downloadedPercent, setDownloadedPercent] = useState<number>(0);
   const [dismissed, setDismissed] = useState(false);
+  const [updateObj, setUpdateObj] = useState<Update | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string>('');
 
   useEffect(() => {
-    if (!isTauriAvailable()) return;
-
     const checkForUpdates = async () => {
-      try {
-        const updater = (window as any).__TAURI__?.updater;
-        if (!updater) return;
-        const update = await updater.check();
-        if (update?.available) {
-          setUpdateAvailable(true);
-          setNewVersion(update.version || 'latest');
+      // 1. Primary: Native Tauri Updater Plugin
+      if (isTauriAvailable()) {
+        try {
+          const update = await check();
+          if (update) {
+            console.log('🚀 [Orbit Updater] Native updater detected version:', update.version);
+            setUpdateObj(update);
+            setUpdateAvailable(true);
+            setNewVersion(update.version || 'latest');
+            return;
+          }
+        } catch (err) {
+          console.warn('[Orbit Updater] Native updater check error (falling back to GitHub API):', err);
         }
-      } catch (err) {
-        console.warn('Auto-updater check skipped or unavailable:', err);
+      }
+
+      // 2. Fallback / Universal: Direct GitHub Releases API Check
+      try {
+        const currentVersion = packageJson.version || '0.1.0';
+        const res = await fetch('https://api.github.com/repos/Messy-guy/OrbitV2/releases/latest', {
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const latestTag = data.tag_name?.replace(/^v/, '');
+          if (latestTag && isNewerVersion(currentVersion, latestTag)) {
+            console.log(`🚀 [Orbit Updater] GitHub API detected newer version: v${latestTag} (current: v${currentVersion})`);
+            setUpdateAvailable(true);
+            setNewVersion(latestTag);
+            setDownloadUrl(data.html_url || 'https://github.com/Messy-guy/OrbitV2/releases/latest');
+          }
+        }
+      } catch (e) {
+        // Silently ignore network failures
       }
     };
 
     checkForUpdates();
-    const interval = setInterval(checkForUpdates, 30 * 60 * 1000);
+    const interval = setInterval(checkForUpdates, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleInstallUpdate = async () => {
-    try {
-      setIsUpdating(true);
-      const updater = (window as any).__TAURI__?.updater;
-      const process = (window as any).__TAURI__?.process;
-      if (!updater) return;
+  const isNewerVersion = (current: string, latest: string): boolean => {
+    const curParts = current.split('.').map(n => parseInt(n, 10) || 0);
+    const latParts = latest.split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(curParts.length, latParts.length); i++) {
+      const c = curParts[i] || 0;
+      const l = latParts[i] || 0;
+      if (l > c) return true;
+      if (l < c) return false;
+    }
+    return false;
+  };
 
-      const update = await updater.check();
-      if (update?.available) {
+  const handleInstallUpdate = async () => {
+    if (updateObj) {
+      try {
+        setIsUpdating(true);
         let downloaded = 0;
         let contentLength = 0;
 
-        await update.downloadAndInstall((event: any) => {
-          switch (event?.event) {
+        await updateObj.downloadAndInstall((event) => {
+          switch (event.event) {
             case 'Started':
-              contentLength = event.data?.contentLength || 0;
+              contentLength = event.data.contentLength || 0;
               break;
             case 'Progress':
-              downloaded += event.data?.chunkLength || 0;
+              downloaded += event.data.chunkLength || 0;
               if (contentLength > 0) {
                 setDownloadedPercent(Math.round((downloaded / contentLength) * 100));
               }
@@ -59,13 +96,16 @@ export const UpdateNotifier: React.FC = () => {
           }
         });
 
-        if (process?.relaunch) {
-          await process.relaunch();
+        await relaunch();
+      } catch (err) {
+        console.error('[Orbit Updater] Failed to install update via plugin:', err);
+        setIsUpdating(false);
+        if (downloadUrl) {
+          tauriService.openExternalUrl(downloadUrl);
         }
       }
-    } catch (err) {
-      console.error('Failed to install update:', err);
-      setIsUpdating(false);
+    } else if (downloadUrl) {
+      tauriService.openExternalUrl(downloadUrl);
     }
   };
 
@@ -86,7 +126,7 @@ export const UpdateNotifier: React.FC = () => {
             </span>
           </div>
           <p className="text-[11px] text-[#8e93a0] font-sans mt-0.5">
-            {isUpdating ? `Downloading update (${downloadedPercent}%)...` : 'A new version of Orbit is ready to install.'}
+            {isUpdating ? `Downloading update (${downloadedPercent}%)...` : 'A new version of Orbit Studio is ready.'}
           </p>
         </div>
 
@@ -98,10 +138,12 @@ export const UpdateNotifier: React.FC = () => {
           >
             {isUpdating ? (
               <RefreshCw size={12} className="animate-spin text-black" />
-            ) : (
+            ) : updateObj ? (
               <Download size={12} className="text-black" />
+            ) : (
+              <ExternalLink size={12} className="text-black" />
             )}
-            <span>{isUpdating ? 'Updating...' : 'Update & Restart'}</span>
+            <span>{isUpdating ? 'Updating...' : updateObj ? 'Update & Restart' : 'Get Update'}</span>
           </button>
 
           {!isUpdating && (

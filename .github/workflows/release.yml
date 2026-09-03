@@ -29,18 +29,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo & Rust Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
       - name: Install Linux build dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci || npm install
 
       - name: Build frontend
         run: npm run build
@@ -48,6 +54,7 @@ jobs:
       - name: Build Tauri Desktop App
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RUSTFLAGS: "-C link-arg=-s"
         run: npx tauri build
 
       - name: Upload Linux Artifacts
@@ -93,15 +100,20 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/mobile/package-lock.json
 
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
       - name: Prebuild Native Android Project
         run: npx expo prebuild --platform android --clean --no-install
 
       - name: Build Release APK via Gradle
         working-directory: apps/mobile/android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon --parallel --build-cache --max-workers=4 -Dorg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC -Dfile.encoding=UTF-8"
 
       - name: Rename & Stage APK
         run: |
