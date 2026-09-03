@@ -4,6 +4,7 @@ import { Stack, useRouter } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { mobileNotificationService } from '../src/services/notification.service';
+import { mobileAppUpdateService } from '../src/services/appUpdate.service';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,9 @@ export default function RootLayout() {
   const router = useRouter();
 
   useEffect(() => {
+    // Check for new app updates seamlessly in background
+    mobileAppUpdateService.checkForUpdates(true).catch(() => {});
+
     // Initialize push notification lifecycle & channels defensively
     try {
       mobileNotificationService.initialize().catch((err) => {

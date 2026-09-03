@@ -10,8 +10,10 @@ import { OrbitTokens } from '../../src/design-system/tokens';
 import { GlassCard } from '../../src/design-system/primitives/GlassCard';
 import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
 import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
-import { User, Bell, Radio, Shield, LogOut, Cpu, HardDrive } from 'lucide-react-native';
+import { User, Bell, Radio, Shield, LogOut, Cpu, HardDrive, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { mobileAppUpdateService } from '../../src/services/appUpdate.service';
+import Constants from 'expo-constants';
 
 export default function SettingsScreen() {
   const isConnected = useLiveRelayStore((s) => s.isConnected);
@@ -19,6 +21,18 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [isUnpairing, setIsUnpairing] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  const currentVersion = Constants.expoConfig?.version || '1.0.0';
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      await mobileAppUpdateService.checkForUpdates(false);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   const handleUnlink = async () => {
     if (isUnpairing) return;
@@ -132,6 +146,31 @@ export default function SettingsScreen() {
                 thumbColor="#FFFFFF"
               />
             </View>
+          </GlassCard>
+
+          {/* App Version & Automatic Update Checker */}
+          <GlassCard>
+            <View style={styles.cardHeader}>
+              <View style={styles.iconCircle}>
+                <Sparkles size={20} color="#FB923C" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Software Version</Text>
+                <Text style={styles.cardSubtitle}>
+                  Current Build: v{currentVersion}
+                </Text>
+              </View>
+            </View>
+
+            <AstryxButton
+              label={isCheckingUpdate ? 'Checking for Updates...' : 'Check for Updates'}
+              variant="glass"
+              size="md"
+              onPress={handleCheckUpdate}
+              disabled={isCheckingUpdate}
+              isLoading={isCheckingUpdate}
+              icon={<Sparkles size={16} color="#FFFFFF" />}
+            />
           </GlassCard>
 
           {/* Disconnect / Unpair Card */}
