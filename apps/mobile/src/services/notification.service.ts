@@ -1,11 +1,7 @@
-import * as Notifications from 'expo-notifications';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { mobileRelayService } from './mobileRelay.service';
 import { secureStorage } from './secureStorage';
-
-// Check if running inside Expo Go (where remote notifications were removed in SDK 53+)
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 export interface NotificationDeepLinkData {
   projectId: string;
@@ -30,6 +26,19 @@ class MobileNotificationService {
   };
 
   /**
+   * Lazily load expo-notifications to prevent native initialization crash on Android standalone APK
+   */
+  private getNotificationsModule() {
+    try {
+      if (Platform.OS === 'web') return null;
+      return require('expo-notifications');
+    } catch (e) {
+      console.warn('[Notifications] Native module not available:', e);
+      return null;
+    }
+  }
+
+  /**
    * Initialize notification channels and listeners safely inside React lifecycle
    */
   async initialize() {
@@ -39,6 +48,11 @@ class MobileNotificationService {
     this.isInitialized = true;
 
     try {
+      const Notifications = this.getNotificationsModule();
+      if (!Notifications) return;
+
+      const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
       if (!isExpoGo) {
         // 1. Configure foreground presentation handler
         try {
@@ -49,7 +63,7 @@ class MobileNotificationService {
               shouldSetBadge: false,
               shouldShowBanner: true,
               shouldShowList: true,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
+              priority: Notifications.AndroidNotificationPriority?.HIGH ?? 4,
             }),
           });
         } catch (e) {
@@ -57,13 +71,13 @@ class MobileNotificationService {
         }
 
         // 2. Setup channels & tokens
-        await this.setupNotificationChannels();
-        await this.registerForPushNotificationsAsync();
+        await this.setupNotificationChannels(Notifications);
+        await this.registerForPushNotificationsAsync(Notifications);
       } else {
         console.log('ℹ️ [Notifications] Running in Expo Go');
       }
 
-      this.setupListeners();
+      this.setupListeners(Notifications);
       this.setupAppStateTracking();
     } catch (e) {
       console.warn('[Notifications] Initialization error:', e);
@@ -73,26 +87,26 @@ class MobileNotificationService {
   /**
    * Set up Android Notification Channels with proper importance levels (§33)
    */
-  private async setupNotificationChannels() {
-    if (Platform.OS === 'android' && !isExpoGo) {
+  private async setupNotificationChannels(Notifications: any) {
+    if (Platform.OS === 'android' && Notifications?.setNotificationChannelAsync) {
       try {
         await Notifications.setNotificationChannelAsync('agent_attention', {
           name: 'Agent Attention & Approvals',
-          importance: Notifications.AndroidImportance.MAX,
+          importance: Notifications.AndroidImportance?.MAX ?? 5,
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#FF5722',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility?.PUBLIC ?? 1,
         });
 
         await Notifications.setNotificationChannelAsync('agent_completion', {
           name: 'Agent Task Completed',
-          importance: Notifications.AndroidImportance.DEFAULT,
+          importance: Notifications.AndroidImportance?.DEFAULT ?? 3,
           lightColor: '#4CAF50',
         });
 
         await Notifications.setNotificationChannelAsync('agent_errors', {
           name: 'Agent Errors & Crashes',
-          importance: Notifications.AndroidImportance.HIGH,
+          importance: Notifications.AndroidImportance?.HIGH ?? 4,
           vibrationPattern: [0, 500, 200, 500],
           lightColor: '#F44336',
         });
@@ -105,17 +119,21 @@ class MobileNotificationService {
   /**
    * Obtain Expo Push Token and register with Orbit Relay (§12)
    */
-  async registerForPushNotificationsAsync(): Promise<string | null> {
+  async registerForPushNotificationsAsync(Notifications?: any): Promise<string | null> {
+    const notif = Notifications || this.getNotificationsModule();
+    if (!notif) return null;
+
+    const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
     if (isExpoGo) {
       return null;
     }
 
     try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      const { status: existingStatus } = await notif.getPermissionsAsync();
       let finalStatus = existingStatus;
 
       if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
+        const { status } = await notif.requestPermissionsAsync();
         finalStatus = status;
       }
 
@@ -125,7 +143,7 @@ class MobileNotificationService {
       }
 
       // Get Expo push token
-      const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
+      const tokenData = await notif.getExpoPushTokenAsync().catch(() => null);
       if (!tokenData?.data) {
         console.log('ℹ️ [Notifications] Push tokens not available in current environment.');
         return null;
@@ -205,18 +223,18 @@ class MobileNotificationService {
   /**
    * Setup Notification Received and Response Listeners (§30, §31)
    */
-  private setupListeners() {
-    if (Platform.OS === 'web') return;
+  private setupListeners(Notifications: any) {
+    if (Platform.OS === 'web' || !Notifications) return;
 
     try {
       // 1. Foreground Notification Received
-      Notifications.addNotificationReceivedListener((notification) => {
-        console.log('🔔 [Notifications] Notification received in foreground:', notification.request.identifier);
+      Notifications.addNotificationReceivedListener?.((notification: any) => {
+        console.log('🔔 [Notifications] Notification received in foreground:', notification.request?.identifier);
       });
 
       // 2. Notification Response / Tap Listener (Deep Linking §11)
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data as any;
+      Notifications.addNotificationResponseReceivedListener?.((response: any) => {
+        const data = response.notification?.request?.content?.data as any;
         if (data && data.projectId) {
           const linkData: NotificationDeepLinkData = {
             projectId: data.projectId,
@@ -238,9 +256,9 @@ class MobileNotificationService {
       // Check if app was opened via notification tap on cold-start
       if (typeof Notifications.getLastNotificationResponseAsync === 'function') {
         Notifications.getLastNotificationResponseAsync()
-          .then((response) => {
+          .then((response: any) => {
             if (response) {
-              const data = response.notification.request.content.data as any;
+              const data = response.notification?.request?.content?.data as any;
               if (data && data.projectId) {
                 this.pendingDeepLink = {
                   projectId: data.projectId,
