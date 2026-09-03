@@ -12,7 +12,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { PairMobileModal } from './components/auth/PairMobileModal';
 import { ProUpgradeModal } from './components/agent/ProUpgradeModal';
 import { SkillBrowserModal } from './components/skills/SkillBrowserModal';
-import { OnboardingModal } from './components/onboarding/OnboardingModal';
+import { OnboardingScreen } from './pages/OnboardingScreen';
 import { UpdateNotifier } from './components/layout/UpdateNotifier';
 import { useSettingsStore, applyThemeTokens } from './stores/settings.store';
 import { useUIStore } from './stores/ui.store';
@@ -21,12 +21,22 @@ import { useAuthStore } from './stores/auth.store';
 import { LoginScreen } from './pages/LoginScreen';
 import { desktopRelayService } from './services/desktopRelay.service';
 
+const ONBOARDING_STORAGE_KEY = 'orbit_onboarding_completed_v1';
+
 export const App: React.FC = () => {
   const { activeWorkspaceId, loadWorkspaces } = useWorkspaceStore();
   const { theme, accent } = useSettingsStore();
   const { isAuthenticated, user } = useAuthStore();
   const { isProUpgradeModalOpen, setProUpgradeModalOpen } = useUIStore();
   const { agents } = useAgentStore();
+
+  const [isOnboardingCompleted, setIsOnboardingCompleted] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem(ONBOARDING_STORAGE_KEY) === 'true';
+    } catch {
+      return true;
+    }
+  });
 
   const isPro = user?.plan === 'PRO';
   const maxAllowedSlots = isPro ? 999 : 2;
@@ -45,9 +55,18 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Mandatory Authentication Gatekeeper
+  // 1. Mandatory Authentication Gatekeeper
   if (!isAuthenticated) {
     return <LoginScreen />;
+  }
+
+  // 2. Full-Page First-Time Onboarding Experience
+  if (!isOnboardingCompleted) {
+    return (
+      <OnboardingScreen
+        onComplete={() => setIsOnboardingCompleted(true)}
+      />
+    );
   }
 
   return (
@@ -75,7 +94,6 @@ export const App: React.FC = () => {
         currentCount={currentRunningAgents}
         maxSlots={maxAllowedSlots}
       />
-      <OnboardingModal />
       <UpdateNotifier />
     </div>
   );
