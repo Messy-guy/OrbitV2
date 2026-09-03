@@ -1,7 +1,7 @@
 import { useAuthStore } from '../stores/auth.store';
 import { isTauriAvailable, tauriService } from './tauri.service';
 
-const BACKEND_API_URL = 'http://localhost:3000';
+const BACKEND_API_URL = (import.meta as any).env?.VITE_API_URL || 'https://orbit-cloud-backend.onrender.com';
 
 export interface GitHubRepo {
   id: number;

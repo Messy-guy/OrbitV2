@@ -94,7 +94,7 @@ class DesktopRelayService {
     }
     this.isConnecting = true;
 
-    const targetUrl = relayUrl || (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
+    const targetUrl = relayUrl || (import.meta as any).env?.VITE_API_URL || 'https://orbit-cloud-backend.onrender.com';
 
     try {
       this.socket = io(`${targetUrl}/relay`, {
