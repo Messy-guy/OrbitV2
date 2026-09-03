@@ -39,7 +39,7 @@ console.log(`✅ Updated package.json, tauri.conf.json, and apps/mobile/package.
 // Commit, tag and push to trigger automated GitHub Release build
 try {
   console.log(`📦 Committing, tagging, and pushing v${nextVersion} to GitHub...`);
-  execSync('git add package.json src-tauri/tauri.conf.json apps/mobile/package.json .github/workflows/release.yml', { stdio: 'inherit', cwd: rootDir });
+  execSync('git add -A', { stdio: 'inherit', cwd: rootDir });
   execSync(`git commit -m "chore(release): v${nextVersion}"`, { stdio: 'inherit', cwd: rootDir });
   execSync(`git tag v${nextVersion}`, { stdio: 'inherit', cwd: rootDir });
   execSync('git push origin main && git push origin --tags', { stdio: 'inherit', cwd: rootDir });
