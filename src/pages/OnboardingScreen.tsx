@@ -14,9 +14,13 @@ import {
   Zap,
   Sparkles,
   Puzzle,
-  Bot
+  Bot,
+  FolderOpen,
+  Plus
 } from 'lucide-react';
 import { useUIStore } from '../stores/ui.store';
+import { useWorkspaceStore } from '../stores/workspace.store';
+import { tauriService } from '../services';
 
 const ONBOARDING_STORAGE_KEY = 'orbit_onboarding_completed_v1';
 
@@ -34,6 +38,7 @@ interface OnboardingScreenProps {
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const { setCreateWorkspaceOpen } = useUIStore();
+  const { createWorkspace } = useWorkspaceStore();
 
   const handleDismiss = () => {
     try {
@@ -45,6 +50,20 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const handleFinishAndCreateProject = () => {
     handleDismiss();
     setCreateWorkspaceOpen(true);
+  };
+
+  const handleFinishAndImportProject = async () => {
+    handleDismiss();
+    try {
+      const selectedPath = await tauriService.openFolderDialog();
+      if (selectedPath) {
+        const parts = selectedPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        const folderName = parts[parts.length - 1] || 'Imported Workspace';
+        await createWorkspace(folderName, selectedPath);
+      }
+    } catch (e) {
+      console.warn('Import folder cancelled or failed:', e);
+    }
   };
 
   const steps: StepData[] = [
@@ -208,7 +227,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       <div className="absolute w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-3xl pointer-events-none -bottom-20 -right-20" />
 
       {/* Main Presentation Container */}
-      <div className="w-full max-w-[540px] flex flex-col gap-6 z-10">
+      <div className="w-full max-w-[560px] flex flex-col gap-6 z-10">
         
         {/* Brand Header */}
         <div className="flex items-center justify-between">
@@ -284,21 +303,30 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               {!isLast ? (
                 <button
                   onClick={() => setCurrentStep(prev => prev + 1)}
-                  className="px-5 py-2.5 text-xs font-semibold rounded-xl bg-accent text-accent-fg hover:opacity-90 transition-all flex items-center gap-2 shadow-sm shadow-accent/20 active:scale-95"
+                  className="px-5 py-2.5 text-xs font-semibold rounded-xl bg-accent text-accent-fg hover:opacity-90 transition-all flex items-center gap-2 shadow-sm shadow-accent/20 active:scale-95 cursor-pointer"
                 >
                   Next <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                <button
-                  onClick={handleFinishAndCreateProject}
-                  className="px-5 py-2.5 text-xs font-semibold rounded-xl bg-accent text-accent-fg hover:opacity-90 transition-all flex items-center gap-2 shadow-sm shadow-accent/20 active:scale-95"
-                >
-                  Create Your First Project <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleFinishAndImportProject}
+                    className="px-4 py-2.5 text-xs font-semibold rounded-xl bg-panel hover:bg-panel-hover border border-border text-text-primary transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-text-muted" /> Import Folder
+                  </button>
+
+                  <button
+                    onClick={handleFinishAndCreateProject}
+                    className="px-5 py-2.5 text-xs font-semibold rounded-xl bg-accent text-accent-fg hover:opacity-90 transition-all flex items-center gap-1.5 shadow-sm shadow-accent/20 active:scale-95 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> New Project
+                  </button>
+                </div>
               )}
             </div>
           </div>

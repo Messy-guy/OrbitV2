@@ -1,5 +1,6 @@
 import { Alert, Linking } from 'react-native';
 import Constants from 'expo-constants';
+import packageJson from '../../package.json';
 
 interface GitHubRelease {
   tag_name: string;
@@ -21,7 +22,7 @@ class MobileAppUpdateService {
     this.checked = true;
 
     try {
-      const currentVersion = Constants.expoConfig?.version || '1.0.0';
+      const currentVersion = Constants.expoConfig?.version || packageJson.version || '0.1.0';
       const response = await fetch('https://api.github.com/repos/Messy-guy/OrbitV2/releases/latest', {
         headers: {
           'User-Agent': 'Orbit-Mobile-App',
@@ -36,7 +37,7 @@ class MobileAppUpdateService {
 
       if (!latestTag) return;
 
-      // Compare semantic versions (e.g. 0.1.15 vs 0.1.16)
+      // Compare semantic versions (e.g. 0.1.19 vs 0.1.20)
       if (this.isNewerVersion(currentVersion, latestTag)) {
         const apkAsset = release.assets.find(a => a.name.endsWith('.apk'));
         const downloadUrl = apkAsset?.browser_download_url || release.html_url;
@@ -58,22 +59,22 @@ class MobileAppUpdateService {
       } else if (!silent) {
         Alert.alert('Up to Date', `Orbit Mobile is already on the latest version (v${currentVersion}).`);
       }
-    } catch (e) {
+    } catch (err) {
       if (!silent) {
-        Alert.alert('Check Failed', 'Unable to check for updates. Please check your network connection.');
+        Alert.alert('Check Failed', 'Unable to check for updates. Please verify your internet connection.');
       }
     }
   }
 
   private isNewerVersion(current: string, latest: string): boolean {
-    const currentParts = current.split('.').map(n => parseInt(n, 10) || 0);
-    const latestParts = latest.split('.').map(n => parseInt(n, 10) || 0);
+    const curParts = current.split('.').map(n => parseInt(n, 10) || 0);
+    const latParts = latest.split('.').map(n => parseInt(n, 10) || 0);
 
-    for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
-      const cur = currentParts[i] || 0;
-      const lat = latestParts[i] || 0;
-      if (lat > cur) return true;
-      if (lat < cur) return false;
+    for (let i = 0; i < Math.max(curParts.length, latParts.length); i++) {
+      const c = curParts[i] || 0;
+      const l = latParts[i] || 0;
+      if (l > c) return true;
+      if (l < c) return false;
     }
     return false;
   }

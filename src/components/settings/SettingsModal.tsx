@@ -18,7 +18,8 @@ import {
   Star,
   Plus,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { Modal } from '../ui/Modal';
@@ -29,6 +30,8 @@ import { ThemeId, AccentId, CanvasGridStyle, TerminalCursorStyle } from '../../t
 import { AgentRoleType } from '../../types/orbit';
 import { AGENT_ROLE_CONFIGS } from '../../constants/roles';
 import { tauriService, isTauriAvailable } from '../../services/tauri.service';
+import { check } from '@tauri-apps/plugin-updater';
+import packageJson from '../../../package.json';
 import { clsx } from 'clsx';
 
 type SettingsTab = 'appearance' | 'agents' | 'modes' | 'handoff' | 'terminal' | 'notifications' | 'workspace' | 'about';
@@ -42,6 +45,8 @@ export const SettingsModal: React.FC = () => {
   const [detectedAgents, setDetectedAgents] = useState<any[]>([]);
   const [selectedConfigMode, setSelectedConfigMode] = useState<'architect' | 'implementer' | 'reviewer'>('implementer');
   const [favoriteDropdownOpen, setFavoriteDropdownOpen] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatusMsg, setUpdateStatusMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (isSettingsOpen && isTauriAvailable()) {
@@ -50,6 +55,43 @@ export const SettingsModal: React.FC = () => {
   }, [isSettingsOpen]);
 
   if (!isSettingsOpen) return null;
+
+  const handleCheckUpdateManual = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStatusMsg(null);
+    try {
+      if (isTauriAvailable()) {
+        try {
+          const update = await check();
+          if (update) {
+            setUpdateStatusMsg(`New version v${update.version} available! Use the update notification popup to install.`);
+            return;
+          }
+        } catch {}
+      }
+
+      const curVer = packageJson.version || '0.1.0';
+      const res = await fetch('https://api.github.com/repos/Messy-guy/OrbitV2/releases/latest', {
+        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const latestTag = data.tag_name?.replace(/^v/, '');
+        if (latestTag && latestTag !== curVer) {
+          setUpdateStatusMsg(`Update v${latestTag} available on GitHub.`);
+        } else {
+          setUpdateStatusMsg(`Orbit is up to date (v${curVer}).`);
+        }
+      } else {
+        setUpdateStatusMsg('Unable to reach update server.');
+      }
+    } catch (e: any) {
+      setUpdateStatusMsg('Failed to check for updates.');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   const handlePickProjectsFolder = async () => {
     try {
@@ -738,9 +780,11 @@ export const SettingsModal: React.FC = () => {
               <div className="p-6 rounded-2xl bg-panel-elevated border border-border space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <Sparkles size={16} className="text-emerald-500" />
+                    <Sparkles size={16} className="text-accent" />
                     <span className="font-bold text-text-primary text-sm tracking-wide">ORBIT STUDIO</span>
-                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-well text-text-primary font-bold border border-border">v0.1.0 (Production Release)</span>
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-well text-text-primary font-bold border border-border">
+                      v{packageJson.version || '0.1.0'} (Production)
+                    </span>
                   </div>
                   <span className="text-[10px] text-emerald-500 font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
                     System Healthy
@@ -751,19 +795,39 @@ export const SettingsModal: React.FC = () => {
                   Deterministic Multi-Agent Collaboration Studio for Autonomous Coding Engines.
                 </p>
 
+                {/* Check for Updates Action Card */}
+                <div className="p-4 rounded-xl bg-well border border-border flex items-center justify-between">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-text-primary text-xs">Software Updates</span>
+                    <span className="text-[11px] text-text-muted font-sans">
+                      {isCheckingUpdate ? 'Checking GitHub releases...' : updateStatusMsg || 'Check for new releases and patches'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCheckUpdateManual}
+                    disabled={isCheckingUpdate}
+                    className="px-4 py-2 rounded-xl bg-accent text-accent-fg hover:opacity-90 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={13} className={clsx(isCheckingUpdate && 'animate-spin')} />
+                    <span>{isCheckingUpdate ? 'Checking...' : 'Check for Updates'}</span>
+                  </button>
+                </div>
+
                 {/* Live Runtime Information Table */}
                 <div className="pt-3 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
                   <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
                     <span className="text-text-dim text-[10px] uppercase font-bold">Host Platform</span>
-                    <span className="text-text-primary font-bold">Linux x86_64 / Desktop</span>
+                    <span className="text-text-primary font-bold">
+                      {navigator.userAgent.includes('Linux') ? 'Linux x86_64' : navigator.userAgent.includes('Mac') ? 'macOS' : 'Windows'} / Desktop
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
+                    <span className="text-text-dim text-[10px] uppercase font-bold">Cloud Authority Relay</span>
+                    <span className="text-emerald-500 font-bold">orbit-cloud-backend.onrender.com (Live)</span>
                   </div>
                   <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
                     <span className="text-text-dim text-[10px] uppercase font-bold">Runtime Engine</span>
-                    <span className="text-text-primary font-bold">Tauri Native PTY v2.11.5</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
-                    <span className="text-text-dim text-[10px] uppercase font-bold">Context Synthesizer</span>
-                    <span className="text-text-primary font-bold">Deterministic Vectorized Tree</span>
+                    <span className="text-text-primary font-bold">Tauri Native PTY v2.0 (High Performance)</span>
                   </div>
                   <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
                     <span className="text-text-dim text-[10px] uppercase font-bold">Discovered CLI Engines</span>

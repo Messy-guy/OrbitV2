@@ -7,24 +7,6 @@ import { secureStorage } from './secureStorage';
 // Check if running inside Expo Go (where remote notifications were removed in SDK 53+)
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
-// Configure foreground presentation behavior (Native dev builds / standalone only)
-if (Platform.OS !== 'web' && !isExpoGo) {
-  try {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-        shouldShowBanner: true,
-        shouldShowList: true,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
-      }),
-    });
-  } catch (e) {
-    // Non-blocking fallback
-  }
-}
-
 export interface NotificationDeepLinkData {
   projectId: string;
   agentId: string;
@@ -37,6 +19,7 @@ class MobileNotificationService {
   private pushToken: string | null = null;
   private pendingDeepLink: NotificationDeepLinkData | null = null;
   private onDeepLinkListener: ((data: NotificationDeepLinkData) => void) | null = null;
+  private isInitialized = false;
   private currentAttention: {
     appState: 'active' | 'background' | 'terminated';
     activeProjectId?: string;
@@ -47,20 +30,39 @@ class MobileNotificationService {
   };
 
   /**
-   * Initialize notification channels and listeners
+   * Initialize notification channels and listeners safely inside React lifecycle
    */
   async initialize() {
-    if (Platform.OS === 'web') {
-      return; // Web browser does not use expo-notifications native APIs
+    if (this.isInitialized || Platform.OS === 'web') {
+      return;
     }
+    this.isInitialized = true;
 
     try {
       if (!isExpoGo) {
+        // 1. Configure foreground presentation handler
+        try {
+          Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+              shouldShowAlert: true,
+              shouldPlaySound: true,
+              shouldSetBadge: false,
+              shouldShowBanner: true,
+              shouldShowList: true,
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+            }),
+          });
+        } catch (e) {
+          console.warn('[Notifications] setNotificationHandler error:', e);
+        }
+
+        // 2. Setup channels & tokens
         await this.setupNotificationChannels();
         await this.registerForPushNotificationsAsync();
       } else {
-        console.log('ℹ️ [Notifications] Running in Expo Go: Remote push notifications require an EAS Development Build.');
+        console.log('ℹ️ [Notifications] Running in Expo Go');
       }
+
       this.setupListeners();
       this.setupAppStateTracking();
     } catch (e) {
@@ -95,7 +97,7 @@ class MobileNotificationService {
           lightColor: '#F44336',
         });
       } catch (e) {
-        // Safe channel fallback
+        console.warn('[Notifications] setupNotificationChannels error:', e);
       }
     }
   }
@@ -145,26 +147,33 @@ class MobileNotificationService {
    */
   async syncTokenWithBackend() {
     if (!this.pushToken) return;
-    const userId = (await secureStorage.getAccessToken()) || 'default-user';
-
-    mobileRelayService.registerDevicePushToken({
-      userId,
-      token: this.pushToken,
-      platform: Platform.OS === 'ios' ? 'ios' : 'android',
-      appVersion: '1.0.0',
-      environment: __DEV__ ? 'development' : 'production',
-    });
+    try {
+      const userId = (await secureStorage.getAccessToken()) || 'default-user';
+      mobileRelayService.registerDevicePushToken({
+        userId,
+        token: this.pushToken,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        appVersion: '1.0.0',
+        environment: __DEV__ ? 'development' : 'production',
+      });
+    } catch (err) {
+      console.warn('[Notifications] syncTokenWithBackend error:', err);
+    }
   }
 
   /**
    * Track foreground/background state and current viewing context for suppression (§9, §39)
    */
   private setupAppStateTracking() {
-    AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      this.currentAttention.appState =
-        nextState === 'active' ? 'active' : nextState === 'background' ? 'background' : 'terminated';
-      this.broadcastAttention();
-    });
+    try {
+      AppState.addEventListener('change', (nextState: AppStateStatus) => {
+        this.currentAttention.appState =
+          nextState === 'active' ? 'active' : nextState === 'background' ? 'background' : 'terminated';
+        this.broadcastAttention();
+      });
+    } catch (e) {
+      console.warn('[Notifications] setupAppStateTracking error:', e);
+    }
   }
 
   /**
@@ -178,15 +187,19 @@ class MobileNotificationService {
   }
 
   private broadcastAttention() {
-    mobileRelayService.sendAttentionUpdate({
-      deviceId: this.pushToken || `mob_${Platform.OS}`,
-      connected: true,
-      appState: this.currentAttention.appState,
-      activeProjectId: this.currentAttention.activeProjectId,
-      activeAgentId: this.currentAttention.activeAgentId,
-      activeSessionId: this.currentAttention.activeSessionId,
-      lastHeartbeatAt: Date.now(),
-    });
+    try {
+      mobileRelayService.sendAttentionUpdate({
+        deviceId: this.pushToken || `mob_${Platform.OS}`,
+        connected: true,
+        appState: this.currentAttention.appState,
+        activeProjectId: this.currentAttention.activeProjectId,
+        activeAgentId: this.currentAttention.activeAgentId,
+        activeSessionId: this.currentAttention.activeSessionId,
+        lastHeartbeatAt: Date.now(),
+      });
+    } catch (err) {
+      // non-blocking
+    }
   }
 
   /**

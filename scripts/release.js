@@ -9,12 +9,14 @@ const rootDir = path.resolve(__dirname, '..');
 
 const pkgPath = path.join(rootDir, 'package.json');
 const mobilePkgPath = path.join(rootDir, 'apps', 'mobile', 'package.json');
+const mobileAppJsonPath = path.join(rootDir, 'apps', 'mobile', 'app.json');
 const tauriPath = path.join(rootDir, 'src-tauri', 'tauri.conf.json');
 
 // Read existing configs
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
 const mobilePkg = fs.existsSync(mobilePkgPath) ? JSON.parse(fs.readFileSync(mobilePkgPath, 'utf8')) : null;
+const mobileAppJson = fs.existsSync(mobileAppJsonPath) ? JSON.parse(fs.readFileSync(mobileAppJsonPath, 'utf8')) : null;
 
 // Increment patch version (0.1.0 -> 0.1.1)
 const parts = pkg.version.split('.').map(Number);
@@ -30,11 +32,15 @@ if (mobilePkg) {
   mobilePkg.version = nextVersion;
   fs.writeFileSync(mobilePkgPath, JSON.stringify(mobilePkg, null, 2) + '\n');
 }
+if (mobileAppJson && mobileAppJson.expo) {
+  mobileAppJson.expo.version = nextVersion;
+  fs.writeFileSync(mobileAppJsonPath, JSON.stringify(mobileAppJson, null, 2) + '\n');
+}
 
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
 
-console.log(`✅ Updated package.json, tauri.conf.json, and apps/mobile/package.json to v${nextVersion}`);
+console.log(`✅ Updated package.json, tauri.conf.json, apps/mobile/package.json, and app.json to v${nextVersion}`);
 
 // Commit, tag and push to trigger automated GitHub Release build
 try {
