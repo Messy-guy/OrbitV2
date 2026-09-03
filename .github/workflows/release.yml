@@ -93,6 +93,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+
+      - name: Install Android NDK & Build-Tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "ndk;27.1.12297006" "build-tools;36.0.0" "platforms;android-36"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -113,7 +123,7 @@ jobs:
 
       - name: Build Release APK via Gradle
         working-directory: apps/mobile/android
-        run: ./gradlew assembleRelease --no-daemon --parallel --build-cache --max-workers=4 -Dorg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC -Dfile.encoding=UTF-8"
+        run: ./gradlew assembleRelease --no-daemon --parallel --build-cache -Dorg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC -Dfile.encoding=UTF-8"
 
       - name: Rename & Stage APK
         run: |

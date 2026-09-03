@@ -1,7 +1,7 @@
 {
   "name": "orbit-mobile",
   "main": "expo-router/entry",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "scripts": {
     "start": "expo start -c",
     "android": "expo start --android",
