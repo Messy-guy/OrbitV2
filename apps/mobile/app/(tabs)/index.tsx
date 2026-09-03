@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
-  View, Text, FlatList, Pressable, StyleSheet,
+  View, Text, FlatList, Pressable, StyleSheet, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -45,9 +45,16 @@ export default function HomeScreen() {
       <View style={styles.responsiveWrapper}>
         {/* Top Header Strip: Greeting + Notification Bell + Connection Indicator */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.appGreeting}>Orbit Cockpit</Text>
-            <Text style={styles.pageTitle}>Workspaces</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={{ width: 34, height: 34, borderRadius: 8 }}
+              resizeMode="contain"
+            />
+            <View>
+              <Text style={styles.appGreeting}>Orbit Cockpit</Text>
+              <Text style={styles.pageTitle}>Workspaces</Text>
+            </View>
           </View>
 
           <View style={styles.headerActions}>

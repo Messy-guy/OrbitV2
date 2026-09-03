@@ -57,8 +57,8 @@ export const AppHeader: React.FC = () => {
           className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors shrink-0 group"
           title="Orbit Home"
         >
-          <div className="w-6 h-6 rounded-lg bg-panel border border-border flex items-center justify-center text-text-primary group-hover:border-border-hover transition-all">
-            <Orbit size={13} strokeWidth={2.5} />
+          <div className="w-6 h-6 rounded-lg bg-panel border border-border flex items-center justify-center overflow-hidden group-hover:border-border-hover transition-all">
+            <img src="/orbit-logo.png" alt="Orbit Logo" className="w-5 h-5 object-contain" />
           </div>
           <span className="font-mono font-bold text-xs tracking-wider text-text-primary">ORBIT</span>
         </button>
