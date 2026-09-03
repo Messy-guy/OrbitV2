@@ -35,6 +35,13 @@
         {
           "cameraPermission": "Allow Orbit Mobile to access your camera to scan desktop pairing QR codes."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0A0B0E"
+        }
       ]
     ],
     "extra": {
