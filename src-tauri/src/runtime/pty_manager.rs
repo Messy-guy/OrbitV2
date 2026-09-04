@@ -18,7 +18,7 @@ macro_rules! dbg_log {
     }};
 }
 
-use crate::discovery::{find_executable, is_unusable_sandbox_shim};
+use crate::discovery::{find_executable, get_augmented_host_path, is_unusable_sandbox_shim};
 use crate::models::{AgentOutputEvent, AgentStatusEvent};
 use crate::runtime::activity_detector::ActivityDetector;
 use crate::runtime::session::PtySession;
@@ -233,10 +233,7 @@ impl PtyManager {
             "antigravity" => {
                 let bin = find_executable(
                     &["agy", "antigravity"],
-                    &[
-                        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin/agy",
-                        "/home/leo/.local/bin/agy",
-                    ],
+                    &[],
                 ).ok_or_else(|| "Antigravity CLI (agy) binary not found on host".to_string())?;
 
                 let mut cmd = CommandBuilder::new(bin);
@@ -250,7 +247,7 @@ impl PtyManager {
                 (cmd, false)
             }
             "claude" => {
-                let bin = find_executable(&["claude"], &["/home/leo/.local/bin/claude"])
+                let bin = find_executable(&["claude"], &[])
                     .ok_or_else(|| "Claude Code CLI (claude) binary not found on host".to_string())?;
 
                 let mut cmd = CommandBuilder::new(bin);
@@ -261,17 +258,7 @@ impl PtyManager {
                 (cmd, false)
             }
             "codex" => {
-                let codex_extra = [
-                    "/home/leo/.local/share/orbit/engines/codex/node_modules/.bin/codex",
-                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/.bin/codex",
-                    "/home/leo/.local/share/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
-                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
-                    "/home/leo/.npm-global/bin/codex",
-                    "/home/leo/.local/bin/codex",
-                    "/home/leo/.cargo/bin/codex",
-                    "/usr/local/bin/codex",
-                    "/usr/bin/codex",
-                ];
+                let codex_extra: [&str; 0] = [];
                 let bin = find_executable(&["codex", "openai-codex"], &codex_extra)
                     .unwrap_or_else(|| {
                         #[cfg(target_os = "windows")]
@@ -297,14 +284,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "opencode" => {
-                let opencode_extra = [
-                    "/home/leo/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64/bin/opencode",
-                    "/home/leo/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode",
-                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64/bin/opencode",
-                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode",
-                    "/home/leo/.nvm/versions/node/v24.18.1/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin/opencode",
-                    "/home/leo/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin/opencode",
-                ];
+                let opencode_extra: [&str; 0] = [];
                 let bin = find_executable(&["opencode"], &opencode_extra)
                     .unwrap_or_else(|| {
                         #[cfg(target_os = "windows")]
@@ -333,17 +313,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "kilocode" | "kilo" => {
-                let kilo_extra = [
-                    "/home/leo/.local/share/orbit/engines/kilocode/node_modules/.bin/kilocode",
-                    "/home/leo/.local/share/orbit/engines/kilocode/node_modules/.bin/kilo",
-                    "/home/leo/.local/share/orbit/engines/kilocode/node_modules/.bin/@kilocode",
-                    "/home/leo/.npm-global/bin/kilocode",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/kilocode",
-                    "/home/leo/.local/share/pnpm/kilocode",
-                    "/home/leo/.local/bin/kilocode",
-                    "/usr/local/bin/kilocode",
-                    "/usr/bin/kilocode",
-                ];
+                let kilo_extra: [&str; 0] = [];
                 let bin = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &kilo_extra)
                     .ok_or_else(|| "KiloCode CLI (kilocode) not found on host".to_string())?;
                 let is_shell = bin
@@ -358,14 +328,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "freebuff" => {
-                let freebuff_extra = [
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/freebuff",
-                    "/home/leo/.npm-global/bin/freebuff",
-                    "/home/leo/.local/share/pnpm/freebuff",
-                    "/home/leo/.local/bin/freebuff",
-                    "/usr/local/bin/freebuff",
-                    "/usr/bin/freebuff",
-                ];
+                let freebuff_extra: [&str; 0] = [];
                 let bin = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &freebuff_extra)
                     .ok_or_else(|| "Freebuff CLI (freebuff) not found on host".to_string())?;
                 let is_shell = bin
@@ -380,15 +343,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "cline" => {
-                let cline_extra = [
-                    "/home/leo/.local/share/orbit/engines/cline/node_modules/.bin/cline",
-                    "/home/leo/.npm-global/bin/cline",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/cline",
-                    "/home/leo/.local/share/pnpm/cline",
-                    "/home/leo/.local/bin/cline",
-                    "/usr/local/bin/cline",
-                    "/usr/bin/cline",
-                ];
+                let cline_extra: [&str; 0] = [];
                 let bin = find_executable(&["cline"], &cline_extra)
                     .ok_or_else(|| "Cline CLI (cline) not found on host — install with: npm install -g @cline/cli".to_string())?;
                 let is_shell = bin
@@ -407,17 +362,7 @@ impl PtyManager {
                 // (globalStorage/copilotCli) execs the editor binary from inside the
                 // Flatpak sandbox (`/app/extra/vscode/code`) and cannot run from the
                 // host, so it must only ever be a last-resort candidate.
-                let copilot_extra = [
-                    "/home/leo/.local/share/orbit/engines/copilot/node_modules/.bin/copilot",
-                    "/home/leo/.npm-global/bin/copilot",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/copilot",
-                    "/home/leo/.local/share/pnpm/copilot",
-                    "/home/leo/.local/bin/copilot",
-                    "/usr/local/bin/copilot",
-                    "/usr/bin/copilot",
-                    "/home/leo/.var/app/com.visualstudio.code/config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
-                    "/home/leo/.config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
-                ];
+                let copilot_extra: [&str; 0] = [];
                 let bin = match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &copilot_extra) {
                     Some(p) if is_unusable_sandbox_shim(&p) => {
                         return Err(
@@ -448,15 +393,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "goose" | "goose-ai" => {
-                let goose_extra = [
-                    "/home/leo/.local/share/orbit/engines/goose/node_modules/.bin/goose",
-                    "/home/leo/.npm-global/bin/goose",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/goose",
-                    "/home/leo/.local/share/pnpm/goose",
-                    "/home/leo/.local/bin/goose",
-                    "/usr/local/bin/goose",
-                    "/usr/bin/goose",
-                ];
+                let goose_extra: [&str; 0] = [];
                 let bin = find_executable(&["goose", "goose-ai"], &goose_extra)
                     .ok_or_else(|| "Goose CLI (goose) not found on host".to_string())?;
                 let is_shell = bin
@@ -471,16 +408,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "kiro" | "kiro-cli" => {
-                let kiro_extra = [
-                    "/home/leo/.local/share/orbit/engines/kiro/node_modules/.bin/kiro",
-                    "/home/leo/.local/share/orbit/engines/kiro/node_modules/.bin/kiro-cli",
-                    "/home/leo/.npm-global/bin/kiro",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/kiro",
-                    "/home/leo/.local/share/pnpm/kiro",
-                    "/home/leo/.local/bin/kiro",
-                    "/usr/local/bin/kiro",
-                    "/usr/bin/kiro",
-                ];
+                let kiro_extra: [&str; 0] = [];
                 let bin = find_executable(&["kiro-cli", "kiro"], &kiro_extra)
                     .ok_or_else(|| "Kiro CLI (kiro) not found on host".to_string())?;
                 let is_shell = bin
@@ -495,16 +423,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "qwen" | "qwen-code" | "qwen-agent" => {
-                let qwen_extra = [
-                    "/home/leo/.local/share/orbit/engines/qwen/node_modules/.bin/qwen-code",
-                    "/home/leo/.local/share/orbit/engines/qwen/node_modules/.bin/qwen",
-                    "/home/leo/.npm-global/bin/qwen-code",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/qwen-code",
-                    "/home/leo/.local/share/pnpm/qwen-code",
-                    "/home/leo/.local/bin/qwen-code",
-                    "/usr/local/bin/qwen-code",
-                    "/usr/bin/qwen-code",
-                ];
+                let qwen_extra: [&str; 0] = [];
                 let bin = find_executable(&["qwen-code", "qwen", "qwen-agent"], &qwen_extra)
                     .ok_or_else(|| "Qwen Code CLI (qwen-code) not found on host — install with: npm install -g @qwen-code/cli".to_string())?;
                 let is_shell = bin
@@ -519,19 +438,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "mimo" | "mimo-cli" | "mimocode" => {
-                let mimo_extra = [
-                    "/home/leo/.var/app/com.visualstudio.code/data/node_modules/lib/node_modules/@mimo-ai/cli/node_modules/@mimo-ai/mimocode-linux-x64/bin/mimo",
-                    "/home/leo/.var/app/com.visualstudio.code/data/node_modules/lib/node_modules/@mimo-ai/cli/node_modules/@mimo-ai/mimocode-linux-x64-baseline/bin/mimo",
-                    "/home/leo/.var/app/com.visualstudio.code/data/node_modules/bin/mimo",
-                    "/home/leo/.local/share/orbit/engines/mimo/node_modules/.bin/mimo",
-                    "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/mimo/node_modules/.bin/mimo",
-                    "/home/leo/.npm-global/bin/mimo",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/mimo",
-                    "/home/leo/.local/share/pnpm/mimo",
-                    "/home/leo/.local/bin/mimo",
-                    "/usr/local/bin/mimo",
-                    "/usr/bin/mimo",
-                ];
+                let mimo_extra: [&str; 0] = [];
                 let bin = find_executable(&["mimo", "mimo-cli", "mimocode"], &mimo_extra)
                     .ok_or_else(|| "Mimo Code CLI (mimo) not found on host — install with: npm install -g @mimo-ai/cli".to_string())?;
                 let is_shell = bin
@@ -546,15 +453,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "muse" | "muse-cli" | "musecode" => {
-                let muse_extra = [
-                    "/home/leo/.local/share/orbit/engines/muse/node_modules/.bin/muse",
-                    "/home/leo/.npm-global/bin/muse",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/muse",
-                    "/home/leo/.local/share/pnpm/muse",
-                    "/home/leo/.local/bin/muse",
-                    "/usr/local/bin/muse",
-                    "/usr/bin/muse",
-                ];
+                let muse_extra: [&str; 0] = [];
                 let bin = find_executable(&["muse", "muse-cli", "musecode"], &muse_extra)
                     .ok_or_else(|| "Muse Code CLI (muse) not found on host — install with: npm install -g @muse-ai/cli".to_string())?;
                 let is_shell = bin
@@ -569,16 +468,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "continue" | "cn" | "continuedev" => {
-                let continue_extra = [
-                    "/home/leo/.local/share/orbit/engines/continue/node_modules/.bin/continue",
-                    "/home/leo/.local/share/orbit/engines/continue/node_modules/.bin/cn",
-                    "/home/leo/.npm-global/bin/continue",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/continue",
-                    "/home/leo/.local/share/pnpm/continue",
-                    "/home/leo/.local/bin/continue",
-                    "/usr/local/bin/continue",
-                    "/usr/bin/continue",
-                ];
+                let continue_extra: [&str; 0] = [];
                 let bin = find_executable(&["continue", "cn", "continuedev"], &continue_extra)
                     .ok_or_else(|| "Continue CLI (continue) not found on host".to_string())?;
                 let is_shell = bin
@@ -593,15 +483,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "aider" | "aider-chat" => {
-                let aider_extra = [
-                    "/home/leo/.local/share/orbit/engines/aider/node_modules/.bin/aider",
-                    "/home/leo/.npm-global/bin/aider",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/aider",
-                    "/home/leo/.local/share/pnpm/aider",
-                    "/home/leo/.local/bin/aider",
-                    "/usr/local/bin/aider",
-                    "/usr/bin/aider",
-                ];
+                let aider_extra: [&str; 0] = [];
                 let bin = find_executable(&["aider", "aider-chat"], &aider_extra)
                     .ok_or_else(|| "Aider CLI (aider) not found on host — install with: pip install aider-chat".to_string())?;
                 let is_shell = bin
@@ -616,16 +498,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "vibe" | "mistral-vibe" | "vibe-cli" => {
-                let vibe_extra = [
-                    "/home/leo/.var/app/com.visualstudio.code/data/uv/tools/mistral-vibe/bin/vibe",
-                    "/home/leo/.local/share/uv/tools/mistral-vibe/bin/vibe",
-                    "/home/leo/.local/bin/vibe",
-                    "/home/leo/.cargo/bin/vibe",
-                    "/home/leo/.npm-global/bin/vibe",
-                    "/home/leo/.nvm/versions/node/v24.18.1/bin/vibe",
-                    "/usr/local/bin/vibe",
-                    "/usr/bin/vibe",
-                ];
+                let vibe_extra: [&str; 0] = [];
                 let bin = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &vibe_extra)
                     .unwrap_or_else(|| {
                         #[cfg(target_os = "windows")]
@@ -651,7 +524,7 @@ impl PtyManager {
                     cmd.env("PYTHONUNBUFFERED", "1");
                     cmd.env("PYTHONIOENCODING", "utf-8");
                     // Ensure vibe home is set and keyring access works (not disabled)
-                    let user_home = std::env::var("HOME").unwrap_or_else(|_| "/home/leo".to_string());
+                    let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
                     cmd.env("VIBE_HOME", format!("{}/.vibe", user_home));
                     // Pass DBUS so vibe can access GNOME keyring for MISTRAL_API_KEY
                     if let Ok(dbus) = std::env::var("DBUS_SESSION_BUS_ADDRESS") {
@@ -675,14 +548,7 @@ impl PtyManager {
                 (cmd, is_shell)
             }
             "qoder" | "qoder-cli" | "qodercli" => {
-                let qoder_extra = [
-                    "/home/leo/.qoder/bin/qodercli",
-                    "/home/leo/.qoder/bin/qoder",
-                    "/home/leo/.local/bin/qodercli",
-                    "/home/leo/.local/bin/qoder",
-                    "/usr/local/bin/qodercli",
-                    "/usr/bin/qodercli",
-                ];
+                let qoder_extra: [&str; 0] = [];
                 let bin = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &qoder_extra)
                     .ok_or_else(|| "Qoder CLI (qodercli) not found on host — install with: npm install -g @qoder-ai/cli".to_string())?;
                 let is_shell = bin
@@ -733,41 +599,9 @@ impl PtyManager {
             }
         };
 
-        // Inherit all host environment variables (PATH, USER, LANG, HOME, OAuth Auth, etc.)
-        let mut host_path = std::env::var("PATH").unwrap_or_default();
-        if let Ok(home) = std::env::var("HOME") {
-            let mut candidate_bin_dirs = vec![
-                format!("{}/.npm-global/bin", home),
-                format!("{}/.local/bin", home),
-                format!("{}/.cargo/bin", home),
-                format!("{}/.gemini/antigravity-cli/bin", home),
-                format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
-                format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
-                format!("{}/.local/share/orbit/engines/antigravity/bin", home),
-                format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
-                format!("{}/.local/share/pnpm/bin", home),
-                format!("{}/.local/share/pnpm", home),
-                "/usr/local/bin".to_string(),
-                "/usr/bin".to_string(),
-                "/bin".to_string(),
-            ];
-
-            let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
-            if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
-                for entry in entries.flatten() {
-                    let bin_dir = entry.path().join("bin");
-                    if bin_dir.is_dir() {
-                        candidate_bin_dirs.push(bin_dir.to_string_lossy().to_string());
-                    }
-                }
-            }
-
-            for d in &candidate_bin_dirs {
-                if !host_path.contains(d) && Path::new(d).is_dir() {
-                    host_path = format!("{}:{}", d, host_path);
-                }
-            }
-        }
+        // Build augmented PATH: prepends all user tool dirs (NVM, cargo, pnpm, bun, Orbit engines…)
+        // so node-based CLIs with #!/usr/bin/env node work from the GUI desktop launcher.
+        let host_path = get_augmented_host_path();
 
         // Explicitly remove conflicting prefix and global config variables
         cmd_builder.env_remove("npm_config_prefix");
@@ -780,11 +614,11 @@ impl PtyManager {
 
         for (key, value) in std::env::vars() {
             // Strip active session tokens, connection addresses, and conflicting npm prefix vars
-            if key.starts_with("ANTIGRAVITY_") 
-                || key.starts_with("JETSKI_") 
+            if key.starts_with("ANTIGRAVITY_")
+                || key.starts_with("JETSKI_")
                 || key == "AI_AGENT"
                 || key == "npm_config_prefix"
-                || key == "NPM_CONFIG_PREFIX" 
+                || key == "NPM_CONFIG_PREFIX"
                 || key == "NPM_CONFIG_GLOBALCONFIG"
                 || key == "npm_config_globalconfig"
             {
@@ -793,8 +627,9 @@ impl PtyManager {
             cmd_builder.env(key, value);
         }
 
-        // Ensure augmented PATH is applied so node-based CLIs (Codex, OpenCode) resolve dependencies
+        // Apply the fully augmented PATH — overrides what the host env vars loop may have set
         cmd_builder.env("PATH", &host_path);
+        dbg_log!("[ORBIT PTY] Augmented PATH={}", &host_path[..host_path.len().min(300)]);
 
         // Apply isolated profile environment sandbox only if a custom profile is explicitly specified
         if let Some(ref prof) = profile_id {
@@ -854,10 +689,16 @@ impl PtyManager {
         let master_box = pair.master;
 
         // Full-screen/interactive TUI agents and raw shells must receive raw keystrokes and
-        // NO role prelude. Vibe/Mimo/Qwen/etc. render their own input box; injecting a
+        // NO role prelude. These agents render their own input UI; injecting a
         // `[ORBIT CONTINUOUS INVARIANT]` prelude mid-startup crashes/hangs the TUI, and
-        // buffering their keystrokes in `line_buffer` swallows typed input entirely.
-        let is_direct_cli = prov == "terminal" || prov == "shell" || prov == "vibe" || prov == "mistral-vibe" || prov == "vibe-cli"
+        // buffering keystrokes in `line_buffer` swallows typed input entirely.
+        let is_direct_cli = prov == "terminal" || prov == "shell"
+            // Modern interactive TUI CLIs — manage their own input, pass keystrokes raw
+            || prov == "antigravity"
+            || prov == "claude"
+            || prov == "codex"
+            || prov == "opencode"
+            || prov == "vibe" || prov == "mistral-vibe" || prov == "vibe-cli"
             || prov == "mimo" || prov == "mimo-cli" || prov == "mimocode"
             || prov == "qwen" || prov == "qwen-code" || prov == "qwen-agent"
             || prov == "muse" || prov == "muse-cli" || prov == "musecode"

@@ -25,7 +25,15 @@ export const CreateWorkspaceModal: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const defaultPath = `/home/leo/projects/${name.toLowerCase().trim().replace(/\s+/g, '-')}`;
+      // Build default path from the OS home dir via Tauri path API, falling
+      // back to '~' so the path is never hardcoded to a specific username.
+      let homeDir = '~';
+      try {
+        const { homeDir: tauriHomeDir } = await import('@tauri-apps/api/path');
+        homeDir = await tauriHomeDir();
+      } catch (_) { /* web preview or Tauri not available */ }
+      const slug = name.toLowerCase().trim().replace(/\s+/g, '-');
+      const defaultPath = `${homeDir}/projects/${slug}`;
       await createWorkspace(name.trim(), projectPath.trim() || defaultPath);
       setName('');
       setProjectPath('');

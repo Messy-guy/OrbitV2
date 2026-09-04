@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use crate::models::DetectedAgent;
@@ -12,19 +11,8 @@ pub fn invalidate_detection_cache() {
     }
 }
 
-/// Detect editor-sandboxed CLI shims that cannot run from the host.
-///
-/// Example: the GitHub Copilot launcher inside VS Code's globalStorage
-/// (`.../github.copilot-chat/copilotCli/copilot`) is a tiny shell script that execs
-/// the VS Code binary from INSIDE the editor's Flatpak/app sandbox
-/// (`ELECTRON_RUN_AS_NODE=1 /app/extra/vscode/code ...`). That interpreter never
-/// exists when Orbit (running on the host) spawns it, so the shim dies instantly
-/// with `…: not found` and exit code 1. Scan the shim for literal absolute paths
-/// that are missing on this host — any missing referenced interpreter means the
-/// shim is unusable outside its sandbox.
 pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    // Only editor-managed shim locations (Flatpak .var/app or XDG .config/Code).
     let is_editor_shim = s.contains("copilotCli")
         && (s.contains(".var/app/") || s.contains(".config/Code") || s.contains("/Code/"));
     if !is_editor_shim {
@@ -32,10 +20,8 @@ pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
     }
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(_) => return true, // unreadable shim — treat as unusable
+        Err(_) => return true,
     };
-    // Skip the shebang; any literal absolute path referenced afterwards that does
-    // not exist on this host means the shim cannot run here.
     for line in content.lines().skip(1) {
         for token in line.split_whitespace() {
             let t = token.trim_matches(|c| c == '"' || c == '\'');
@@ -47,6 +33,111 @@ pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
     false
 }
 
+/// Build the canonical list of directories to search for host binaries.
+/// All paths are derived dynamically from $HOME — no hardcoded usernames.
+pub fn get_host_search_dirs() -> Vec<String> {
+    let home = match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => h,
+        _ => return vec![
+            "/usr/local/bin".to_string(),
+            "/usr/bin".to_string(),
+            "/bin".to_string(),
+            "/usr/sbin".to_string(),
+            "/sbin".to_string(),
+        ],
+    };
+
+    let mut dirs: Vec<String> = vec![
+        format!("{}/.local/bin", home),
+        format!("{}/.cargo/bin", home),
+        format!("{}/.npm-global/bin", home),
+        format!("{}/.gemini/antigravity-cli/bin", home),
+        format!("{}/.local/share/pnpm/bin", home),
+        format!("{}/.local/share/pnpm", home),
+        format!("{}/.bun/bin", home),
+        format!("{}/.qoder/entry", home),
+        format!("{}/.qoder/bin", home),
+        format!("{}/bin", home),
+        format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
+        format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
+        format!("{}/.local/share/orbit/engines/antigravity/bin", home),
+        format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
+        format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
+        format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
+        format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
+        format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
+        format!("{}/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin", home),
+        format!("{}/.local/share/uv/tools/mistral-vibe/bin", home),
+        format!("{}/.var/app/com.visualstudio.code/data/uv/tools/mistral-vibe/bin", home),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+        "/usr/sbin".to_string(),
+        "/sbin".to_string(),
+    ];
+
+    // All NVM node versions newest-first
+    let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
+    if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
+        let mut nvm_bins: Vec<String> = entries
+            .flatten()
+            .map(|e| e.path().join("bin").to_string_lossy().to_string())
+            .filter(|p| Path::new(p).is_dir())
+            .collect();
+        nvm_bins.sort_unstable_by(|a, b| b.cmp(a));
+        dirs.extend(nvm_bins);
+    }
+
+    // Local Orbit engine node_modules/.bin
+    let orbit_engines_local = Path::new(&home).join(".local").join("share").join("orbit").join("engines");
+    if let Ok(entries) = std::fs::read_dir(&orbit_engines_local) {
+        for entry in entries.flatten() {
+            let bin_dir = entry.path().join("node_modules").join(".bin");
+            if bin_dir.is_dir() {
+                dirs.push(bin_dir.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // VS Code Flatpak orbit engine node_modules/.bin
+    let vscode_orbit_engines = Path::new(&home).join(".var/app/com.visualstudio.code/data/orbit/engines");
+    if let Ok(entries) = std::fs::read_dir(&vscode_orbit_engines) {
+        for entry in entries.flatten() {
+            let bin_dir = entry.path().join("node_modules").join(".bin");
+            if bin_dir.is_dir() {
+                dirs.push(bin_dir.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    dirs
+}
+
+/// Returns an augmented PATH string that includes all user tool directories so
+/// that node-based CLIs with #!/usr/bin/env node shebangs work correctly when
+/// the app is launched from the GUI (which only gets a minimal system PATH).
+pub fn get_augmented_host_path() -> String {
+    let search_dirs = get_host_search_dirs();
+    let current_path = std::env::var("PATH").unwrap_or_default();
+
+    let mut seen = std::collections::HashSet::new();
+    let mut parts: Vec<String> = Vec::new();
+
+    for d in &search_dirs {
+        if !d.is_empty() && Path::new(d).is_dir() && seen.insert(d.clone()) {
+            parts.push(d.clone());
+        }
+    }
+
+    for seg in current_path.split(':') {
+        if !seg.is_empty() && seen.insert(seg.to_string()) {
+            parts.push(seg.to_string());
+        }
+    }
+
+    parts.join(":")
+}
+
 pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> {
     // 1. Check custom extra paths first
     for path_str in extra_paths {
@@ -56,7 +147,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         }
     }
 
-    // Expand names with aliases and package variations (e.g. @kilocode/cli -> kilocode, kilo)
+    // Expand names with aliases and package variations
     let mut expanded_names: Vec<String> = Vec::new();
     for name in names {
         let trimmed = name.trim();
@@ -94,9 +185,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
             expanded_names.push("kilocode".to_string());
             expanded_names.push("kilo".to_string());
         }
-        if trimmed.contains("aider") {
-            expanded_names.push("aider".to_string());
-        }
+        if trimmed.contains("aider") { expanded_names.push("aider".to_string()); }
         if trimmed.contains("gemini") {
             expanded_names.push("gemini".to_string());
             expanded_names.push("gemini-cli".to_string());
@@ -157,62 +246,17 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         }
     }
 
-    // 2. Check standard user home directories
-    if let Ok(home) = std::env::var("HOME") {
-        let mut home_paths = vec![
-            format!("{}/.local/bin", home),
-            format!("{}/.cargo/bin", home),
-            format!("{}/.npm-global/bin", home),
-            format!("{}/.gemini/antigravity-cli/bin", home),
-            format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
-            format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
-            format!("{}/.local/share/orbit/engines/antigravity/bin", home),
-            format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
-            format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
-            format!("{}/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
-            format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64/bin", home),
-            format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin", home),
-            format!("{}/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin", home),
-            format!("{}/.local/share/pnpm/bin", home),
-            format!("{}/.local/share/pnpm", home),
-            format!("{}/.qoder/bin", home),
-            format!("{}/.qoder/entry", home),
-            format!("{}/bin", home),
-        ];
-
-        // Dynamically add all node binary directories in ~/.nvm/versions/node/*/bin
-        let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
-        if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
-            for entry in entries.flatten() {
-                let bin_dir = entry.path().join("bin");
-                if bin_dir.is_dir() {
-                    home_paths.push(bin_dir.to_string_lossy().to_string());
-                }
-            }
-        }
-
-        // Dynamically add all engine binary directories in ~/.local/share/orbit/engines/*/node_modules/.bin
-        let orbit_engines_root = Path::new(&home).join(".local").join("share").join("orbit").join("engines");
-        if let Ok(entries) = std::fs::read_dir(&orbit_engines_root) {
-            for entry in entries.flatten() {
-                let bin_dir = entry.path().join("node_modules").join(".bin");
-                if bin_dir.is_dir() {
-                    home_paths.push(bin_dir.to_string_lossy().to_string());
-                }
-            }
-        }
-
-        for dir in &home_paths {
-            for name in &expanded_names {
-                let candidate = Path::new(dir).join(name);
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
+    // 2. Check dynamic host search dirs (HOME-relative, NVM, Orbit engines, etc.)
+    for dir in get_host_search_dirs() {
+        for name in &expanded_names {
+            let candidate = Path::new(&dir).join(name);
+            if candidate.is_file() {
+                return Some(candidate);
             }
         }
     }
 
-    // 3. Check system PATH and standard executable extensions (.exe, .cmd, .bat)
+    // 3. Check system PATH
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             for name in &expanded_names {
@@ -223,13 +267,9 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
                 #[cfg(target_os = "windows")]
                 {
                     let exe_candidate = dir.join(format!("{}.exe", name));
-                    if exe_candidate.is_file() {
-                        return Some(exe_candidate);
-                    }
+                    if exe_candidate.is_file() { return Some(exe_candidate); }
                     let cmd_candidate = dir.join(format!("{}.cmd", name));
-                    if cmd_candidate.is_file() {
-                        return Some(cmd_candidate);
-                    }
+                    if cmd_candidate.is_file() { return Some(cmd_candidate); }
                 }
             }
         }
@@ -254,16 +294,11 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
 
     let mut detected = Vec::new();
 
-    // 1. Detect Antigravity CLI (agy)
-    let agy_extra = [
-        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin/agy",
-        "/home/leo/.local/bin/agy",
-    ];
-    if let Some(agy_path) = find_executable(&["agy", "antigravity"], &agy_extra) {
+    // 1. Antigravity CLI (agy)
+    if let Some(agy_path) = find_executable(&["agy", "antigravity"], &[]) {
         let version = get_cli_version(&agy_path, "--version")
             .map(|v| format!("v{}", v))
             .or_else(|| Some("Antigravity CLI".to_string()));
-
         detected.push(DetectedAgent {
             provider: "antigravity".to_string(),
             name: "ANTIGRAVITY".to_string(),
@@ -283,10 +318,9 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 2. Detect Claude Code CLI (claude)
-    if let Some(claude_path) = find_executable(&["claude"], &["/home/leo/.local/bin/claude"]) {
+    // 2. Claude Code CLI
+    if let Some(claude_path) = find_executable(&["claude"], &[]) {
         let version = get_cli_version(&claude_path, "--version");
-
         detected.push(DetectedAgent {
             provider: "claude".to_string(),
             name: "CLAUDE CODE".to_string(),
@@ -306,19 +340,8 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 3. Detect Codex CLI
-    let codex_extra = [
-        "/home/leo/.local/share/orbit/engines/codex/node_modules/.bin/codex",
-        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/.bin/codex",
-        "/home/leo/.local/share/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
-        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
-        "/home/leo/.npm-global/bin/codex",
-        "/home/leo/.local/bin/codex",
-        "/home/leo/.cargo/bin/codex",
-        "/usr/local/bin/codex",
-        "/usr/bin/codex",
-    ];
-    if let Some(codex_path) = find_executable(&["codex", "openai-codex"], &codex_extra) {
+    // 3. Codex CLI
+    if let Some(codex_path) = find_executable(&["codex", "openai-codex"], &[]) {
         let version = get_cli_version(&codex_path, "--version");
         detected.push(DetectedAgent {
             provider: "codex".to_string(),
@@ -339,16 +362,8 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 4. Detect OpenCode CLI
-    let opencode_extra = [
-        "/home/leo/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64/bin/opencode",
-        "/home/leo/.local/share/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode",
-        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64/bin/opencode",
-        "/home/leo/.var/app/com.visualstudio.code/data/orbit/engines/opencode/node_modules/opencode-linux-x64-baseline/bin/opencode",
-        "/home/leo/.nvm/versions/node/v24.18.1/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin/opencode",
-        "/home/leo/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin/opencode",
-    ];
-    if let Some(opencode_path) = find_executable(&["opencode"], &opencode_extra) {
+    // 4. OpenCode CLI
+    if let Some(opencode_path) = find_executable(&["opencode"], &[]) {
         let version = get_cli_version(&opencode_path, "--version");
         detected.push(DetectedAgent {
             provider: "opencode".to_string(),
@@ -369,7 +384,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 5. Detect KiloCode CLI
+    // 5. KiloCode CLI
     if let Some(kilo_path) = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[]) {
         let version = get_cli_version(&kilo_path, "--version");
         detected.push(DetectedAgent {
@@ -391,7 +406,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 6. Detect Freebuff CLI
+    // 6. Freebuff CLI
     if let Some(freebuff_path) = find_executable(&["freebuff"], &[]) {
         let version = get_cli_version(&freebuff_path, "--version");
         detected.push(DetectedAgent {
@@ -413,7 +428,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 7. Detect Cline CLI
+    // 7. Cline CLI
     if let Some(cline_path) = find_executable(&["cline"], &[]) {
         let version = get_cli_version(&cline_path, "--version");
         detected.push(DetectedAgent {
@@ -435,21 +450,8 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 8. Detect GitHub Copilot CLI
-    // Standalone installs first; the VS Code-internal shim is a last resort and is
-    // rejected when its sandbox-internal interpreter is missing on this host.
-    let copilot_extra = [
-        "/home/leo/.local/share/orbit/engines/copilot/node_modules/.bin/copilot",
-        "/home/leo/.npm-global/bin/copilot",
-        "/home/leo/.nvm/versions/node/v24.18.1/bin/copilot",
-        "/home/leo/.local/share/pnpm/copilot",
-        "/home/leo/.local/bin/copilot",
-        "/usr/local/bin/copilot",
-        "/usr/bin/copilot",
-        "/home/leo/.var/app/com.visualstudio.code/config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
-        "/home/leo/.config/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot",
-    ];
-    match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &copilot_extra) {
+    // 8. GitHub Copilot CLI
+    match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
         Some(copilot_path) if is_unusable_sandbox_shim(&copilot_path) => {
             detected.push(DetectedAgent {
                 provider: "copilot".to_string(),
@@ -457,7 +459,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
                 path: copilot_path.to_string_lossy().to_string(),
                 version: None,
                 is_available: false,
-                description: "GitHub Copilot CLI shim found only inside the VS Code sandbox — install the standalone CLI: npm install -g @github/copilot".to_string(),
+                description: "GitHub Copilot CLI shim found only inside the VS Code sandbox — install standalone: npm install -g @github/copilot".to_string(),
             });
         }
         Some(copilot_path) => {
@@ -483,7 +485,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         }
     }
 
-    // 9. Detect Goose CLI
+    // 9. Goose CLI
     if let Some(goose_path) = find_executable(&["goose", "goose-ai"], &[]) {
         let version = get_cli_version(&goose_path, "--version");
         detected.push(DetectedAgent {
@@ -505,7 +507,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 10. Detect Kiro CLI
+    // 10. Kiro CLI
     if let Some(kiro_path) = find_executable(&["kiro-cli", "kiro"], &[]) {
         let version = get_cli_version(&kiro_path, "--version");
         detected.push(DetectedAgent {
@@ -527,7 +529,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 11. Detect Qwen Code CLI
+    // 11. Qwen Code CLI
     if let Some(qwen_path) = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[]) {
         let version = get_cli_version(&qwen_path, "--version");
         detected.push(DetectedAgent {
@@ -549,7 +551,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 12. Detect Mimo Code CLI
+    // 12. Mimo Code CLI
     if let Some(mimo_path) = find_executable(&["mimo", "mimo-cli", "mimocode"], &[]) {
         let version = get_cli_version(&mimo_path, "--version");
         detected.push(DetectedAgent {
@@ -571,7 +573,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 13. Detect Muse Code CLI
+    // 13. Muse Code CLI
     if let Some(muse_path) = find_executable(&["muse", "muse-cli", "musecode"], &[]) {
         let version = get_cli_version(&muse_path, "--version");
         detected.push(DetectedAgent {
@@ -593,18 +595,8 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 14. Detect Mistral Vibe CLI
-    let vibe_extra = [
-        "/home/leo/.var/app/com.visualstudio.code/data/uv/tools/mistral-vibe/bin/vibe",
-        "/home/leo/.local/share/uv/tools/mistral-vibe/bin/vibe",
-        "/home/leo/.local/bin/vibe",
-        "/home/leo/.cargo/bin/vibe",
-        "/home/leo/.npm-global/bin/vibe",
-        "/home/leo/.nvm/versions/node/v24.18.1/bin/vibe",
-        "/usr/local/bin/vibe",
-        "/usr/bin/vibe",
-    ];
-    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &vibe_extra) {
+    // 14. Mistral Vibe CLI
+    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]) {
         let version = get_cli_version(&vibe_path, "--version");
         detected.push(DetectedAgent {
             provider: "vibe".to_string(),
@@ -625,16 +617,8 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 15. Detect Qoder CLI
-    let qoder_extra = [
-        "/home/leo/.qoder/bin/qodercli",
-        "/home/leo/.qoder/bin/qoder",
-        "/home/leo/.local/bin/qodercli",
-        "/home/leo/.local/bin/qoder",
-        "/usr/local/bin/qodercli",
-        "/usr/bin/qodercli",
-    ];
-    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &qoder_extra) {
+    // 15. Qoder CLI
+    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
         let version = get_cli_version(&qoder_path, "--version");
         detected.push(DetectedAgent {
             provider: "qoder".to_string(),
@@ -655,7 +639,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
         });
     }
 
-    // 16. Detect Standard Shell Terminal (Bash / Sh)
+    // 16. Standard Shell Terminal (Bash / Sh)
     if let Some(bash_path) = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]) {
         detected.push(DetectedAgent {
             provider: "terminal".to_string(),

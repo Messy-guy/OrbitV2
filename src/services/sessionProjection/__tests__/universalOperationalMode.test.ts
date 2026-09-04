@@ -156,7 +156,7 @@ const sess1 = enforcer.registerSession(
   'ag-mimo-1',
   'mimo',
   'proj-1',
-  '/home/leo/Desktop/personal_projects/OrbitV2',
+  '/tmp/orbit-test-workspace',
   'plan'
 );
 assert.strictEqual(sess1.operationalMode, 'plan');
@@ -173,7 +173,7 @@ const sess2 = enforcer.registerSession(
   'ag-cline-1',
   'cline',
   'proj-1',
-  '/home/leo/Desktop/personal_projects/OrbitV2',
+  '/tmp/orbit-test-workspace',
   'audit'
 );
 assert.strictEqual(sess2.operationalMode, 'audit');

@@ -51,7 +51,7 @@ impl StorageManager {
         let now = chrono_now_millis();
         let current_dir = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "/home/leo/Desktop/personal_projects/OrbitV2".to_string());
+            .unwrap_or_else(|_| "/tmp".to_string());
 
         let project_name = std::path::Path::new(&current_dir)
             .file_name()
