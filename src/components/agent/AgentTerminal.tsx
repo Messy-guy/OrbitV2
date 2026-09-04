@@ -243,12 +243,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       resizeTerminal(agentRef.current.id, rows, cols);
       term.focus();
 
-      // 6. Replay history on reattach to an existing process — tolerate query errors
-      if (isAlreadyRunning) {
-        const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
-        if (history && history.length > 0 && termRef.current) {
-          termRef.current.write(history);
-        }
+      // 6. Replay history on mount or reattach to ensure no early output was missed
+      const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
+      if (history && history.length > 0 && termRef.current) {
+        termRef.current.write(history);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -267,6 +265,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     const triggerRefit = () => {
       try {
         fitAddon.fit();
+        if (termRef.current) {
+          termRef.current.refresh(0, Math.max(0, termRef.current.rows - 1));
+        }
         if (
           term.rows &&
           term.cols &&

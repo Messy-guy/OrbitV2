@@ -18,38 +18,50 @@ const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
 const mobilePkg = fs.existsSync(mobilePkgPath) ? JSON.parse(fs.readFileSync(mobilePkgPath, 'utf8')) : null;
 const mobileAppJson = fs.existsSync(mobileAppJsonPath) ? JSON.parse(fs.readFileSync(mobileAppJsonPath, 'utf8')) : null;
 
+// Check target from CLI arguments
+const targetArg = process.argv.slice(2).find(a => a.startsWith('--target='))?.split('=')[1]
+  || process.argv.slice(2).find(a => ['desktop', 'mobile', 'all'].includes(a))
+  || 'all';
+
 // Increment patch version (0.1.0 -> 0.1.1)
 const parts = pkg.version.split('.').map(Number);
 parts[2] = (parts[2] || 0) + 1;
 const nextVersion = parts.join('.');
 
-console.log(`\n🚀 Bumping Orbit version: ${pkg.version} -> ${nextVersion}`);
+console.log(`\n🚀 Bumping Orbit version: ${pkg.version} -> ${nextVersion} (Target: ${targetArg})`);
 
 // Write back updated versions
 pkg.version = nextVersion;
-tauri.version = nextVersion;
-if (mobilePkg) {
-  mobilePkg.version = nextVersion;
-  fs.writeFileSync(mobilePkgPath, JSON.stringify(mobilePkg, null, 2) + '\n');
+if (targetArg === 'all' || targetArg === 'desktop') {
+  tauri.version = nextVersion;
+  fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
 }
-if (mobileAppJson && mobileAppJson.expo) {
-  mobileAppJson.expo.version = nextVersion;
-  fs.writeFileSync(mobileAppJsonPath, JSON.stringify(mobileAppJson, null, 2) + '\n');
+if (targetArg === 'all' || targetArg === 'mobile') {
+  if (mobilePkg) {
+    mobilePkg.version = nextVersion;
+    fs.writeFileSync(mobilePkgPath, JSON.stringify(mobilePkg, null, 2) + '\n');
+  }
+  if (mobileAppJson && mobileAppJson.expo) {
+    mobileAppJson.expo.version = nextVersion;
+    fs.writeFileSync(mobileAppJsonPath, JSON.stringify(mobileAppJson, null, 2) + '\n');
+  }
 }
 
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
 
-console.log(`✅ Updated package.json, tauri.conf.json, apps/mobile/package.json, and app.json to v${nextVersion}`);
+console.log(`✅ Updated version configs to v${nextVersion}`);
+
+const tagPrefix = targetArg === 'desktop' ? 'desktop-v' : targetArg === 'mobile' ? 'mobile-v' : 'v';
+const tagName = `${tagPrefix}${nextVersion}`;
 
 // Commit, tag and push to trigger automated GitHub Release build
 try {
-  console.log(`📦 Committing, tagging, and pushing v${nextVersion} to GitHub...`);
+  console.log(`📦 Committing, tagging, and pushing ${tagName} to GitHub...`);
   execSync('git add -A', { stdio: 'inherit', cwd: rootDir });
-  execSync(`git commit -m "chore(release): v${nextVersion}"`, { stdio: 'inherit', cwd: rootDir });
-  execSync(`git tag v${nextVersion}`, { stdio: 'inherit', cwd: rootDir });
+  execSync(`git commit -m "chore(release): ${tagName}"`, { stdio: 'inherit', cwd: rootDir });
+  execSync(`git tag ${tagName}`, { stdio: 'inherit', cwd: rootDir });
   execSync('git push origin main && git push origin --tags', { stdio: 'inherit', cwd: rootDir });
-  console.log(`\n🎉 Release v${nextVersion} triggered! GitHub Actions is now compiling Linux (.deb/.AppImage), Windows (.msi/.exe), and Android (.apk).\n`);
+  console.log(`\n🎉 Release ${tagName} triggered! GitHub Actions is now compiling for target: ${targetArg}.\n`);
 } catch (err) {
   console.error('❌ Failed to commit and push release tag:', err.message);
   process.exit(1);

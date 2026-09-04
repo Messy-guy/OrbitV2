@@ -1,7 +1,7 @@
 {
   "name": "orbit-desktop",
   "private": true,
-  "version": "0.1.24",
+  "version": "0.1.25",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "release": "node scripts/release.js",
+    "release:desktop": "node scripts/release.js desktop",
+    "release:mobile": "node scripts/release.js mobile",
     "tauri": "tauri",
     "tauri:host": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri dev'",
     "tauri:build": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri build'"
