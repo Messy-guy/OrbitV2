@@ -45,15 +45,28 @@ let state: LiveRelayState = {
   },
 
   updateTelemetry: (payload) => {
-    state = {
-      ...state,
-      isConnected: true,
-      projects: payload.projects !== undefined ? payload.projects : state.projects,
-      agents: payload.agents !== undefined ? payload.agents : state.agents,
-      activeWorkspaceId: payload.activeWorkspaceId !== undefined ? payload.activeWorkspaceId : state.activeWorkspaceId,
-      device: payload.device !== undefined ? payload.device : state.device,
-    };
-    emitChange();
+    try {
+      const safeProjects = Array.isArray(payload.projects) ? payload.projects : state.projects;
+      const safeAgents = Array.isArray(payload.agents) ? payload.agents : state.agents;
+      const safeActiveWorkspaceId =
+        typeof payload.activeWorkspaceId === 'string' || payload.activeWorkspaceId === null
+          ? payload.activeWorkspaceId
+          : state.activeWorkspaceId;
+      state = {
+        ...state,
+        isConnected: true,
+        projects: safeProjects,
+        agents: safeAgents,
+        activeWorkspaceId: safeActiveWorkspaceId,
+        device:
+          payload.device !== undefined && payload.device !== null && typeof payload.device === 'object'
+            ? payload.device
+            : state.device,
+      };
+      emitChange();
+    } catch (e) {
+      console.warn('[liveRelay] updateTelemetry validation failed:', e);
+    }
   },
 
   clearLiveState: () => {

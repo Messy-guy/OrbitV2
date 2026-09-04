@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View, Text, FlatList, Pressable, StyleSheet, Image,
 } from 'react-native';
@@ -8,8 +8,10 @@ import { useLiveRelayStore } from '../../src/stores/liveRelay.store';
 import { ProjectCard } from '../../src/components/project/ProjectCard';
 import { SwarmEmergencyBar } from '../../src/components/agent/SwarmEmergencyBar';
 import { ApprovalsModal } from '../../src/components/approvals/ApprovalsModal';
+import { OnboardingModal } from '../../src/components/onboarding/OnboardingModal';
 import { usePendingApprovals } from '../../src/hooks/useAgentControls';
 import { OrbitTokens } from '../../src/design-system/tokens';
+import { secureStorage } from '../../src/services/secureStorage';
 import { FolderGit2, Bell, Radio } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -19,6 +21,18 @@ export default function HomeScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<FilterType>('all');
   const [approvalsModalOpen, setApprovalsModalOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const completed = await secureStorage.isOnboardingCompleted();
+        if (!completed) {
+          setOnboardingOpen(true);
+        }
+      } catch {}
+    })();
+  }, []);
 
   // Direct zero-cache reactive subscription to live store
   const isConnected = useLiveRelayStore((s) => s.isConnected);
@@ -164,6 +178,13 @@ export default function HomeScreen() {
       <ApprovalsModal
         isOpen={approvalsModalOpen}
         onClose={() => setApprovalsModalOpen(false)}
+      />
+
+      {/* Welcome / Onboarding Modal */}
+      <OnboardingModal
+        visible={onboardingOpen}
+        onComplete={() => setOnboardingOpen(false)}
+        onNavigateSync={() => router.push('/sync')}
       />
     </SafeAreaView>
   );

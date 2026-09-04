@@ -97,6 +97,27 @@ export const secureStorage = {
     }
   },
 
+  isOnboardingCompleted: async (): Promise<boolean> => {
+    try {
+      const val = await SecureStore.getItemAsync('orbit_mobile_onboarding_completed_v1');
+      return val === 'true';
+    } catch {
+      return false;
+    }
+  },
+
+  setOnboardingCompleted: async (completed = true): Promise<void> => {
+    try {
+      if (completed) {
+        await SecureStore.setItemAsync('orbit_mobile_onboarding_completed_v1', 'true');
+      } else {
+        await SecureStore.deleteItemAsync('orbit_mobile_onboarding_completed_v1');
+      }
+    } catch (e) {
+      console.warn('SecureStore setOnboardingCompleted error:', e);
+    }
+  },
+
   clearTokens: async (): Promise<void> => {
     // 1. Immediately wipe in-memory values synchronously to kill race conditions
     inMemoryAccessToken = null;

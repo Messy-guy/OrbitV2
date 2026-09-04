@@ -2,6 +2,7 @@ import { Platform, AppState, AppStateStatus } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { mobileRelayService } from './mobileRelay.service';
 import { secureStorage } from './secureStorage';
+import { recordStartupFailure } from './startupDiagnostics';
 
 export interface NotificationDeepLinkData {
   projectId: string;
@@ -80,6 +81,7 @@ class MobileNotificationService {
       this.setupListeners(Notifications);
       this.setupAppStateTracking();
     } catch (e) {
+      recordStartupFailure(e, 'NOTIFICATIONS_INITIALIZING');
       console.warn('[Notifications] Initialization error:', e);
     }
   }

@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, Switch, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useLiveRelayStore } from '../../src/stores/liveRelay.store';
 import { secureStorage } from '../../src/services/secureStorage';
 import { mobileRelayService } from '../../src/services/mobileRelay.service';
@@ -10,18 +11,21 @@ import { OrbitTokens } from '../../src/design-system/tokens';
 import { GlassCard } from '../../src/design-system/primitives/GlassCard';
 import { AstryxBadge } from '../../src/design-system/primitives/AstryxBadge';
 import { AstryxButton } from '../../src/design-system/primitives/AstryxButton';
-import { User, Bell, Radio, Shield, LogOut, Cpu, HardDrive, Sparkles } from 'lucide-react-native';
+import { OnboardingModal } from '../../src/components/onboarding/OnboardingModal';
+import { User, Bell, Radio, Shield, LogOut, Cpu, HardDrive, Sparkles, Layers } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { mobileAppUpdateService } from '../../src/services/appUpdate.service';
 import Constants from 'expo-constants';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const isConnected = useLiveRelayStore((s) => s.isConnected);
   const deviceMeta = useLiveRelayStore((s) => s.device);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [isUnpairing, setIsUnpairing] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
 
   const currentVersion = Constants.expoConfig?.version || '1.0.0';
 
@@ -173,6 +177,29 @@ export default function SettingsScreen() {
             />
           </GlassCard>
 
+          {/* App Tour / Onboarding */}
+          <GlassCard>
+            <View style={styles.cardHeader}>
+              <View style={styles.iconCircle}>
+                <Layers size={20} color="#FB923C" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Welcome Guide</Text>
+                <Text style={styles.cardSubtitle}>
+                  Review app features and pairing instructions
+                </Text>
+              </View>
+            </View>
+
+            <AstryxButton
+              label="Open Welcome Tour"
+              variant="secondary"
+              size="md"
+              onPress={() => setTourOpen(true)}
+              icon={<Layers size={16} color="#FB923C" />}
+            />
+          </GlassCard>
+
           {/* Disconnect / Unpair Card */}
           {isConnected && (
             <GlassCard>
@@ -200,6 +227,15 @@ export default function SettingsScreen() {
             </GlassCard>
           )}
         </ScrollView>
+
+        <OnboardingModal
+          visible={tourOpen}
+          onComplete={() => setTourOpen(false)}
+          onNavigateSync={() => {
+            setTourOpen(false);
+            router.push('/sync');
+          }}
+        />
       </View>
     </SafeAreaView>
   );

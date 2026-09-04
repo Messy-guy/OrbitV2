@@ -1,5 +1,6 @@
 # Node dependencies
 node_modules/
+.expo/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -30,3 +31,11 @@ src-tauri/updater.key.pub
 # OS temporary files
 .DS_Store
 Thumbs.db
+
+# Mobile build artifacts
+apps/mobile/build_artifacts/
+build_artifacts/
+*.apk
+*.aab
+release-assets/
+
