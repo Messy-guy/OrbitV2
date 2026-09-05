@@ -33,6 +33,48 @@ pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
     false
 }
 
+static LOGIN_SHELL_PATH: Mutex<Option<String>> = Mutex::new(None);
+
+/// Dynamically probe the user's login shell PATH (e.g. bash -l / zsh -l).
+/// This ensures GUI desktop launches get 100% of the user's terminal environment (NVM, pyenv, cargo, brew, etc.).
+pub fn get_login_shell_path() -> Option<String> {
+    if let Ok(guard) = LOGIN_SHELL_PATH.lock() {
+        if let Some(ref p) = *guard {
+            return Some(p.clone());
+        }
+    }
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        #[cfg(not(target_os = "windows"))]
+        { "/bin/bash".to_string() }
+        #[cfg(target_os = "windows")]
+        { "cmd.exe".to_string() }
+    });
+
+    #[cfg(not(target_os = "windows"))]
+    let output = std::process::Command::new(&shell)
+        .args(["-l", "-c", "source ~/.bashrc 2>/dev/null || true; source ~/.zshrc 2>/dev/null || true; source ~/.profile 2>/dev/null || true; source ~/.nvm/nvm.sh 2>/dev/null || true; printf '%s' \"$PATH\""])
+        .output();
+
+    #[cfg(target_os = "windows")]
+    let output = std::process::Command::new(&shell)
+        .args(["/c", "echo %PATH%"])
+        .output();
+
+    if let Ok(out) = output {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                if let Ok(mut guard) = LOGIN_SHELL_PATH.lock() {
+                    *guard = Some(s.clone());
+                }
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
 /// Build the canonical list of directories to search for host binaries.
 /// All paths are derived dynamically from $HOME — no hardcoded usernames.
 pub fn get_host_search_dirs() -> Vec<String> {
@@ -47,16 +89,39 @@ pub fn get_host_search_dirs() -> Vec<String> {
         ],
     };
 
-    let mut dirs: Vec<String> = vec![
+    let mut dirs: Vec<String> = Vec::new();
+
+    // 1. All NVM node versions newest-first (HIGHEST PRIORITY: node, npm, and global agent CLIs)
+    let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
+    if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
+        let mut nvm_bins: Vec<String> = entries
+            .flatten()
+            .map(|e| e.path().join("bin").to_string_lossy().to_string())
+            .filter(|p| Path::new(p).is_dir())
+            .collect();
+        nvm_bins.sort_unstable_by(|a, b| b.cmp(a));
+        dirs.extend(nvm_bins);
+    }
+
+    // 2. User binary & package manager directories
+    dirs.extend(vec![
         format!("{}/.local/bin", home),
         format!("{}/.cargo/bin", home),
         format!("{}/.npm-global/bin", home),
+        format!("{}/.npm-global/lib/node_modules/.bin", home),
         format!("{}/.gemini/antigravity-cli/bin", home),
         format!("{}/.local/share/pnpm/bin", home),
         format!("{}/.local/share/pnpm", home),
         format!("{}/.bun/bin", home),
+        format!("{}/.deno/bin", home),
+        format!("{}/.yarn/bin", home),
+        format!("{}/.fnm/current/bin", home),
+        format!("{}/.asdf/shims", home),
+        format!("{}/.asdf/bin", home),
+        format!("{}/.volta/bin", home),
         format!("{}/.qoder/entry", home),
         format!("{}/.qoder/bin", home),
+        format!("{}/.kimi-code/bin", home),
         format!("{}/bin", home),
         format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
         format!("{}/.var/app/com.visualstudio.code/data/orbit/engines/antigravity/bin", home),
@@ -69,26 +134,9 @@ pub fn get_host_search_dirs() -> Vec<String> {
         format!("{}/.npm-global/lib/node_modules/opencode-ai/node_modules/opencode-linux-x64/bin", home),
         format!("{}/.local/share/uv/tools/mistral-vibe/bin", home),
         format!("{}/.var/app/com.visualstudio.code/data/uv/tools/mistral-vibe/bin", home),
-        "/usr/local/bin".to_string(),
-        "/usr/bin".to_string(),
-        "/bin".to_string(),
-        "/usr/sbin".to_string(),
-        "/sbin".to_string(),
-    ];
+    ]);
 
-    // All NVM node versions newest-first
-    let nvm_node_root = Path::new(&home).join(".nvm").join("versions").join("node");
-    if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
-        let mut nvm_bins: Vec<String> = entries
-            .flatten()
-            .map(|e| e.path().join("bin").to_string_lossy().to_string())
-            .filter(|p| Path::new(p).is_dir())
-            .collect();
-        nvm_bins.sort_unstable_by(|a, b| b.cmp(a));
-        dirs.extend(nvm_bins);
-    }
-
-    // Local Orbit engine node_modules/.bin
+    // 3. Local Orbit engine node_modules/.bin
     let orbit_engines_local = Path::new(&home).join(".local").join("share").join("orbit").join("engines");
     if let Ok(entries) = std::fs::read_dir(&orbit_engines_local) {
         for entry in entries.flatten() {
@@ -99,7 +147,7 @@ pub fn get_host_search_dirs() -> Vec<String> {
         }
     }
 
-    // VS Code Flatpak orbit engine node_modules/.bin
+    // 4. VS Code Flatpak orbit engine node_modules/.bin
     let vscode_orbit_engines = Path::new(&home).join(".var/app/com.visualstudio.code/data/orbit/engines");
     if let Ok(entries) = std::fs::read_dir(&vscode_orbit_engines) {
         for entry in entries.flatten() {
@@ -110,6 +158,17 @@ pub fn get_host_search_dirs() -> Vec<String> {
         }
     }
 
+    // 5. System directories
+    dirs.extend(vec![
+        "/home/linuxbrew/.linuxbrew/bin".to_string(),
+        "/snap/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+        "/usr/sbin".to_string(),
+        "/sbin".to_string(),
+    ]);
+
     dirs
 }
 
@@ -117,18 +176,28 @@ pub fn get_host_search_dirs() -> Vec<String> {
 /// that node-based CLIs with #!/usr/bin/env node shebangs work correctly when
 /// the app is launched from the GUI (which only gets a minimal system PATH).
 pub fn get_augmented_host_path() -> String {
-    let search_dirs = get_host_search_dirs();
-    let current_path = std::env::var("PATH").unwrap_or_default();
-
     let mut seen = std::collections::HashSet::new();
     let mut parts: Vec<String> = Vec::new();
 
-    for d in &search_dirs {
-        if !d.is_empty() && Path::new(d).is_dir() && seen.insert(d.clone()) {
-            parts.push(d.clone());
+    // 1. Dynamic login shell PATH (highest priority — mirrors terminal environment)
+    if let Some(login_path) = get_login_shell_path() {
+        for seg in login_path.split(':') {
+            let trimmed = seg.trim().trim_matches(|c| c == '\\' || c == '"' || c == '\'');
+            if !trimmed.is_empty() && Path::new(trimmed).is_dir() && seen.insert(trimmed.to_string()) {
+                parts.push(trimmed.to_string());
+            }
         }
     }
 
+    // 2. Comprehensive search directories
+    for d in get_host_search_dirs() {
+        if !d.is_empty() && Path::new(&d).is_dir() && seen.insert(d.clone()) {
+            parts.push(d);
+        }
+    }
+
+    // 3. Current process PATH
+    let current_path = std::env::var("PATH").unwrap_or_default();
     for seg in current_path.split(':') {
         if !seg.is_empty() && seen.insert(seg.to_string()) {
             parts.push(seg.to_string());

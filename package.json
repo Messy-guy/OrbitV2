@@ -1,11 +1,11 @@
 {
   "name": "orbit-desktop",
   "private": true,
-  "version": "0.1.29",
+  "version": "0.1.30",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:desktop": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri dev'",
+    "dev:desktop": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd \"'$PWD'\" && npx tauri dev'",
     "dev:mobile": "cd apps/mobile && npm start",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -13,8 +13,8 @@
     "release:desktop": "node scripts/release.js desktop",
     "release:mobile": "node scripts/release.js mobile",
     "tauri": "tauri",
-    "tauri:host": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri dev'",
-    "tauri:build": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd /home/leo/Desktop/personal_projects/OrbitV2 && npx tauri build'"
+    "tauri:host": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd \"'$PWD'\" && npx tauri dev'",
+    "tauri:build": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd \"'$PWD'\" && npx tauri build'"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

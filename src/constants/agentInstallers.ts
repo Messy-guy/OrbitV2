@@ -18,8 +18,8 @@ export const OFFICIAL_AGENT_INSTALLERS: Record<string, AgentInstallerConfig> = {
   antigravity: {
     provider: 'antigravity',
     name: 'Antigravity CLI (agy)',
-    command: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
-    fallbackCommand: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+    command: 'if which agy >/dev/null 2>&1; then agy update 2>/dev/null || true; else mkdir -p ~/.local/bin && curl -fsSL https://antigravity.google/download/linux-x64 -o ~/.local/bin/agy 2>/dev/null && chmod +x ~/.local/bin/agy || true; fi',
+    fallbackCommand: 'agy update',
     uninstallCommand: 'rm -f ~/.local/bin/agy ~/.gemini/antigravity-cli/bin/agy ~/.local/share/orbit/engines/antigravity/bin/agy',
     packageManager: 'curl',
     docUrl: 'https://antigravity.google/docs',

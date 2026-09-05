@@ -115,6 +115,10 @@ impl StorageManager {
         let slug = name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-");
         let id = format!("ws-{}-{}", slug, now % 10000);
 
+        if !project_path.trim().is_empty() {
+            let _ = std::fs::create_dir_all(&project_path);
+        }
+
         let ws = Workspace {
             id,
             name,

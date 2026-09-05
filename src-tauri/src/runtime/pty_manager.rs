@@ -251,10 +251,10 @@ impl PtyManager {
 
         let cwd = if Path::new(&workspace_path).is_dir() {
             workspace_path.clone()
+        } else if !workspace_path.trim().is_empty() && std::fs::create_dir_all(&workspace_path).is_ok() {
+            workspace_path.clone()
         } else {
-            std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "/tmp".to_string())
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
         };
 
         dbg_log!("[ORBIT DEBUG] CWD={}", cwd);
@@ -290,325 +290,413 @@ impl PtyManager {
 
         let (mut cmd_builder, is_shell_process) = match prov.as_str() {
             "antigravity" => {
-                let bin = find_executable(
-                    &["agy", "antigravity"],
-                    &[],
-                ).ok_or_else(|| "Antigravity CLI (agy) binary not found on host".to_string())?;
-
-                let mut cmd = CommandBuilder::new(bin);
-                if active_role == "architect" || active_role == "reviewer" {
-                    cmd.arg("--mode");
-                    cmd.arg("plan");
-                } else if active_role == "implementer" || active_role == "code" {
-                    cmd.arg("--mode");
-                    cmd.arg("accept-edits");
+                if let Some(bin) = find_executable(&["agy", "antigravity"], &[]) {
+                    let mut cmd = CommandBuilder::new(bin);
+                    if active_role == "architect" || active_role == "reviewer" {
+                        cmd.arg("--mode");
+                        cmd.arg("plan");
+                    } else if active_role == "implementer" || active_role == "code" {
+                        cmd.arg("--mode");
+                        cmd.arg("accept-edits");
+                    }
+                    (cmd, false)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
+                    cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, false)
             }
             "claude" => {
-                let bin = find_executable(&["claude"], &[])
-                    .ok_or_else(|| "Claude Code CLI (claude) binary not found on host".to_string())?;
-
-                let mut cmd = CommandBuilder::new(bin);
-                if active_role == "architect" || active_role == "reviewer" {
-                    cmd.arg("--permission-mode");
-                    cmd.arg("plan");
-                }
-                (cmd, false)
-            }
-            "codex" => {
-                let codex_extra: [&str; 0] = [];
-                let bin = find_executable(&["codex", "openai-codex"], &codex_extra)
-                    .unwrap_or_else(|| {
-                        #[cfg(target_os = "windows")]
-                        {
-                            find_executable(&["powershell", "cmd"], &[])
-                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
-                        }
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
-                        }
-                    });
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(&bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["claude"], &[]) {
+                    let mut cmd = CommandBuilder::new(bin);
+                    if active_role == "architect" || active_role == "reviewer" {
+                        cmd.arg("--permission-mode");
+                        cmd.arg("plan");
+                    }
+                    (cmd, false)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
-            "opencode" => {
-                let opencode_extra: [&str; 0] = [];
-                let bin = find_executable(&["opencode"], &opencode_extra)
-                    .unwrap_or_else(|| {
-                        #[cfg(target_os = "windows")]
-                        {
-                            find_executable(&["powershell", "cmd"], &[])
-                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
-                        }
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
-                        }
-                    });
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+            "codex" | "openai-codex" => {
+                if let Some(bin) = find_executable(&["codex", "openai-codex", "@openai/codex"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(&bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
+            }
+            "opencode" | "opencode-ai" => {
+                if let Some(bin) = find_executable(&["opencode", "opencode-ai"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
+                    cmd.arg("-i");
+                    (cmd, true)
+                }
             }
             "kilocode" | "kilo" | "@kilocode/cli" => {
-                let kilo_extra: [&str; 0] = [];
-                let bin = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &kilo_extra)
-                    .ok_or_else(|| "KiloCode CLI (kilocode) not found on host — install with: npm install -g @kilocode/cli".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "freebuff" | "freebuff-ai" | "freebuff-cli" => {
-                let freebuff_extra: [&str; 0] = [];
-                let bin = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &freebuff_extra)
-                    .ok_or_else(|| "Freebuff CLI (freebuff) not found on host — install with: npm install -g freebuff".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "cline" => {
-                let cline_extra: [&str; 0] = [];
-                let bin = find_executable(&["cline"], &cline_extra)
-                    .ok_or_else(|| "Cline CLI (cline) not found on host — install with: npm install -g cline".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["cline"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "copilot" | "github-copilot" | "github-copilot-cli" | "gh-copilot" => {
-                let copilot_extra: [&str; 0] = [];
-                let bin = match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &copilot_extra) {
-                    Some(p) if is_unusable_sandbox_shim(&p) => {
-                        return Err(
-                            "GitHub Copilot CLI found only inside the VS Code sandbox — its launcher runs the editor binary from within the Flatpak, which does not exist on the host. Install the standalone Copilot CLI with: npm install -g @github/copilot (or use Orbit's agent installer)."
-                                .to_string(),
-                        );
+                let copilot_bin = find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[])
+                    .filter(|p| !is_unusable_sandbox_shim(p));
+                if let Some(bin) = copilot_bin {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
                     }
-                    Some(p) => p,
-                    None => {
-                        return Err(
-                            "GitHub Copilot CLI (copilot) not found on host — install with: npm install -g @github/copilot".to_string()
-                        );
-                    }
-                };
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "goose" | "goose-ai" => {
-                let goose_extra: [&str; 0] = [];
-                let bin = find_executable(&["goose", "goose-ai"], &goose_extra)
-                    .ok_or_else(|| "Goose CLI (goose) not found on host".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["goose", "goose-ai"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "kiro" | "kiro-cli" => {
-                let kiro_extra: [&str; 0] = [];
-                let bin = find_executable(&["kiro-cli", "kiro"], &kiro_extra)
-                    .ok_or_else(|| "Kiro CLI (kiro) not found on host".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["kiro-cli", "kiro"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "qwen" | "qwen-code" | "qwen-agent" => {
-                let qwen_extra: [&str; 0] = [];
-                let bin = find_executable(&["qwen-code", "qwen", "qwen-agent"], &qwen_extra)
-                    .ok_or_else(|| "Qwen Code CLI (qwen-code) not found on host — install with: npm install -g @qwen-code/cli".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "mimo" | "mimo-cli" | "mimocode" => {
-                let mimo_extra: [&str; 0] = [];
-                let bin = find_executable(&["mimo", "mimo-cli", "mimocode"], &mimo_extra)
-                    .ok_or_else(|| "Mimo Code CLI (mimo) not found on host — install with: npm install -g @mimo-ai/cli".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["mimo", "mimo-cli", "mimocode"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "muse" | "muse-cli" | "musecode" => {
-                let muse_extra: [&str; 0] = [];
-                let bin = find_executable(&["muse", "muse-cli", "musecode"], &muse_extra)
-                    .ok_or_else(|| "Muse Code CLI (muse) not found on host — install with: npm install -g @muse-ai/cli".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["muse", "muse-cli", "musecode"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "continue" | "cn" | "continuedev" => {
-                let continue_extra: [&str; 0] = [];
-                let bin = find_executable(&["continue", "cn", "continuedev"], &continue_extra)
-                    .ok_or_else(|| "Continue CLI (continue) not found on host".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["continue", "cn", "continuedev"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "aider" | "aider-chat" => {
-                let aider_extra: [&str; 0] = [];
-                let bin = find_executable(&["aider", "aider-chat"], &aider_extra)
-                    .ok_or_else(|| "Aider CLI (aider) not found on host — install with: pip install aider-chat".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["aider", "aider-chat"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "vibe" | "mistral-vibe" | "vibe-cli" => {
-                let vibe_extra: [&str; 0] = [];
-                let bin = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &vibe_extra)
-                    .unwrap_or_else(|| {
-                        #[cfg(target_os = "windows")]
-                        {
-                            find_executable(&["powershell", "cmd"], &[])
-                                .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf())
+                if let Some(bin) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    } else {
+                        cmd.env("PYTHONUNBUFFERED", "1");
+                        cmd.env("PYTHONIOENCODING", "utf-8");
+                        let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                        cmd.env("VIBE_HOME", format!("{}/.vibe", user_home));
+                        if let Ok(dbus) = std::env::var("DBUS_SESSION_BUS_ADDRESS") {
+                            cmd.env("DBUS_SESSION_BUS_ADDRESS", dbus);
                         }
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
-                                .unwrap_or_else(|| Path::new("bash").to_path_buf())
-                        }
-                    });
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
-                    cmd.arg("-i");
-                } else {
-                    cmd.env("PYTHONUNBUFFERED", "1");
-                    cmd.env("PYTHONIOENCODING", "utf-8");
-                    // Ensure vibe home is set and keyring access works (not disabled)
-                    let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-                    cmd.env("VIBE_HOME", format!("{}/.vibe", user_home));
-                    // Pass DBUS so vibe can access GNOME keyring for MISTRAL_API_KEY
-                    if let Ok(dbus) = std::env::var("DBUS_SESSION_BUS_ADDRESS") {
-                        cmd.env("DBUS_SESSION_BUS_ADDRESS", dbus);
-                    }
-                    // Pre-load API key from ~/.vibe/.env if present
-                    let vibe_env_path = format!("{}/.vibe/.env", user_home);
-                    if let Ok(env_contents) = std::fs::read_to_string(&vibe_env_path) {
-                        for line in env_contents.lines() {
-                            if let Some((k, v)) = line.splitn(2, '=').collect::<Vec<_>>().split_first().and_then(|(k, rest)| {
-                                rest.first().map(|v| (k.trim(), v.trim().trim_matches('"')))
-                            }) {
-                                if !k.starts_with('#') && !k.is_empty() {
-                                    cmd.env(k, v);
+                        let vibe_env_path = format!("{}/.vibe/.env", user_home);
+                        if let Ok(env_contents) = std::fs::read_to_string(&vibe_env_path) {
+                            for line in env_contents.lines() {
+                                if let Some((k, v)) = line.splitn(2, '=').collect::<Vec<_>>().split_first().and_then(|(k, rest)| {
+                                    rest.first().map(|v| (k.trim(), v.trim().trim_matches('"')))
+                                }) {
+                                    if !k.starts_with('#') && !k.is_empty() {
+                                        cmd.env(k, v);
+                                    }
                                 }
                             }
                         }
+                        cmd.arg("--trust");
                     }
-                    cmd.arg("--trust");
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
+                    cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             "qoder" | "qoder-cli" | "qodercli" => {
-                let qoder_extra: [&str; 0] = [];
-                let bin = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &qoder_extra)
-                    .ok_or_else(|| "Qoder CLI (qodercli) not found on host — install with: npm install -g @qoder-ai/cli".to_string())?;
-                let is_shell = bin
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n == "bash" || n == "sh" || n == "zsh")
-                    .unwrap_or(false);
-                let mut cmd = CommandBuilder::new(bin);
-                if is_shell {
+                if let Some(bin) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
+                    let is_shell = bin
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n == "bash" || n == "sh" || n == "zsh")
+                        .unwrap_or(false);
+                    let mut cmd = CommandBuilder::new(bin);
+                    if is_shell {
+                        cmd.arg("-i");
+                    }
+                    (cmd, is_shell)
+                } else {
+                    #[cfg(target_os = "windows")]
+                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    #[cfg(not(target_os = "windows"))]
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let mut cmd = CommandBuilder::new(bin);
+                    #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
+                    (cmd, true)
                 }
-                (cmd, is_shell)
             }
             custom_or_shell => {
                 let parts: Vec<&str> = custom_or_shell.split_whitespace().collect();
@@ -972,10 +1060,18 @@ impl PtyManager {
 
                         let chunk = String::from_utf8_lossy(chunk_bytes).to_string();
 
-                        // Append to history buffer with memory safety cap
+                        // Append to history buffer with memory safety cap (UTF-8 char boundary safe)
                         if let Ok(mut hist) = history_arc.lock() {
                             if hist.len() > 40_000 {
-                                hist.drain(..20_000);
+                                let mut cut = 20_000;
+                                while cut > 0 && !hist.is_char_boundary(cut) {
+                                    cut -= 1;
+                                }
+                                if cut > 0 {
+                                    hist.drain(..cut);
+                                } else {
+                                    hist.clear();
+                                }
                             }
                             hist.push_str(&chunk);
                         }
@@ -1282,56 +1378,78 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         resp.extend_from_slice(b"\x1b[?996;0n");
     }
 
-    // 5. Primary Device Attributes: \x1b[c or \x1b[0c
+    // 5. ModifyOtherKeys / XTerm Key Queries: \x1b[>4m, \x1b[>4;2m, \x1b[>4;1m
+    if data.windows(5).any(|w| w == b"\x1b[>4m")
+        || data.windows(7).any(|w| w == b"\x1b[>4;2m" || w == b"\x1b[>4;1m")
+    {
+        resp.extend_from_slice(b"\x1b[>4;0m");
+    }
+
+    // 6. DECSNLS (Screen size report query): \x1b[?5W
+    if data.windows(5).any(|w| w == b"\x1b[?5W") {
+        resp.extend_from_slice(b"\x1b[?24;80;0;0;0;0W");
+    }
+
+    // 7. Window size query: \x1b[14t (pixel size), \x1b[18t (char size)
+    if data.windows(5).any(|w| w == b"\x1b[14t") {
+        resp.extend_from_slice(b"\x1b[4;480;800t");
+    }
+    if data.windows(5).any(|w| w == b"\x1b[18t") {
+        resp.extend_from_slice(b"\x1b[8;24;80t");
+    }
+
+    // 8. Primary Device Attributes: \x1b[c or \x1b[0c
     if data.windows(3).any(|w| w == b"\x1b[c") || data.windows(4).any(|w| w == b"\x1b[0c") {
         resp.extend_from_slice(b"\x1b[?1;2c");
     }
 
-    // 6. Secondary Device Attributes: \x1b[>c or \x1b[>0c
+    // 9. Secondary Device Attributes: \x1b[>c or \x1b[>0c
     if data.windows(4).any(|w| w == b"\x1b[>c") || data.windows(5).any(|w| w == b"\x1b[>0c") {
         resp.extend_from_slice(b"\x1b[>0;0;0c");
     }
 
-    // 7. OSC 10 Foreground Color Query: \x1b]10;?
+    // 10. OSC 10 Foreground Color Query: \x1b]10;?
     if data.windows(6).any(|w| w == b"\x1b]10;?") || data.windows(5).any(|w| w == b"]10;?") {
         resp.extend_from_slice(b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\");
     }
 
-    // 8. OSC 11 Background Color Query: \x1b]11;?
+    // 11. OSC 11 Background Color Query: \x1b]11;?
     if data.windows(6).any(|w| w == b"\x1b]11;?") || data.windows(5).any(|w| w == b"]11;?") {
         resp.extend_from_slice(b"\x1b]11;rgb:1818/1b1b/2626\x1b\\");
     }
 
-    // 9. XTGETTCAP Termcap/Terminfo Query: \x1bP+q
+    // 12. XTGETTCAP Termcap/Terminfo Query: \x1bP+q
     if data.windows(4).any(|w| w == b"\x1bP+q") {
         resp.extend_from_slice(b"\x1bP0+r\x1b\\");
     }
 
-    // 10. OSC 4 Palette queries: \x1b]4;<index>;?
-    if let Ok(s) = std::str::from_utf8(data) {
-        if s.contains("]4;") && s.contains(";?") {
-            for i in 0..16 {
-                let pat = format!("]4;{};?", i);
-                if s.contains(&pat) {
-                    resp.extend_from_slice(format!("\x1b]4;{};rgb:8888/8888/8888\x1b\\", i).as_bytes());
-                }
+    // String-based query parsing with lossy UTF-8 decoding so partial bytes never cause failure
+    let s = String::from_utf8_lossy(data);
+
+    // 13. OSC 4 Palette queries: \x1b]4;<index>;?
+    if s.contains("]4;") && s.contains(";?") {
+        for i in 0..16 {
+            let pat = format!("]4;{};?", i);
+            if s.contains(&pat) {
+                resp.extend_from_slice(format!("\x1b]4;{};rgb:8888/8888/8888\x1b\\", i).as_bytes());
             }
         }
+    }
 
-        // 11. DECRQM mode queries: \x1b[?<digits>$p
-        if s.contains("$p") && s.contains("[?") {
-            let mut remaining = s;
-            while let Some(pos) = remaining.find("[?") {
-                let sub = &remaining[pos + 2..];
-                if let Some(dollar_pos) = sub.find("$p") {
-                    let mode_str = &sub[..dollar_pos];
-                    if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
-                        resp.extend_from_slice(format!("\x1b[?{};0$y", mode_str).as_bytes());
-                    }
-                    remaining = &sub[dollar_pos + 2..];
-                } else {
-                    break;
+    // 14. DECRQM mode queries: \x1b[?<digits>$p
+    // Status '2' in DECRPM (\x1b[?<digits>;2$y) indicates the mode IS recognized/supported and currently reset.
+    if s.contains("$p") && s.contains("[?") {
+        let mut remaining = s.as_ref();
+        while let Some(pos) = remaining.find("[?") {
+            let sub = &remaining[pos + 2..];
+            if let Some(dollar_pos) = sub.find("$p") {
+                let mode_str = &sub[..dollar_pos];
+                if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
+                    resp.extend_from_slice(format!("\x1b[?{};2$y", mode_str).as_bytes());
                 }
+                remaining = &sub[dollar_pos + 2..];
+            } else {
+                break;
             }
         }
     }
