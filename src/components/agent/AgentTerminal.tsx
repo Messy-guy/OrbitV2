@@ -134,6 +134,14 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+
+    // Register OSC handlers to swallow query escape echoes cleanly
+    try {
+      term.parser.registerOscHandler(10, () => true);
+      term.parser.registerOscHandler(11, () => true);
+      term.parser.registerOscHandler(4, () => true);
+    } catch {}
+
     term.open(host);
     termRef.current = term;
     fitRef.current = fitAddon;

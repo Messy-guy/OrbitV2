@@ -853,6 +853,7 @@ impl PtyManager {
 
         let child_arc = session.child.clone();
         let history_arc = session.output_history.clone();
+        let writer_for_terminal_queries = session.writer.clone();
 
         {
             let mut map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -958,7 +959,18 @@ impl PtyManager {
                 match reader.read(&mut buf) {
                     Ok(0) => break, // EOF
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let chunk_bytes = &buf[..n];
+
+                        // Emulate terminal query auto-responses (DSR, Kitty keyboard/graphics, OSC 10/11 color queries, DECRQM modes, XTGETTCAP)
+                        // so modern interactive TUI CLIs (Jetski/Bubbletea, OpenTUI, Ink, Textual) never freeze waiting for terminal capabilities.
+                        if let Some(resp) = generate_terminal_query_responses(chunk_bytes) {
+                            if let Ok(mut w) = writer_for_terminal_queries.lock() {
+                                let _ = w.write_all(&resp);
+                                let _ = w.flush();
+                            }
+                        }
+
+                        let chunk = String::from_utf8_lossy(chunk_bytes).to_string();
 
                         // Append to history buffer with memory safety cap
                         if let Ok(mut hist) = history_arc.lock() {
@@ -1245,4 +1257,88 @@ fn chrono_now_millis() -> i64 {
 
 fn workspace_paths_contains(paths: &[String], candidate: &str) -> bool {
     paths.iter().any(|p| p.as_str() == candidate)
+}
+
+fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
+    let mut resp = Vec::new();
+
+    // 1. Device Status Report (DSR) Cursor Position Query: \x1b[6n or \x1b[?6n
+    if data.windows(4).any(|w| w == b"\x1b[6n") || data.windows(5).any(|w| w == b"\x1b[?6n") {
+        resp.extend_from_slice(b"\x1b[1;1R");
+    }
+
+    // 2. DSR Status Query: \x1b[5n -> terminal OK
+    if data.windows(4).any(|w| w == b"\x1b[5n") {
+        resp.extend_from_slice(b"\x1b[0n");
+    }
+
+    // 3. Kitty Keyboard Protocol Query: \x1b[?u
+    if data.windows(4).any(|w| w == b"\x1b[?u") {
+        resp.extend_from_slice(b"\x1b[?0u");
+    }
+
+    // 4. Kitty Graphics Query: \x1b[?996n
+    if data.windows(7).any(|w| w == b"\x1b[?996n") {
+        resp.extend_from_slice(b"\x1b[?996;0n");
+    }
+
+    // 5. Primary Device Attributes: \x1b[c or \x1b[0c
+    if data.windows(3).any(|w| w == b"\x1b[c") || data.windows(4).any(|w| w == b"\x1b[0c") {
+        resp.extend_from_slice(b"\x1b[?1;2c");
+    }
+
+    // 6. Secondary Device Attributes: \x1b[>c or \x1b[>0c
+    if data.windows(4).any(|w| w == b"\x1b[>c") || data.windows(5).any(|w| w == b"\x1b[>0c") {
+        resp.extend_from_slice(b"\x1b[>0;0;0c");
+    }
+
+    // 7. OSC 10 Foreground Color Query: \x1b]10;?
+    if data.windows(6).any(|w| w == b"\x1b]10;?") || data.windows(5).any(|w| w == b"]10;?") {
+        resp.extend_from_slice(b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\");
+    }
+
+    // 8. OSC 11 Background Color Query: \x1b]11;?
+    if data.windows(6).any(|w| w == b"\x1b]11;?") || data.windows(5).any(|w| w == b"]11;?") {
+        resp.extend_from_slice(b"\x1b]11;rgb:1818/1b1b/2626\x1b\\");
+    }
+
+    // 9. XTGETTCAP Termcap/Terminfo Query: \x1bP+q
+    if data.windows(4).any(|w| w == b"\x1bP+q") {
+        resp.extend_from_slice(b"\x1bP0+r\x1b\\");
+    }
+
+    // 10. OSC 4 Palette queries: \x1b]4;<index>;?
+    if let Ok(s) = std::str::from_utf8(data) {
+        if s.contains("]4;") && s.contains(";?") {
+            for i in 0..16 {
+                let pat = format!("]4;{};?", i);
+                if s.contains(&pat) {
+                    resp.extend_from_slice(format!("\x1b]4;{};rgb:8888/8888/8888\x1b\\", i).as_bytes());
+                }
+            }
+        }
+
+        // 11. DECRQM mode queries: \x1b[?<digits>$p
+        if s.contains("$p") && s.contains("[?") {
+            let mut remaining = s;
+            while let Some(pos) = remaining.find("[?") {
+                let sub = &remaining[pos + 2..];
+                if let Some(dollar_pos) = sub.find("$p") {
+                    let mode_str = &sub[..dollar_pos];
+                    if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
+                        resp.extend_from_slice(format!("\x1b[?{};0$y", mode_str).as_bytes());
+                    }
+                    remaining = &sub[dollar_pos + 2..];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    if resp.is_empty() {
+        None
+    } else {
+        Some(resp)
+    }
 }
