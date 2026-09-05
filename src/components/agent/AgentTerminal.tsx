@@ -207,13 +207,15 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         unlistenStatus();
       };
 
-      // 5. Spawn or Reattach PTY session
+      // 5. Spawn or Reattach PTY session.
+      // Query Rust for real process liveness (is_running() now calls try_wait()
+      // internally — it returns true ONLY if the OS process is actually alive).
+      // This prevents the double-spawn race: if startSession fires twice (React
+      // StrictMode or fast re-mount), the second call skips if the first PTY is live.
       const ws = workspaceRef.current;
       const projPath = ws?.projectPath || '';
       const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
 
-      // Check if session is already running in Rust before starting (tolerate query errors:
-      // a failure here should not fail the whole spawn — just attempt a fresh session)
       const isAlreadyRunning = await tauriService.isAgentProcessRunning(agentRef.current.id).catch(() => false);
 
       if (!isAlreadyRunning) {

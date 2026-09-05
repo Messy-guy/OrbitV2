@@ -144,8 +144,29 @@ impl PtyManager {
     }
 
     pub fn is_running(&self, agent_id: &str) -> bool {
-        let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        Self::find_session_key(&map, agent_id).is_some()
+        // Clone the child Arc while holding the map lock, then drop the lock
+        // before calling try_lock on the child — avoids nested lock ordering issues.
+        let child_arc = {
+            let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let key = match Self::find_session_key(&map, agent_id) {
+                Some(k) => k,
+                None => return false,
+            };
+            match map.get(&key) {
+                Some(s) => s.child.clone(),
+                None => return false,
+            }
+        };
+        // Map lock is released. Probe OS process liveness.
+        // Save result to a local first so the MutexGuard drops before child_arc.
+        let alive = if let Ok(mut guard) = child_arc.try_lock() {
+            let r = matches!(guard.try_wait(), Ok(None));
+            drop(guard);
+            r
+        } else {
+            true // watcher holds the lock → assume alive
+        };
+        alive
     }
 
     pub fn create_session(
@@ -163,13 +184,32 @@ impl PtyManager {
     ) -> Result<u32, String> {
         dbg_log!("[ORBIT DEBUG] create_session called: agent_id={} provider={} profile={:?}", agent_id, provider, profile_id);
 
-        // If already running for this agent and no prompt, re-emit status so frontend can reattach
-        {
-            let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(existing) = map.get(&agent_id) {
-                if prompt.is_none() {
-                    let pid = existing.pid;
-                    dbg_log!("[ORBIT DEBUG] Reattaching to existing session PID={}", pid);
+        // If already running for this agent and no prompt, verify the OS process is
+        // actually still alive, then re-emit status so the frontend can reattach.
+        // IMPORTANT: only skip spawning if the process is genuinely alive —
+        // if the child has already exited (but the watcher hasn't cleaned it yet)
+        // we must fall through and spawn a fresh PTY. Returning early for a dead
+        // session is the root cause of the "cursor only / no output" symptom.
+        if prompt.is_none() {
+            // Clone what we need from the map (child Arc + pid) before dropping the lock.
+            let existing_info = {
+                let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                map.get(&agent_id).map(|s| (s.child.clone(), s.pid))
+            };
+
+            if let Some((child_arc, pid)) = existing_info {
+                // Probe OS process liveness — map lock is now released.
+                // Explicit drop ensures MutexGuard is released before child_arc is dropped.
+                let process_alive = if let Ok(mut guard) = child_arc.try_lock() {
+                    let r = matches!(guard.try_wait(), Ok(None));
+                    drop(guard);
+                    r
+                } else {
+                    true // watcher holds the lock → assume alive
+                };
+
+                if process_alive {
+                    dbg_log!("[ORBIT DEBUG] Reattaching to existing live session PID={}", pid);
                     let _ = app.emit(
                         "agent-status",
                         AgentStatusEvent {
@@ -182,6 +222,9 @@ impl PtyManager {
                         },
                     );
                     return Ok(pid);
+                } else {
+                    dbg_log!("[ORBIT DEBUG] Stale session found (process dead) — spawning fresh PTY for agent_id={}", agent_id);
+                    // Fall through: terminate stale entry and spawn fresh below
                 }
             }
         }
