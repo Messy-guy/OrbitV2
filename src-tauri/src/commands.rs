@@ -716,7 +716,22 @@ pub fn remove_project_skill_file(project_path: String, relative_path: String) ->
 }
 
 #[tauri::command]
-pub async fn install_agent_cli(command: String) -> Result<String, String> {
+pub fn refresh_detected_agents() -> Vec<DetectedAgent> {
+    crate::discovery::invalidate_detection_cache();
+    detect_all_agents()
+}
+
+#[tauri::command]
+pub async fn install_agent_cli(provider: String, command: String) -> Result<String, String> {
+    let prov = provider.to_lowercase().trim().to_string();
+    let allowlist = [
+        "antigravity", "claude", "codex", "opencode", "kilocode", "freebuff", "cline",
+        "copilot", "goose", "kiro", "qwen", "mimo", "muse", "vibe", "qoder",
+    ];
+    if !allowlist.contains(&prov.as_str()) {
+        return Err(format!("Provider '{}' is not supported for 1-click install.", provider));
+    }
+
     #[cfg(target_os = "windows")]
     let mut cmd = std::process::Command::new("powershell");
     #[cfg(target_os = "windows")]
@@ -738,38 +753,8 @@ pub async fn install_agent_cli(command: String) -> Result<String, String> {
     cmd.env_remove("NPM_CONFIG_PREFIX");
     cmd.env_remove("NPM_CONFIG_GLOBALCONFIG");
 
-    let mut host_path = std::env::var("PATH").unwrap_or_default();
-    if let Ok(home) = std::env::var("HOME") {
-        let mut candidate_bin_dirs = vec![
-            format!("{}/.npm-global/bin", home),
-            format!("{}/.local/bin", home),
-            format!("{}/.cargo/bin", home),
-            format!("{}/.var/app/com.visualstudio.code/data/node_modules/bin", home),
-            format!("{}/.local/share/orbit/engines/node_modules/.bin", home),
-            format!("{}/.local/share/pnpm/bin", home),
-            "/usr/local/bin".to_string(),
-            "/usr/bin".to_string(),
-            "/bin".to_string(),
-        ];
-
-        // Dynamically add all node binary directories in ~/.nvm/versions/node/*/bin
-        let nvm_node_root = std::path::Path::new(&home).join(".nvm").join("versions").join("node");
-        if let Ok(entries) = std::fs::read_dir(&nvm_node_root) {
-            for entry in entries.flatten() {
-                let bin_dir = entry.path().join("bin");
-                if bin_dir.is_dir() {
-                    candidate_bin_dirs.push(bin_dir.to_string_lossy().to_string());
-                }
-            }
-        }
-
-        for d in &candidate_bin_dirs {
-            if !host_path.contains(d) && std::path::Path::new(d).is_dir() {
-                host_path = format!("{}:{}", d, host_path);
-            }
-        }
-    }
-    cmd.env("PATH", host_path);
+    let host_path = crate::discovery::get_augmented_host_path();
+    cmd.env("PATH", &host_path);
 
     let output = cmd.output().map_err(|e| format!("Failed to execute installer: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -779,8 +764,82 @@ pub async fn install_agent_cli(command: String) -> Result<String, String> {
         return Err(format!("Installer exited with error:\n{}{}", stdout, stderr));
     }
 
+    // Mark as orbit-managed and invalidate discovery cache
+    crate::discovery::set_provider_orbit_managed(&prov, true);
     crate::discovery::invalidate_detection_cache();
-    Ok(if stdout.is_empty() { stderr } else { stdout })
+    let detected = detect_all_agents();
+    let is_now_available = detected.iter().any(|d| d.provider.to_lowercase() == prov && d.is_available);
+
+    let summary = if stdout.is_empty() { stderr } else { stdout };
+    if is_now_available {
+        Ok(format!("✅ Successfully installed and verified {}\n{}", prov, summary))
+    } else {
+        Ok(format!("Installer completed for {}.\n{}", prov, summary))
+    }
+}
+
+#[tauri::command]
+pub async fn uninstall_agent_cli(state: State<'_, AppState>, provider: String) -> Result<String, String> {
+    let prov = provider.to_lowercase().trim().to_string();
+    if prov == "terminal" || prov == "shell" {
+        return Err("The system shell terminal cannot be uninstalled.".to_string());
+    }
+
+    let uninstall_map: [(&str, &str); 15] = [
+        ("antigravity", "rm -f ~/.local/bin/agy ~/.gemini/antigravity-cli/bin/agy ~/.local/share/orbit/engines/antigravity/bin/agy 2>/dev/null || true"),
+        ("claude", "npm uninstall -g @anthropic-ai/claude-code 2>/dev/null; rm -f ~/.local/bin/claude 2>/dev/null || true"),
+        ("codex", "npm uninstall -g @openai/codex 2>/dev/null; rm -f ~/.npm-global/bin/codex 2>/dev/null || true"),
+        ("opencode", "npm uninstall -g opencode-ai 2>/dev/null; rm -f ~/.nvm/versions/node/*/bin/opencode ~/.npm-global/bin/opencode 2>/dev/null || true"),
+        ("kilocode", "npm uninstall -g @kilocode/cli 2>/dev/null; rm -f ~/.nvm/versions/node/*/bin/kilocode ~/.npm-global/bin/kilocode 2>/dev/null || true"),
+        ("freebuff", "npm uninstall -g freebuff 2>/dev/null; rm -f ~/.nvm/versions/node/*/bin/freebuff ~/.npm-global/bin/freebuff 2>/dev/null || true"),
+        ("cline", "npm uninstall -g cline 2>/dev/null; rm -f ~/.nvm/versions/node/*/bin/cline ~/.npm-global/bin/cline 2>/dev/null || true"),
+        ("copilot", "npm uninstall -g @github/copilot 2>/dev/null; rm -f ~/.npm-global/bin/copilot ~/.nvm/versions/node/*/bin/copilot 2>/dev/null || true"),
+        ("goose", "rm -f ~/.local/bin/goose ~/.cargo/bin/goose 2>/dev/null || true"),
+        ("kiro", "rm -f ~/.local/bin/kiro ~/.local/bin/kiro-cli 2>/dev/null; npm uninstall -g kiro-cli 2>/dev/null || true"),
+        ("qwen", "npm uninstall -g @qwen-code/qwen-code 2>/dev/null; rm -f ~/.var/app/com.visualstudio.code/data/node_modules/bin/qwen 2>/dev/null || true"),
+        ("mimo", "npm uninstall -g @mimo-ai/cli 2>/dev/null; rm -f ~/.local/bin/mimo ~/.npm-global/bin/mimo 2>/dev/null || true"),
+        ("muse", "rm -f ~/.local/bin/muse ~/.local/bin/muse-cli 2>/dev/null || true"),
+        ("vibe", "rm -f ~/.local/bin/vibe ~/.local/share/uv/tools/mistral-vibe/bin/vibe 2>/dev/null || true"),
+        ("qoder", "rm -rf ~/.qoder 2>/dev/null; rm -f ~/.local/bin/qodercli 2>/dev/null || true"),
+    ];
+
+    let cmd_str = match uninstall_map.iter().find(|(p, _)| *p == prov.as_str()) {
+        Some((_, c)) => *c,
+        None => return Err(format!("Unknown provider '{}' for uninstallation.", provider)),
+    };
+
+    // 1. Terminate any active sessions for this provider
+    state.pty_manager.terminate_by_provider(&prov);
+
+    // 2. Run the verified safe uninstaller command
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("powershell");
+    #[cfg(target_os = "windows")]
+    cmd.args(["-NoProfile", "-Command", cmd_str]);
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = std::process::Command::new("bash");
+    #[cfg(not(target_os = "windows"))]
+    {
+        let wrapped_cmd = format!(
+            "source ~/.nvm/nvm.sh 2>/dev/null || true; source ~/.cargo/env 2>/dev/null || true; {}",
+            cmd_str
+        );
+        cmd.args(["-l", "-c", &wrapped_cmd]);
+    }
+
+    let host_path = crate::discovery::get_augmented_host_path();
+    cmd.env("PATH", &host_path);
+
+    let output = cmd.output().map_err(|e| format!("Failed to execute uninstaller: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // 3. Update engine-state and invalidate cache
+    crate::discovery::set_provider_orbit_managed(&prov, false);
+    crate::discovery::invalidate_detection_cache();
+
+    Ok(format!("Agent {} uninstalled successfully.\n{}{}", prov, stdout, stderr))
 }
 
 #[tauri::command]

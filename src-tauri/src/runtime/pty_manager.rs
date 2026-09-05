@@ -143,6 +143,22 @@ impl PtyManager {
         String::new()
     }
 
+    pub fn terminate_by_provider(&self, provider: &str) {
+        let prov = provider.to_lowercase();
+        let mut map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let keys_to_kill: Vec<String> = map.iter()
+            .filter(|(k, s)| k.to_lowercase().contains(&prov) || s.agent_id.to_lowercase().contains(&prov))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in keys_to_kill {
+            if let Some(mut session) = map.remove(&key) {
+                if let Ok(mut child_guard) = session.child.try_lock() {
+                    let _ = child_guard.kill();
+                }
+            }
+        }
+    }
+
     pub fn is_running(&self, agent_id: &str) -> bool {
         // Clone the child Arc while holding the map lock, then drop the lock
         // before calling try_lock on the child — avoids nested lock ordering issues.
@@ -349,16 +365,13 @@ impl PtyManager {
                 let mut cmd = CommandBuilder::new(bin);
                 if is_shell {
                     cmd.arg("-i");
-                } else if active_role == "architect" || active_role == "reviewer" {
-                    cmd.arg("--agent");
-                    cmd.arg("plan");
                 }
                 (cmd, is_shell)
             }
-            "kilocode" | "kilo" => {
+            "kilocode" | "kilo" | "@kilocode/cli" => {
                 let kilo_extra: [&str; 0] = [];
                 let bin = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &kilo_extra)
-                    .ok_or_else(|| "KiloCode CLI (kilocode) not found on host".to_string())?;
+                    .ok_or_else(|| "KiloCode CLI (kilocode) not found on host — install with: npm install -g @kilocode/cli".to_string())?;
                 let is_shell = bin
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -370,10 +383,10 @@ impl PtyManager {
                 }
                 (cmd, is_shell)
             }
-            "freebuff" => {
+            "freebuff" | "freebuff-ai" | "freebuff-cli" => {
                 let freebuff_extra: [&str; 0] = [];
                 let bin = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &freebuff_extra)
-                    .ok_or_else(|| "Freebuff CLI (freebuff) not found on host".to_string())?;
+                    .ok_or_else(|| "Freebuff CLI (freebuff) not found on host — install with: npm install -g freebuff".to_string())?;
                 let is_shell = bin
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -388,7 +401,7 @@ impl PtyManager {
             "cline" => {
                 let cline_extra: [&str; 0] = [];
                 let bin = find_executable(&["cline"], &cline_extra)
-                    .ok_or_else(|| "Cline CLI (cline) not found on host — install with: npm install -g @cline/cli".to_string())?;
+                    .ok_or_else(|| "Cline CLI (cline) not found on host — install with: npm install -g cline".to_string())?;
                 let is_shell = bin
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -400,11 +413,7 @@ impl PtyManager {
                 }
                 (cmd, is_shell)
             }
-            "copilot" | "github-copilot" => {
-                // Standalone installs FIRST — the VS Code-internal Copilot shim
-                // (globalStorage/copilotCli) execs the editor binary from inside the
-                // Flatpak sandbox (`/app/extra/vscode/code`) and cannot run from the
-                // host, so it must only ever be a last-resort candidate.
+            "copilot" | "github-copilot" | "github-copilot-cli" | "gh-copilot" => {
                 let copilot_extra: [&str; 0] = [];
                 let bin = match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &copilot_extra) {
                     Some(p) if is_unusable_sandbox_shim(&p) => {
@@ -428,10 +437,6 @@ impl PtyManager {
                 let mut cmd = CommandBuilder::new(bin);
                 if is_shell {
                     cmd.arg("-i");
-                } else {
-                    if active_role == "architect" || active_role == "reviewer" {
-                        cmd.arg("--plan");
-                    }
                 }
                 (cmd, is_shell)
             }
@@ -736,17 +741,22 @@ impl PtyManager {
         // `[ORBIT CONTINUOUS INVARIANT]` prelude mid-startup crashes/hangs the TUI, and
         // buffering keystrokes in `line_buffer` swallows typed input entirely.
         let is_direct_cli = prov == "terminal" || prov == "shell"
-            // Modern interactive TUI CLIs — manage their own input, pass keystrokes raw
-            || prov == "antigravity"
+            // All 16 modern interactive TUI CLIs — manage their own input, pass keystrokes raw
+            || prov == "antigravity" || prov == "agy"
             || prov == "claude"
-            || prov == "codex"
+            || prov == "codex" || prov == "openai-codex"
             || prov == "opencode"
-            || prov == "vibe" || prov == "mistral-vibe" || prov == "vibe-cli"
-            || prov == "mimo" || prov == "mimo-cli" || prov == "mimocode"
+            || prov == "kilocode" || prov == "kilo" || prov == "@kilocode/cli"
+            || prov == "freebuff" || prov == "freebuff-ai" || prov == "freebuff-cli"
+            || prov == "cline"
+            || prov == "copilot" || prov == "github-copilot" || prov == "github-copilot-cli" || prov == "gh-copilot"
+            || prov == "goose" || prov == "goose-ai"
+            || prov == "kiro" || prov == "kiro-cli"
             || prov == "qwen" || prov == "qwen-code" || prov == "qwen-agent"
+            || prov == "mimo" || prov == "mimo-cli" || prov == "mimocode"
             || prov == "muse" || prov == "muse-cli" || prov == "musecode"
+            || prov == "vibe" || prov == "mistral-vibe" || prov == "vibe-cli"
             || prov == "qoder" || prov == "qoder-cli" || prov == "qodercli"
-            || prov == "cline" || prov == "copilot" || prov == "github-copilot"
             || is_shell_process;
 
         let session = PtySession::new(
@@ -795,7 +805,12 @@ impl PtyManager {
                     || prov == "qwen" || prov == "qwen-code" || prov == "qwen-agent"
                     || prov == "muse" || prov == "muse-cli" || prov == "musecode"
                     || prov == "qoder" || prov == "qoder-cli" || prov == "qodercli"
-                    || prov == "cline" || prov == "copilot" || prov == "github-copilot";
+                    || prov == "cline"
+                    || prov == "kilocode" || prov == "kilo" || prov == "@kilocode/cli"
+                    || prov == "freebuff" || prov == "freebuff-ai" || prov == "freebuff-cli"
+                    || prov == "copilot" || prov == "github-copilot" || prov == "github-copilot-cli" || prov == "gh-copilot"
+                    || prov == "goose" || prov == "goose-ai"
+                    || prov == "kiro" || prov == "kiro-cli";
                 let is_mimo = prov == "mimo" || prov == "mimo-cli" || prov == "mimocode";
                 let delay = if is_mimo {
                     5000

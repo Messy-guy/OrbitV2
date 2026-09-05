@@ -9,6 +9,10 @@ pub struct DetectedAgent {
     pub version: Option<String>,
     pub is_available: bool,
     pub description: String,
+    #[serde(default)]
+    pub installation_source: Option<String>,
+    #[serde(default)]
+    pub installed_by_orbit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

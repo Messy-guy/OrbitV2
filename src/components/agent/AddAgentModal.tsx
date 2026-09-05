@@ -68,8 +68,9 @@ export const AddAgentModal: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
 
-  // 1-Click Installer State
+  // 1-Click Installer & Uninstaller State
   const [isInstalling, setIsInstalling] = useState(false);
+  const [isUninstalling, setIsUninstalling] = useState(false);
   const [installOutput, setInstallOutput] = useState<string | null>(null);
   const [copiedCmd, setCopiedCmd] = useState(false);
 
@@ -123,7 +124,7 @@ export const AddAgentModal: React.FC = () => {
 
   const refreshDetection = async () => {
     try {
-      const res = await agentService.detectInstalledAgents();
+      const res = await agentService.refreshDetectedAgents();
       globalDetectedAgentsCache = res;
       setDetectedAgents(res);
     } catch {}
@@ -135,16 +136,35 @@ export const AddAgentModal: React.FC = () => {
     if (!cmd) return;
 
     setIsInstalling(true);
-    setInstallOutput('🚀 Starting installation in Orbit background runner...\n');
+    setInstallOutput(`🚀 Starting installation for ${installerConfig.name}...\n`);
 
     try {
-      const output = await tauriService.installAgentCli(cmd);
+      const output = await tauriService.installAgentCli(selectedProvider, cmd);
       setInstallOutput((prev) => `${prev || ''}\n✅ Installation output:\n${output}\n\n🔍 Refreshing detected agents...`);
       await refreshDetection();
     } catch (err: any) {
       setInstallOutput((prev) => `${prev || ''}\n❌ Installation failed:\n${err?.message || err}\n`);
     } finally {
       setIsInstalling(false);
+    }
+  };
+
+  const handleUninstallOfficialAgent = async () => {
+    if (!window.confirm(`Are you sure you want to uninstall Orbit's installation of ${selectedPreset?.name || selectedProvider}?`)) {
+      return;
+    }
+
+    setIsUninstalling(true);
+    setInstallOutput(`🗑️ Removing ${selectedPreset?.name || selectedProvider}...\n`);
+
+    try {
+      const output = await tauriService.uninstallAgentCli(selectedProvider);
+      setInstallOutput((prev) => `${prev || ''}\n${output}\n\n🔍 Refreshing catalog...`);
+      await refreshDetection();
+    } catch (err: any) {
+      setInstallOutput((prev) => `${prev || ''}\n❌ Uninstall failed:\n${err?.message || err}\n`);
+    } finally {
+      setIsUninstalling(false);
     }
   };
 
@@ -216,8 +236,10 @@ export const AddAgentModal: React.FC = () => {
   const isSelectedAvailable = (() => {
     if (selectedProvider === 'terminal') return true;
     const detected = detectedAgents.find(d => d.provider === selectedProvider);
-    return detected ? detected.isAvailable : true;
+    return detected ? detected.isAvailable : false;
   })();
+
+  const currentDetected = detectedAgents.find(d => d.provider === selectedProvider);
 
   return (
     <>
@@ -249,16 +271,25 @@ export const AddAgentModal: React.FC = () => {
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
                   Engine Catalog
                 </span>
-                <span className="text-[10px] font-mono text-text-dim">
-                  {AVAILABLE_AGENT_PRESETS.length} Agents
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={refreshDetection}
+                    className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                    title="Refresh Agent Discovery"
+                  >
+                    <RefreshCw size={11} className={isInstalling || isUninstalling ? 'animate-spin' : ''} />
+                  </button>
+                  <span className="text-[10px] font-mono text-text-dim">
+                    {AVAILABLE_AGENT_PRESETS.length} Agents
+                  </span>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                 {AVAILABLE_AGENT_PRESETS.map((preset) => {
                   const isSelected = selectedProvider === preset.provider;
                   const detected = detectedAgents.find((d) => d.provider === preset.provider);
-                  const isAvailableOnHost = preset.provider === 'terminal' || (detected ? detected.isAvailable : true);
+                  const isAvailableOnHost = preset.provider === 'terminal' || (detected ? detected.isAvailable : false);
 
                   return (
                     <button
@@ -282,9 +313,13 @@ export const AddAgentModal: React.FC = () => {
                         </div>
                       </div>
 
-                      {isAvailableOnHost ? (
+                      {preset.provider === 'terminal' ? (
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono shrink-0">
+                          System
+                        </span>
+                      ) : isAvailableOnHost ? (
                         <span className="text-[8.5px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
-                          Ready
+                          {detected?.installedByOrbit ? 'Orbit' : 'Ready'}
                         </span>
                       ) : (
                         <span className="text-[8.5px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono shrink-0">
@@ -300,74 +335,120 @@ export const AddAgentModal: React.FC = () => {
             {/* Right Pane: Operational Mode, Task Directives, Profile & Spawner */}
             <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between overflow-y-auto bg-panel gap-4 custom-scrollbar">
               
-              {/* Official 1-Click Installer Banner if uninstalled */}
+              {/* Official 1-Click Installer / Uninstaller Banner */}
               {(() => {
                 const detected = detectedAgents.find(d => d.provider === selectedProvider);
-                const isAvail = selectedProvider === 'terminal' || (detected ? detected.isAvailable : true);
-                if (isAvail) return null;
+                const isAvail = selectedProvider === 'terminal' || (detected ? detected.isAvailable : false);
 
-                return (
-                  <div className="p-3.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/20 flex flex-col gap-2.5 shrink-0">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Download size={14} className="text-amber-400" />
-                        <span className="font-mono font-bold text-xs text-text-primary">
-                          Setup {selectedPreset?.name || 'Agent'} CLI
-                        </span>
-                      </div>
-                      <button
-                        onClick={refreshDetection}
-                        className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-                        title="Re-check installation"
-                      >
-                        <RefreshCw size={12} className={isInstalling ? 'animate-spin' : ''} />
-                      </button>
-                    </div>
-
-                    <p className="text-[11px] text-text-muted leading-relaxed">
-                      {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.description || 'Harness binary not detected on your system. Run 1-click install below.'}
-                    </p>
-
-                    <div className="flex flex-col gap-2 pt-0.5">
-                      <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[11px] text-text-primary truncate">
-                        <span className="truncate text-emerald-400 select-all font-mono">
-                          {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command || 'npm i -g agent'}
-                        </span>
+                if (!isAvail) {
+                  return (
+                    <div className="p-3.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/20 flex flex-col gap-2.5 shrink-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Download size={14} className="text-amber-400" />
+                          <span className="font-mono font-bold text-xs text-text-primary">
+                            Setup {selectedPreset?.name || 'Agent'} CLI
+                          </span>
+                        </div>
                         <button
-                          onClick={() => {
-                            const cmd = OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command;
-                            if (cmd) {
-                              navigator.clipboard.writeText(cmd);
-                              setCopiedCmd(true);
-                              setTimeout(() => setCopiedCmd(false), 2000);
-                            }
-                          }}
-                          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel transition-colors shrink-0 ml-2 cursor-pointer"
-                          title="Copy command"
+                          onClick={refreshDetection}
+                          className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                          title="Re-check installation"
                         >
-                          {copiedCmd ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                          <RefreshCw size={12} className={isInstalling ? 'animate-spin' : ''} />
                         </button>
                       </div>
 
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleInstallOfficialAgent()}
-                        isLoading={isInstalling}
-                        className="font-mono text-xs font-bold gap-2 bg-amber-500 hover:bg-amber-400 text-black border-amber-500 h-8.5 rounded-xl cursor-pointer"
-                      >
-                        <TerminalIcon size={13} />
-                        <span>{isInstalling ? 'Installing in Orbit...' : `⚡ 1-Click Install ${selectedPreset?.name || ''}`}</span>
-                      </Button>
-                    </div>
+                      <p className="text-[11px] text-text-muted leading-relaxed">
+                        {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.description || 'Harness binary not detected on your system. Run 1-click install below.'}
+                      </p>
 
-                    {installOutput && (
-                      <div className="p-2.5 rounded-xl bg-black/60 border border-border font-mono text-[10px] text-zinc-300 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                        {installOutput}
+                      <div className="flex flex-col gap-2 pt-0.5">
+                        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[11px] text-text-primary truncate">
+                          <span className="truncate text-emerald-400 select-all font-mono">
+                            {OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command || 'npm i -g agent'}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const cmd = OFFICIAL_AGENT_INSTALLERS[selectedProvider]?.command;
+                              if (cmd) {
+                                navigator.clipboard.writeText(cmd);
+                                setCopiedCmd(true);
+                                setTimeout(() => setCopiedCmd(false), 2000);
+                              }
+                            }}
+                            className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-panel transition-colors shrink-0 ml-2 cursor-pointer"
+                            title="Copy command"
+                          >
+                            {copiedCmd ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                          </button>
+                        </div>
+
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleInstallOfficialAgent()}
+                          isLoading={isInstalling}
+                          className="font-mono text-xs font-bold gap-2 bg-amber-500 hover:bg-amber-400 text-black border-amber-500 h-8.5 rounded-xl cursor-pointer"
+                        >
+                          <TerminalIcon size={13} />
+                          <span>{isInstalling ? 'Installing in Orbit...' : `⚡ 1-Click Install ${selectedPreset?.name || ''}`}</span>
+                        </Button>
                       </div>
-                    )}
-                  </div>
-                );
+
+                      {installOutput && (
+                        <div className="p-2.5 rounded-xl bg-black/60 border border-border font-mono text-[10px] text-zinc-300 max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                          {installOutput}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // If installed, show management controls
+                if (selectedProvider !== 'terminal') {
+                  return (
+                    <div className="p-3 rounded-xl bg-well/40 border border-border flex items-center justify-between shrink-0">
+                      <div className="flex flex-col gap-0.5 truncate">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                          <span className="font-mono font-bold text-xs text-text-primary">
+                            {selectedPreset?.name} Installed
+                          </span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-well border border-border text-text-muted">
+                            {detected?.installedByOrbit ? 'Orbit Managed' : 'System PATH'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-text-dim truncate">
+                          {detected?.path || 'Host binary ready'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {detected?.installedByOrbit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleUninstallOfficialAgent}
+                            isLoading={isUninstalling}
+                            className="font-mono text-[11px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 h-7.5 px-2.5 rounded-lg cursor-pointer"
+                          >
+                            Uninstall
+                          </Button>
+                        )}
+                        <button
+                          onClick={refreshDetection}
+                          className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                          title="Refresh detection"
+                        >
+                          <RefreshCw size={12} className={isInstalling || isUninstalling ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return null;
               })()}
 
               {/* 2. Operational Mode (Auto-Binds Invariant Skills) */}

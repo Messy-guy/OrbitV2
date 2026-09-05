@@ -22,6 +22,8 @@ export interface DetectedAgentDto {
   version?: string;
   isAvailable: boolean;
   description: string;
+  installationSource?: 'orbit' | 'external' | 'system';
+  installedByOrbit?: boolean;
 }
 
 export interface AgentOutputPayload {
@@ -52,6 +54,11 @@ export const tauriService = {
   async detectAgents(): Promise<DetectedAgentDto[]> {
     if (!isTauriAvailable()) return [];
     return invoke<DetectedAgentDto[]>('detect_agents');
+  },
+
+  async refreshDetectedAgents(): Promise<DetectedAgentDto[]> {
+    if (!isTauriAvailable()) return [];
+    return invoke<DetectedAgentDto[]>('refresh_detected_agents');
   },
 
   // Workspaces
@@ -345,9 +352,14 @@ export const tauriService = {
     }
   },
 
-  async installAgentCli(command: string): Promise<string> {
+  async installAgentCli(provider: string, command: string): Promise<string> {
     if (!isTauriAvailable()) return 'Simulated install in web mode';
-    return invoke<string>('install_agent_cli', { command });
+    return invoke<string>('install_agent_cli', { provider, command });
+  },
+
+  async uninstallAgentCli(provider: string): Promise<string> {
+    if (!isTauriAvailable()) return 'Simulated uninstall in web mode';
+    return invoke<string>('uninstall_agent_cli', { provider });
   },
 
   // Event Subscriptions

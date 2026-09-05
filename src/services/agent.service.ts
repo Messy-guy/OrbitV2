@@ -9,6 +9,9 @@ export interface IAgentService {
   saveAgent(agent: Agent): Promise<void>;
   updateAgentStatus(agentId: string, status: AgentStatus): Promise<Agent>;
   detectInstalledAgents(): Promise<DetectedAgentDto[]>;
+  refreshDetectedAgents(): Promise<DetectedAgentDto[]>;
+  installAgent(provider: string, command: string): Promise<string>;
+  uninstallAgent(provider: string): Promise<string>;
   startAgentProcess(
     workspacePath: string,
     agentId: string,
@@ -43,11 +46,33 @@ export class HybridAgentService implements IAgentService {
     return AVAILABLE_AGENT_PRESETS.map(p => ({
       provider: p.provider,
       name: p.name,
-      path: `/usr/local/bin/${p.provider}`,
+      path: p.provider === 'terminal' ? '/bin/bash' : '',
       version: p.model,
-      isAvailable: true,
+      isAvailable: p.provider === 'terminal',
       description: p.description,
+      installationSource: p.provider === 'terminal' ? 'system' : undefined,
+      installedByOrbit: false,
     }));
+  }
+
+  async refreshDetectedAgents(): Promise<DetectedAgentDto[]> {
+    if (isTauriAvailable()) {
+      try {
+        const detected = await tauriService.refreshDetectedAgents();
+        if (detected && detected.length > 0) return detected;
+      } catch (e) {
+        console.warn('Tauri refreshDetectedAgents failed', e);
+      }
+    }
+    return this.detectInstalledAgents();
+  }
+
+  async installAgent(provider: string, command: string): Promise<string> {
+    return tauriService.installAgentCli(provider, command);
+  }
+
+  async uninstallAgent(provider: string): Promise<string> {
+    return tauriService.uninstallAgentCli(provider);
   }
 
   async getAgents(workspaceId: string): Promise<Agent[]> {

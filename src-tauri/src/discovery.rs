@@ -283,6 +283,110 @@ pub fn get_cli_version(path: &Path, _version_flag: &str) -> Option<String> {
     Some(format!("Installed ({})", name))
 }
 
+pub fn get_engine_state_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        Path::new(&home).join(".local").join("share").join("orbit").join("engine-state.json")
+    } else {
+        PathBuf::from("/tmp/orbit-engine-state.json")
+    }
+}
+
+pub fn is_provider_orbit_managed(provider: &str) -> bool {
+    let path = get_engine_state_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(managed_arr) = json.get("orbit_managed").and_then(|v| v.as_array()) {
+                let target = provider.to_lowercase();
+                return managed_arr.iter().any(|v| v.as_str().map(|s| s.to_lowercase()) == Some(target.clone()));
+            }
+        }
+    }
+    false
+}
+
+pub fn set_provider_orbit_managed(provider: &str, managed: bool) {
+    let path = get_engine_state_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut state_json: serde_json::Value = if let Ok(content) = std::fs::read_to_string(&path) {
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let mut list: Vec<String> = state_json
+        .get("orbit_managed")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+
+    let prov = provider.to_lowercase();
+    if managed {
+        if !list.contains(&prov) {
+            list.push(prov);
+        }
+    } else {
+        list.retain(|p| p != &prov);
+    }
+
+    state_json["orbit_managed"] = serde_json::json!(list);
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&state_json).unwrap_or_default());
+}
+
+fn make_detected_agent(
+    provider: &str,
+    name: &str,
+    path_opt: Option<PathBuf>,
+    default_version: Option<&str>,
+    desc_ready: &str,
+    desc_missing: &str,
+) -> DetectedAgent {
+    let is_managed = is_provider_orbit_managed(provider);
+    if provider == "terminal" || provider == "shell" {
+        let p = path_opt.unwrap_or_else(|| PathBuf::from("/bin/bash"));
+        return DetectedAgent {
+            provider: provider.to_string(),
+            name: name.to_string(),
+            path: p.to_string_lossy().to_string(),
+            version: default_version.map(|v| v.to_string()),
+            is_available: true,
+            description: desc_ready.to_string(),
+            installation_source: Some("system".to_string()),
+            installed_by_orbit: Some(false),
+        };
+    }
+
+    if let Some(path) = path_opt {
+        let version = get_cli_version(&path, "--version")
+            .or_else(|| default_version.map(|v| v.to_string()));
+        let is_orbit_path = path.to_string_lossy().contains(".local/share/orbit/engines")
+            || path.to_string_lossy().contains("orbit/engines");
+        let is_orbit_managed = is_managed || is_orbit_path;
+        DetectedAgent {
+            provider: provider.to_string(),
+            name: name.to_string(),
+            path: path.to_string_lossy().to_string(),
+            version,
+            is_available: true,
+            description: desc_ready.to_string(),
+            installation_source: Some(if is_orbit_managed { "orbit".to_string() } else { "external".to_string() }),
+            installed_by_orbit: Some(is_orbit_managed),
+        }
+    } else {
+        DetectedAgent {
+            provider: provider.to_string(),
+            name: name.to_string(),
+            path: "".to_string(),
+            version: None,
+            is_available: false,
+            description: desc_missing.to_string(),
+            installation_source: None,
+            installed_by_orbit: Some(false),
+        }
+    }
+}
+
 pub fn detect_all_agents() -> Vec<DetectedAgent> {
     if let Ok(cache) = DETECTION_CACHE.lock() {
         if let Some((timestamp, ref agents)) = *cache {
@@ -295,361 +399,184 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     let mut detected = Vec::new();
 
     // 1. Antigravity CLI (agy)
-    if let Some(agy_path) = find_executable(&["agy", "antigravity"], &[]) {
-        let version = get_cli_version(&agy_path, "--version")
-            .map(|v| format!("v{}", v))
-            .or_else(|| Some("Antigravity CLI".to_string()));
-        detected.push(DetectedAgent {
-            provider: "antigravity".to_string(),
-            name: "ANTIGRAVITY".to_string(),
-            path: agy_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Google Antigravity CLI — Deep reasoning & subagent delegation".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "antigravity".to_string(),
-            name: "ANTIGRAVITY".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Google Antigravity CLI (agy not found in PATH)".to_string(),
-        });
-    }
+    let agy_path = find_executable(&["agy", "antigravity"], &[]);
+    detected.push(make_detected_agent(
+        "antigravity",
+        "ANTIGRAVITY",
+        agy_path,
+        Some("Antigravity CLI"),
+        "Google Antigravity CLI — Deep reasoning & subagent delegation",
+        "Google Antigravity CLI (not installed) — install with 1-click installer",
+    ));
 
     // 2. Claude Code CLI
-    if let Some(claude_path) = find_executable(&["claude"], &[]) {
-        let version = get_cli_version(&claude_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "claude".to_string(),
-            name: "CLAUDE CODE".to_string(),
-            path: claude_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Anthropic Claude Code CLI — Terminal execution & tool orchestration".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "claude".to_string(),
-            name: "CLAUDE CODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Anthropic Claude Code CLI (claude not found in PATH)".to_string(),
-        });
-    }
+    let claude_path = find_executable(&["claude"], &[]);
+    detected.push(make_detected_agent(
+        "claude",
+        "CLAUDE CODE",
+        claude_path,
+        Some("Claude Code"),
+        "Anthropic Claude Code CLI — Terminal execution & tool orchestration",
+        "Anthropic Claude Code CLI (not installed) — install with: npm install -g @anthropic-ai/claude-code",
+    ));
 
     // 3. Codex CLI
-    if let Some(codex_path) = find_executable(&["codex", "openai-codex"], &[]) {
-        let version = get_cli_version(&codex_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "codex".to_string(),
-            name: "CODEX CLI".to_string(),
-            path: codex_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "OpenAI Codex CLI — Algorithmic code generation & refactoring".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "codex".to_string(),
-            name: "CODEX CLI".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "OpenAI Codex CLI (not installed)".to_string(),
-        });
-    }
+    let codex_path = find_executable(&["codex", "openai-codex"], &[]);
+    detected.push(make_detected_agent(
+        "codex",
+        "CODEX CLI",
+        codex_path,
+        Some("Codex CLI"),
+        "OpenAI Codex CLI — Algorithmic code generation & refactoring",
+        "OpenAI Codex CLI (not installed) — install with: npm install -g @openai/codex",
+    ));
 
     // 4. OpenCode CLI
-    if let Some(opencode_path) = find_executable(&["opencode"], &[]) {
-        let version = get_cli_version(&opencode_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "opencode".to_string(),
-            name: "OPENCODE".to_string(),
-            path: opencode_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "OpenCode Engine — Local terminal coding model".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "opencode".to_string(),
-            name: "OPENCODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "OpenCode CLI (not installed)".to_string(),
-        });
-    }
+    let opencode_path = find_executable(&["opencode"], &[]);
+    detected.push(make_detected_agent(
+        "opencode",
+        "OPENCODE",
+        opencode_path,
+        Some("OpenCode Engine"),
+        "OpenCode Engine — Local terminal coding model",
+        "OpenCode CLI (not installed) — install with: npm install -g opencode-ai",
+    ));
 
     // 5. KiloCode CLI
-    if let Some(kilo_path) = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[]) {
-        let version = get_cli_version(&kilo_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "kilocode".to_string(),
-            name: "KILOCODE".to_string(),
-            path: kilo_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "KiloCode AI — Autonomous coding agent harness with codebase indexing".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "kilocode".to_string(),
-            name: "KILOCODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "KiloCode CLI (not installed)".to_string(),
-        });
-    }
+    let kilo_path = find_executable(&["kilocode", "kilo", "@kilocode/cli"], &[]);
+    detected.push(make_detected_agent(
+        "kilocode",
+        "KILOCODE",
+        kilo_path,
+        Some("KiloCode AI"),
+        "KiloCode AI — Autonomous coding agent harness with codebase indexing",
+        "KiloCode CLI (not installed) — install with: npm install -g @kilocode/cli",
+    ));
 
     // 6. Freebuff CLI
-    if let Some(freebuff_path) = find_executable(&["freebuff"], &[]) {
-        let version = get_cli_version(&freebuff_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "freebuff".to_string(),
-            name: "FREEBUFF".to_string(),
-            path: freebuff_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Freebuff AI — Lightweight autonomous AI coding agent harness".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "freebuff".to_string(),
-            name: "FREEBUFF".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Freebuff CLI (not installed)".to_string(),
-        });
-    }
+    let freebuff_path = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &[]);
+    detected.push(make_detected_agent(
+        "freebuff",
+        "FREEBUFF",
+        freebuff_path,
+        Some("Freebuff AI"),
+        "Freebuff AI — Lightweight autonomous AI coding agent harness",
+        "Freebuff CLI (not installed) — install with: npm install -g freebuff",
+    ));
 
     // 7. Cline CLI
-    if let Some(cline_path) = find_executable(&["cline"], &[]) {
-        let version = get_cli_version(&cline_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "cline".to_string(),
-            name: "CLINE".to_string(),
-            path: cline_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Cline CLI — Autonomous multi-model terminal coding agent".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "cline".to_string(),
-            name: "CLINE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Cline CLI (not installed)".to_string(),
-        });
-    }
+    let cline_path = find_executable(&["cline"], &[]);
+    detected.push(make_detected_agent(
+        "cline",
+        "CLINE",
+        cline_path,
+        Some("Cline CLI"),
+        "Cline CLI — Autonomous multi-model terminal coding agent",
+        "Cline CLI (not installed) — install with: npm install -g cline",
+    ));
 
     // 8. GitHub Copilot CLI
-    match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
-        Some(copilot_path) if is_unusable_sandbox_shim(&copilot_path) => {
-            detected.push(DetectedAgent {
-                provider: "copilot".to_string(),
-                name: "GITHUB COPILOT".to_string(),
-                path: copilot_path.to_string_lossy().to_string(),
-                version: None,
-                is_available: false,
-                description: "GitHub Copilot CLI shim found only inside the VS Code sandbox — install standalone: npm install -g @github/copilot".to_string(),
-            });
-        }
-        Some(copilot_path) => {
-            let version = get_cli_version(&copilot_path, "--version");
-            detected.push(DetectedAgent {
-                provider: "copilot".to_string(),
-                name: "GITHUB COPILOT".to_string(),
-                path: copilot_path.to_string_lossy().to_string(),
-                version,
-                is_available: true,
-                description: "Official GitHub Copilot CLI — Code generation & shell explanation harness".to_string(),
-            });
-        }
-        None => {
-            detected.push(DetectedAgent {
-                provider: "copilot".to_string(),
-                name: "GITHUB COPILOT".to_string(),
-                path: "".to_string(),
-                version: None,
-                is_available: false,
-                description: "GitHub Copilot CLI (not installed) — install with: npm install -g @github/copilot".to_string(),
-            });
-        }
-    }
+    let copilot_path = match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
+        Some(p) if is_unusable_sandbox_shim(&p) => None,
+        Some(p) => Some(p),
+        None => None,
+    };
+    detected.push(make_detected_agent(
+        "copilot",
+        "GITHUB COPILOT",
+        copilot_path,
+        Some("Copilot CLI"),
+        "Official GitHub Copilot CLI — Code generation & shell explanation harness",
+        "GitHub Copilot CLI (not installed) — install with: npm install -g @github/copilot",
+    ));
 
     // 9. Goose CLI
-    if let Some(goose_path) = find_executable(&["goose", "goose-ai"], &[]) {
-        let version = get_cli_version(&goose_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "goose".to_string(),
-            name: "GOOSE".to_string(),
-            path: goose_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Goose — Autonomous on-machine developer agent by Block".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "goose".to_string(),
-            name: "GOOSE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Goose CLI (not installed)".to_string(),
-        });
-    }
+    let goose_path = find_executable(&["goose", "goose-ai"], &[]);
+    detected.push(make_detected_agent(
+        "goose",
+        "GOOSE",
+        goose_path,
+        Some("Goose AI"),
+        "Goose — Autonomous on-machine developer agent by Block",
+        "Goose CLI (not installed) — install with 1-click installer",
+    ));
 
     // 10. Kiro CLI
-    if let Some(kiro_path) = find_executable(&["kiro-cli", "kiro"], &[]) {
-        let version = get_cli_version(&kiro_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "kiro".to_string(),
-            name: "KIRO CLI".to_string(),
-            path: kiro_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Kiro CLI — High-performance autonomous terminal assistant".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "kiro".to_string(),
-            name: "KIRO CLI".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Kiro CLI (not installed)".to_string(),
-        });
-    }
+    let kiro_path = find_executable(&["kiro-cli", "kiro"], &[]);
+    detected.push(make_detected_agent(
+        "kiro",
+        "KIRO CLI",
+        kiro_path,
+        Some("Kiro CLI"),
+        "Kiro CLI — High-performance autonomous terminal assistant",
+        "Kiro CLI (not installed) — install with: npm install -g kiro-cli",
+    ));
 
     // 11. Qwen Code CLI
-    if let Some(qwen_path) = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[]) {
-        let version = get_cli_version(&qwen_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "qwen".to_string(),
-            name: "QWEN CODE".to_string(),
-            path: qwen_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Qwen Code — Specialized coding agent for deep multilingual reasoning".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "qwen".to_string(),
-            name: "QWEN CODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Qwen Code CLI (not installed)".to_string(),
-        });
-    }
+    let qwen_path = find_executable(&["qwen-code", "qwen", "qwen-agent"], &[]);
+    detected.push(make_detected_agent(
+        "qwen",
+        "QWEN CODE",
+        qwen_path,
+        Some("Qwen Code"),
+        "Qwen Code — Specialized coding agent for deep multilingual reasoning",
+        "Qwen Code CLI (not installed) — install with: npm install -g @qwen-code/qwen-code",
+    ));
 
     // 12. Mimo Code CLI
-    if let Some(mimo_path) = find_executable(&["mimo", "mimo-cli", "mimocode"], &[]) {
-        let version = get_cli_version(&mimo_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "mimo".to_string(),
-            name: "MIMO CODE".to_string(),
-            path: mimo_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Mimo Code — Autonomous on-device developer coding agent CLI by Xiaomi".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "mimo".to_string(),
-            name: "MIMO CODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Mimo Code CLI (not installed)".to_string(),
-        });
-    }
+    let mimo_path = find_executable(&["mimo", "mimo-cli", "mimocode"], &[]);
+    detected.push(make_detected_agent(
+        "mimo",
+        "MIMO CODE",
+        mimo_path,
+        Some("Mimo Code"),
+        "Mimo Code — Autonomous on-device developer coding agent CLI by Xiaomi",
+        "Mimo Code CLI (not installed) — install with: npm install -g @mimo-ai/cli",
+    ));
 
     // 13. Muse Code CLI
-    if let Some(muse_path) = find_executable(&["muse", "muse-cli", "musecode"], &[]) {
-        let version = get_cli_version(&muse_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "muse".to_string(),
-            name: "MUSE CODE".to_string(),
-            path: muse_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Muse Code — Meta AI autonomous terminal coding assistant".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "muse".to_string(),
-            name: "MUSE CODE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Muse Code CLI (not installed)".to_string(),
-        });
-    }
+    let muse_path = find_executable(&["muse", "muse-cli", "musecode"], &[]);
+    detected.push(make_detected_agent(
+        "muse",
+        "MUSE CODE",
+        muse_path,
+        Some("Muse Code"),
+        "Muse Code — Meta AI autonomous terminal coding assistant",
+        "Muse Code CLI (not installed) — install with 1-click installer",
+    ));
 
     // 14. Mistral Vibe CLI
-    if let Some(vibe_path) = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]) {
-        let version = get_cli_version(&vibe_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "vibe".to_string(),
-            name: "MISTRAL VIBE".to_string(),
-            path: vibe_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Mistral Vibe — Terminal coding harness powered by Codestral".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "vibe".to_string(),
-            name: "MISTRAL VIBE".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Mistral Vibe CLI (not installed)".to_string(),
-        });
-    }
+    let vibe_path = find_executable(&["vibe", "mistral-vibe", "vibe-cli"], &[]);
+    detected.push(make_detected_agent(
+        "vibe",
+        "MISTRAL VIBE",
+        vibe_path,
+        Some("Mistral Vibe"),
+        "Mistral Vibe — Terminal coding harness powered by Codestral",
+        "Mistral Vibe CLI (not installed) — install with: curl -LsSf https://mistral.ai/vibe/install.sh | bash",
+    ));
 
     // 15. Qoder CLI
-    if let Some(qoder_path) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
-        let version = get_cli_version(&qoder_path, "--version");
-        detected.push(DetectedAgent {
-            provider: "qoder".to_string(),
-            name: "QODER CLI".to_string(),
-            path: qoder_path.to_string_lossy().to_string(),
-            version,
-            is_available: true,
-            description: "Qoder CLI — Intelligent repository navigation & refactoring".to_string(),
-        });
-    } else {
-        detected.push(DetectedAgent {
-            provider: "qoder".to_string(),
-            name: "QODER CLI".to_string(),
-            path: "".to_string(),
-            version: None,
-            is_available: false,
-            description: "Qoder CLI (not installed)".to_string(),
-        });
-    }
+    let qoder_path = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]);
+    detected.push(make_detected_agent(
+        "qoder",
+        "QODER CLI",
+        qoder_path,
+        Some("Qoder CLI"),
+        "Qoder CLI — Intelligent repository navigation & refactoring",
+        "Qoder CLI (not installed) — install with: curl -fsSL https://qoder.com/install | bash",
+    ));
 
     // 16. Standard Shell Terminal (Bash / Sh)
-    if let Some(bash_path) = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]) {
-        detected.push(DetectedAgent {
-            provider: "terminal".to_string(),
-            name: "SHELL TERMINAL".to_string(),
-            path: bash_path.to_string_lossy().to_string(),
-            version: Some("Bash Shell".to_string()),
-            is_available: true,
-            description: "Interactive shell terminal connected to project directory".to_string(),
-        });
-    }
+    let bash_path = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]);
+    detected.push(make_detected_agent(
+        "terminal",
+        "SHELL TERMINAL",
+        bash_path,
+        Some("Bash Shell"),
+        "Interactive shell terminal connected to project directory",
+        "System shell terminal",
+    ));
 
     if let Ok(mut cache) = DETECTION_CACHE.lock() {
         *cache = Some((Instant::now(), detected.clone()));

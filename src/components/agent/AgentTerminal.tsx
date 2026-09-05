@@ -412,6 +412,36 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         </div>
       )}
 
+      {/* Spawn Failure Diagnostic Screen */}
+      {phase === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-panel/95 backdrop-blur-md z-20">
+          <div className="max-w-md w-full p-5 rounded-2xl bg-well border border-rose-500/30 flex flex-col gap-3.5 shadow-xl">
+            <div className="flex items-center gap-2.5 text-rose-400">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+              <h3 className="font-mono font-bold text-xs">Could not start {providerLabel}</h3>
+            </div>
+            
+            <div className="p-3 rounded-xl bg-black/50 border border-border font-mono text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+              {errorMsg || 'Failed to spawn process in PTY runtime.'}
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] font-mono text-text-muted">
+                Session: {agent.id}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={restart}
+                  className="px-3.5 py-1.5 rounded-xl bg-text-primary text-background text-xs font-mono font-bold hover:opacity-90 transition-all cursor-pointer shadow-sm"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Exited Notification */}
       {phase === 'exited' && (
         <div className="absolute bottom-0 left-0 right-0 px-3.5 py-2 bg-panel-elevated border-t border-border flex items-center justify-between z-20 backdrop-blur-md">
