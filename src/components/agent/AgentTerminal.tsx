@@ -167,20 +167,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         }
       });
 
-      // 3. Forward user input to PTY (only when no modal is open)
+      // 3. Forward user input to PTY directly
       term.onData((data) => {
-        const uiState = useUIStore.getState();
-        const isAnyModalOpen =
-          uiState.isShareContextOpen ||
-          uiState.isCreateWorkspaceOpen ||
-          uiState.isAddAgentOpen ||
-          uiState.isCreateCheckpointOpen ||
-          uiState.isShortcutsOpen ||
-          uiState.isSettingsOpen ||
-          !!uiState.activeDiffFile;
-
-        if (isAnyModalOpen) return;
-
         const liveActiveSess = useAgentStore.getState().activeSessionIdByAgent[agentRef.current.id];
         const activeSessId =
           liveActiveSess ||
