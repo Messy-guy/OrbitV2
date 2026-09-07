@@ -135,13 +135,6 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
-    // Register OSC handlers to swallow query escape echoes cleanly
-    try {
-      term.parser.registerOscHandler(10, () => true);
-      term.parser.registerOscHandler(11, () => true);
-      term.parser.registerOscHandler(4, () => true);
-    } catch {}
-
     term.open(host);
     termRef.current = term;
     fitRef.current = fitAddon;
@@ -164,9 +157,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         throw new Error('Tauri runtime not available.');
       }
 
+      let receivedLiveOutput = false;
+
       // 2. Subscribe to output events with immediate high-throughput PTY stream writing
       const unlistenOutput = await tauriService.onAgentOutput((payload) => {
         if (payload.agentId === agentRef.current.id && termRef.current) {
+          receivedLiveOutput = true;
           termRef.current.write(payload.text);
         }
       });
@@ -216,10 +212,6 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       };
 
       // 5. Spawn or Reattach PTY session.
-      // Query Rust for real process liveness (is_running() now calls try_wait()
-      // internally — it returns true ONLY if the OS process is actually alive).
-      // This prevents the double-spawn race: if startSession fires twice (React
-      // StrictMode or fast re-mount), the second call skips if the first PTY is live.
       const ws = workspaceRef.current;
       const projPath = ws?.projectPath || '';
       const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
@@ -253,10 +245,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       resizeTerminal(agentRef.current.id, rows, cols);
       term.focus();
 
-      // 6. Replay history on mount or reattach to ensure no early output was missed
-      const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
-      if (history && history.length > 0 && termRef.current) {
-        termRef.current.write(history);
+      // 6. Only replay history if reattaching to an existing running session and no live output received yet
+      if (isAlreadyRunning && !receivedLiveOutput) {
+        const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
+        if (history && history.length > 0 && termRef.current) {
+          termRef.current.write(history);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

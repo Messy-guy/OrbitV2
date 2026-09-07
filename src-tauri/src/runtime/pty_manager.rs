@@ -151,7 +151,7 @@ impl PtyManager {
             .map(|(k, _)| k.clone())
             .collect();
         for key in keys_to_kill {
-            if let Some(mut session) = map.remove(&key) {
+            if let Some(session) = map.remove(&key) {
                 if let Ok(mut child_guard) = session.child.try_lock() {
                     let _ = child_guard.kill();
                 }
@@ -1418,36 +1418,64 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         resp.extend_from_slice(b"\x1b]11;rgb:1818/1b1b/2626\x1b\\");
     }
 
-    // 12. XTGETTCAP Termcap/Terminfo Query: \x1bP+q
-    if data.windows(4).any(|w| w == b"\x1bP+q") {
-        resp.extend_from_slice(b"\x1bP0+r\x1b\\");
-    }
-
-    // String-based query parsing with lossy UTF-8 decoding so partial bytes never cause failure
+    // 12. XTGETTCAP Termcap/Terminfo Query: \x1bP+q<hex>\x1b\
     let s = String::from_utf8_lossy(data);
-
-    // 13. OSC 4 Palette queries: \x1b]4;<index>;?
-    if s.contains("]4;") && s.contains(";?") {
-        for i in 0..16 {
-            let pat = format!("]4;{};?", i);
-            if s.contains(&pat) {
-                resp.extend_from_slice(format!("\x1b]4;{};rgb:8888/8888/8888\x1b\\", i).as_bytes());
+    if s.contains("+q") && (s.contains("\x1bP") || s.contains("P+q")) {
+        let mut remaining = s.as_ref();
+        while let Some(pos) = remaining.find("+q") {
+            let sub = &remaining[pos + 2..];
+            if let Some(end_pos) = sub.find("\x1b\\").or_else(|| sub.find('\x07')) {
+                let hex_key = &sub[..end_pos];
+                if !hex_key.is_empty() && hex_key.len() <= 16 {
+                    resp.extend_from_slice(format!("\x1bP0+r{}=\x1b\\", hex_key).as_bytes());
+                } else {
+                    resp.extend_from_slice(b"\x1bP0+r\x1b\\");
+                }
+                remaining = &sub[end_pos + 1..];
+            } else {
+                resp.extend_from_slice(b"\x1bP0+r\x1b\\");
+                break;
             }
         }
     }
 
-    // 14. DECRQM mode queries: \x1b[?<digits>$p
-    // Status '2' in DECRPM (\x1b[?<digits>;2$y) indicates the mode IS recognized/supported and currently reset.
-    if s.contains("$p") && s.contains("[?") {
+    // 13. Dynamic OSC 4 Palette queries: \x1b]4;<index>;?
+    if s.contains("]4;") && s.contains(";?") {
         let mut remaining = s.as_ref();
-        while let Some(pos) = remaining.find("[?") {
-            let sub = &remaining[pos + 2..];
-            if let Some(dollar_pos) = sub.find("$p") {
-                let mode_str = &sub[..dollar_pos];
-                if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
-                    resp.extend_from_slice(format!("\x1b[?{};2$y", mode_str).as_bytes());
+        while let Some(pos) = remaining.find("]4;") {
+            let sub = &remaining[pos + 3..];
+            if let Some(semi_pos) = sub.find(";?") {
+                let idx_str = &sub[..semi_pos];
+                if let Ok(idx) = idx_str.parse::<u16>() {
+                    if idx < 256 {
+                        resp.extend_from_slice(format!("\x1b]4;{};rgb:8080/8080/8080\x1b\\", idx).as_bytes());
+                    }
                 }
-                remaining = &sub[dollar_pos + 2..];
+                remaining = &sub[semi_pos + 2..];
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 14. DECRQM mode queries: \x1b[?<digits>$p or \x1b[<digits>$p
+    if s.contains("$p") && (s.contains("[?") || s.contains('[')) {
+        let mut remaining = s.as_ref();
+        while let Some(pos) = remaining.find('[') {
+            let sub = &remaining[pos + 1..];
+            let is_private = sub.starts_with('?');
+            let num_start = if is_private { 1 } else { 0 };
+            let sub_digits = &sub[num_start..];
+            if let Some(dollar_pos) = sub_digits.find("$p") {
+                let mode_str = &sub_digits[..dollar_pos];
+                if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
+                    if is_private {
+                        resp.extend_from_slice(format!("\x1b[?{};0$y", mode_str).as_bytes());
+                    } else {
+                        resp.extend_from_slice(format!("\x1b[{};0$y", mode_str).as_bytes());
+                    }
+                }
+                remaining = &sub_digits[dollar_pos + 2..];
             } else {
                 break;
             }
