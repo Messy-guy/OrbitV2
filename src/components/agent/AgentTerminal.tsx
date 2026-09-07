@@ -70,9 +70,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       termRef.current = null;
     }
 
-    const host = hostRef.current;
-    const settings = useSettingsStore.getState();
-    const isLightTheme = settings.theme === 'light';
+    if (host) {
+      host.innerHTML = '';
+    }
 
     // 1. Create standard xterm instance dynamically styled according to active theme
     const term = new Terminal({
@@ -82,7 +82,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       fontFamily: settings.terminalFontFamily || 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
       lineHeight: settings.terminalLineHeight || 1.25,
       letterSpacing: 0,
-      convertEol: false,
+      convertEol: true,
       scrollback: settings.terminalScrollback || 2000,
       allowTransparency: false,
       theme: isLightTheme ? {
@@ -169,6 +169,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         if (isMatch && termRef.current) {
           receivedLiveOutput = true;
           termRef.current.write(payload.text);
+          termRef.current.scrollToBottom();
         }
       });
 
@@ -246,6 +247,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
           if (history && history.length > 0 && termRef.current && !receivedLiveOutput) {
             receivedLiveOutput = true;
             termRef.current.write(history);
+            termRef.current.scrollToBottom();
+            try { fitAddon.fit(); } catch {}
           }
         }
       };

@@ -27,12 +27,15 @@ use crate::runtime::session_events::{SessionEvent, SessionEventType};
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>, // agent_id -> PtySession
     roles: Arc<Mutex<HashMap<String, String>>>,        // agent_id -> role (e.g. "architect", "reviewer", "implementer")
+    spawning_mutex: Arc<Mutex<()>>,                   // serialization mutex for atomic PTY session creation
     pub activity_detector: Arc<ActivityDetector>,
 }
 
 impl PtyManager {
     pub fn new(activity_detector: Arc<ActivityDetector>) -> Self {
         let sessions: Arc<Mutex<HashMap<String, PtySession>>> = Arc::new(Mutex::new(HashMap::new()));
+        let roles: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let spawning_mutex = Arc::new(Mutex::new(()));
 
         // Spawn a single long-lived background thread that refreshes Git state for
         // every active workspace on a slow cadence. Git inspection spawns up to four
@@ -63,7 +66,8 @@ impl PtyManager {
 
         Self {
             sessions,
-            roles: Arc::new(Mutex::new(HashMap::new())),
+            roles,
+            spawning_mutex,
             activity_detector,
         }
     }
@@ -198,6 +202,7 @@ impl PtyManager {
         rows: u16,
         cols: u16,
     ) -> Result<u32, String> {
+        let _spawn_lock = self.spawning_mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         dbg_log!("[ORBIT DEBUG] create_session called: agent_id={} provider={} profile={:?}", agent_id, provider, profile_id);
 
         // If already running for this agent and no prompt, verify the OS process is
