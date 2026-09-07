@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -34,10 +35,66 @@ pub fn is_unusable_sandbox_shim(path: &Path) -> bool {
 }
 
 static LOGIN_SHELL_PATH: Mutex<Option<String>> = Mutex::new(None);
+static LOGIN_SHELL_ENV: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+/// Dynamically probe the user's login shell environment (e.g. bash -l / zsh -l).
+/// This ensures GUI desktop launches get 100% of the user's terminal environment (NVM, pyenv, cargo, brew, API keys, etc.).
+pub fn get_login_shell_environment() -> HashMap<String, String> {
+    if let Ok(guard) = LOGIN_SHELL_ENV.lock() {
+        if let Some(ref env_map) = *guard {
+            return env_map.clone();
+        }
+    }
+
+    let mut env_map = HashMap::new();
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        #[cfg(not(target_os = "windows"))]
+        { "/bin/bash".to_string() }
+        #[cfg(target_os = "windows")]
+        { "cmd.exe".to_string() }
+    });
+
+    #[cfg(not(target_os = "windows"))]
+    let output = std::process::Command::new(&shell)
+        .args(["-l", "-c", "source ~/.bashrc 2>/dev/null || true; source ~/.zshrc 2>/dev/null || true; source ~/.profile 2>/dev/null || true; source ~/.nvm/nvm.sh 2>/dev/null || true; env -0"])
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    if let Ok(out) = output {
+        if out.status.success() {
+            for entry in out.stdout.split(|&b| b == 0) {
+                if entry.is_empty() { continue; }
+                if let Ok(s) = std::str::from_utf8(entry) {
+                    if let Some((k, v)) = s.split_once('=') {
+                        if !k.is_empty() {
+                            env_map.insert(k.to_string(), v.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !env_map.is_empty() {
+        if let Ok(mut guard) = LOGIN_SHELL_ENV.lock() {
+            *guard = Some(env_map.clone());
+        }
+    }
+
+    env_map
+}
 
 /// Dynamically probe the user's login shell PATH (e.g. bash -l / zsh -l).
 /// This ensures GUI desktop launches get 100% of the user's terminal environment (NVM, pyenv, cargo, brew, etc.).
 pub fn get_login_shell_path() -> Option<String> {
+    let env_map = get_login_shell_environment();
+    if let Some(p) = env_map.get("PATH") {
+        if !p.is_empty() {
+            return Some(p.clone());
+        }
+    }
+
     if let Ok(guard) = LOGIN_SHELL_PATH.lock() {
         if let Some(ref p) = *guard {
             return Some(p.clone());

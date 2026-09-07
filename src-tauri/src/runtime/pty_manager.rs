@@ -743,17 +743,23 @@ impl PtyManager {
         // so node-based CLIs with #!/usr/bin/env node work from the GUI desktop launcher.
         let host_path = get_augmented_host_path();
 
-        // Explicitly remove conflicting prefix and global config variables
-        cmd_builder.env_remove("npm_config_prefix");
-        cmd_builder.env_remove("NPM_CONFIG_PREFIX");
-        cmd_builder.env_remove("NPM_CONFIG_GLOBALCONFIG");
-        cmd_builder.env_remove("npm_config_globalconfig");
-        cmd_builder.env_remove("ANTIGRAVITY_AGENT_ID");
-        cmd_builder.env_remove("JETSKI_AGENT_ID");
-        cmd_builder.env_remove("AI_AGENT");
+        // 1. Inherit complete user login shell environment (NVM, pyenv, cargo, keys, tokens, paths)
+        let login_env = crate::discovery::get_login_shell_environment();
+        for (key, value) in login_env {
+            if !key.starts_with("ANTIGRAVITY_")
+                && !key.starts_with("JETSKI_")
+                && key != "AI_AGENT"
+                && key != "npm_config_prefix"
+                && key != "NPM_CONFIG_PREFIX"
+                && key != "NPM_CONFIG_GLOBALCONFIG"
+                && key != "npm_config_globalconfig"
+            {
+                cmd_builder.env(key, value);
+            }
+        }
 
+        // 2. Overlay current process environment variables
         for (key, value) in std::env::vars() {
-            // Strip active session tokens, connection addresses, and conflicting npm prefix vars
             if key.starts_with("ANTIGRAVITY_")
                 || key.starts_with("JETSKI_")
                 || key == "AI_AGENT"
@@ -767,7 +773,16 @@ impl PtyManager {
             cmd_builder.env(key, value);
         }
 
-        // Apply the fully augmented PATH — overrides what the host env vars loop may have set
+        // 3. Explicitly remove conflicting prefix and global config variables
+        cmd_builder.env_remove("npm_config_prefix");
+        cmd_builder.env_remove("NPM_CONFIG_PREFIX");
+        cmd_builder.env_remove("NPM_CONFIG_GLOBALCONFIG");
+        cmd_builder.env_remove("npm_config_globalconfig");
+        cmd_builder.env_remove("ANTIGRAVITY_AGENT_ID");
+        cmd_builder.env_remove("JETSKI_AGENT_ID");
+        cmd_builder.env_remove("AI_AGENT");
+
+        // 4. Apply the fully augmented PATH — guarantees user binaries, NVM node, and user scripts resolve
         cmd_builder.env("PATH", &host_path);
         dbg_log!("[ORBIT PTY] Augmented PATH={}", &host_path[..host_path.len().min(300)]);
 
