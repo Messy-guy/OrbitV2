@@ -289,15 +289,19 @@ impl PtyManager {
         };
 
         let (mut cmd_builder, is_shell_process) = match prov.as_str() {
-            "antigravity" => {
+            "antigravity" | "agy" => {
                 if let Some(bin) = find_executable(&["agy", "antigravity"], &[]) {
                     let mut cmd = CommandBuilder::new(bin);
                     if active_role == "architect" || active_role == "reviewer" {
-                        cmd.arg("--mode");
-                        cmd.arg("plan");
+                        if prompt.is_some() {
+                            cmd.arg("--mode");
+                            cmd.arg("plan");
+                        }
                     } else if active_role == "implementer" || active_role == "code" {
-                        cmd.arg("--mode");
-                        cmd.arg("accept-edits");
+                        if prompt.is_some() {
+                            cmd.arg("--mode");
+                            cmd.arg("accept-edits");
+                        }
                     }
                     (cmd, false)
                 } else {
@@ -1368,7 +1372,7 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         resp.extend_from_slice(b"\x1b[0n");
     }
 
-    // 3. Kitty Keyboard Protocol Query: \x1b[?u
+    // 3. Kitty Keyboard Protocol Query: \x1b[?u (DO NOT respond to =u or >u set commands)
     if data.windows(4).any(|w| w == b"\x1b[?u") {
         resp.extend_from_slice(b"\x1b[?0u");
     }
@@ -1378,19 +1382,12 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         resp.extend_from_slice(b"\x1b[?996;0n");
     }
 
-    // 5. ModifyOtherKeys / XTerm Key Queries: \x1b[>4m, \x1b[>4;2m, \x1b[>4;1m
-    if data.windows(5).any(|w| w == b"\x1b[>4m")
-        || data.windows(7).any(|w| w == b"\x1b[>4;2m" || w == b"\x1b[>4;1m")
-    {
-        resp.extend_from_slice(b"\x1b[>4;0m");
-    }
-
-    // 6. DECSNLS (Screen size report query): \x1b[?5W
+    // 5. DECSNLS (Screen size report query): \x1b[?5W
     if data.windows(5).any(|w| w == b"\x1b[?5W") {
         resp.extend_from_slice(b"\x1b[?24;80;0;0;0;0W");
     }
 
-    // 7. Window size query: \x1b[14t (pixel size), \x1b[18t (char size)
+    // 6. Window size query: \x1b[14t (pixel size), \x1b[18t (char size)
     if data.windows(5).any(|w| w == b"\x1b[14t") {
         resp.extend_from_slice(b"\x1b[4;480;800t");
     }
@@ -1398,27 +1395,27 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         resp.extend_from_slice(b"\x1b[8;24;80t");
     }
 
-    // 8. Primary Device Attributes: \x1b[c or \x1b[0c
+    // 7. Primary Device Attributes: \x1b[c or \x1b[0c
     if data.windows(3).any(|w| w == b"\x1b[c") || data.windows(4).any(|w| w == b"\x1b[0c") {
         resp.extend_from_slice(b"\x1b[?1;2c");
     }
 
-    // 9. Secondary Device Attributes: \x1b[>c or \x1b[>0c
+    // 8. Secondary Device Attributes: \x1b[>c or \x1b[>0c
     if data.windows(4).any(|w| w == b"\x1b[>c") || data.windows(5).any(|w| w == b"\x1b[>0c") {
         resp.extend_from_slice(b"\x1b[>0;0;0c");
     }
 
-    // 10. OSC 10 Foreground Color Query: \x1b]10;?
+    // 9. OSC 10 Foreground Color Query: \x1b]10;?
     if data.windows(6).any(|w| w == b"\x1b]10;?") || data.windows(5).any(|w| w == b"]10;?") {
         resp.extend_from_slice(b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\");
     }
 
-    // 11. OSC 11 Background Color Query: \x1b]11;?
+    // 10. OSC 11 Background Color Query: \x1b]11;?
     if data.windows(6).any(|w| w == b"\x1b]11;?") || data.windows(5).any(|w| w == b"]11;?") {
         resp.extend_from_slice(b"\x1b]11;rgb:1818/1b1b/2626\x1b\\");
     }
 
-    // 12. XTGETTCAP Termcap/Terminfo Query: \x1bP+q<hex>\x1b\
+    // 11. XTGETTCAP Termcap/Terminfo Query: \x1bP+q<hex>\x1b\
     let s = String::from_utf8_lossy(data);
     if s.contains("+q") && (s.contains("\x1bP") || s.contains("P+q")) {
         let mut remaining = s.as_ref();
@@ -1439,7 +1436,7 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         }
     }
 
-    // 13. Dynamic OSC 4 Palette queries: \x1b]4;<index>;?
+    // 12. Dynamic OSC 4 Palette queries: \x1b]4;<index>;?
     if s.contains("]4;") && s.contains(";?") {
         let mut remaining = s.as_ref();
         while let Some(pos) = remaining.find("]4;") {
@@ -1458,24 +1455,30 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         }
     }
 
-    // 14. DECRQM mode queries: \x1b[?<digits>$p or \x1b[<digits>$p
-    if s.contains("$p") && (s.contains("[?") || s.contains('[')) {
-        let mut remaining = s.as_ref();
-        while let Some(pos) = remaining.find('[') {
-            let sub = &remaining[pos + 1..];
-            let is_private = sub.starts_with('?');
-            let num_start = if is_private { 1 } else { 0 };
-            let sub_digits = &sub[num_start..];
-            if let Some(dollar_pos) = sub_digits.find("$p") {
-                let mode_str = &sub_digits[..dollar_pos];
-                if mode_str.chars().all(|c| c.is_ascii_digit()) && !mode_str.is_empty() {
-                    if is_private {
-                        resp.extend_from_slice(format!("\x1b[?{};0$y", mode_str).as_bytes());
-                    } else {
-                        resp.extend_from_slice(format!("\x1b[{};0$y", mode_str).as_bytes());
+    // 13. DECRQM mode queries: \x1b[?<digits>$p or \x1b[<digits>$p
+    if s.contains("$p") {
+        let mut idx = 0;
+        let bytes = s.as_bytes();
+        while idx < bytes.len() {
+            if let Some(pos) = s[idx..].find("$p") {
+                let dollar_pos = idx + pos;
+                let mut start = dollar_pos;
+                while start > idx && bytes[start] != b'[' && dollar_pos - start < 10 {
+                    start -= 1;
+                }
+                if bytes[start] == b'[' {
+                    let slice = &s[start + 1..dollar_pos];
+                    let is_priv = slice.starts_with('?');
+                    let mode_digits = if is_priv { &slice[1..] } else { slice };
+                    if !mode_digits.is_empty() && mode_digits.chars().all(|c| c.is_ascii_digit()) {
+                        if is_priv {
+                            resp.extend_from_slice(format!("\x1b[?{};0$y", mode_digits).as_bytes());
+                        } else {
+                            resp.extend_from_slice(format!("\x1b[{};0$y", mode_digits).as_bytes());
+                        }
                     }
                 }
-                remaining = &sub_digits[dollar_pos + 2..];
+                idx = dollar_pos + 2;
             } else {
                 break;
             }
