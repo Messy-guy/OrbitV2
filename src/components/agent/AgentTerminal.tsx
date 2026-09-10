@@ -24,6 +24,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const fitRef = useRef<FitAddon | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
   const isBootedRef = useRef(false);
+  const startupReplayTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const { resizeTerminal } = useAgentStore();
   const { getActiveWorkspace } = useWorkspaceStore();
@@ -42,6 +43,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       unlistenRef.current();
       unlistenRef.current = null;
     }
+    for (const timer of startupReplayTimersRef.current) {
+      clearTimeout(timer);
+    }
+    startupReplayTimersRef.current = [];
     if (termRef.current) {
       try {
         termRef.current.dispose();
@@ -69,6 +74,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       } catch {}
       termRef.current = null;
     }
+
+    const host = hostRef.current;
+    const settings = useSettingsStore.getState();
+    const isLightTheme = settings.theme === 'light';
 
     if (host) {
       host.innerHTML = '';
@@ -254,8 +263,14 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       };
 
       await checkAndReplayHistory();
-      setTimeout(checkAndReplayHistory, 250);
-      setTimeout(checkAndReplayHistory, 750);
+      // A packaged desktop build can take longer to deliver the first PTY
+      // event than the dev server. Keep polling the backend scrollback during
+      // startup so output emitted before the xterm listener is fully attached
+      // is still visible. Once live output arrives, replay stops to avoid
+      // duplicating the stream.
+      startupReplayTimersRef.current = [250, 750, 1500, 3000, 5000].map((delay) =>
+        setTimeout(checkAndReplayHistory, delay)
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);
