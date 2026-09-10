@@ -38,6 +38,7 @@ export interface AgentStatusPayload {
   agentId: string;
   sessionId?: string;
   status: string;
+  phase?: 'reattached' | 'booting' | 'ready' | 'running' | 'exited' | 'failed' | string;
   pid?: number;
   exitCode?: number;
   message?: string;

@@ -203,7 +203,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
                         payload.agentId === curAgent.currentSessionId ||
                         payload.sessionId === curAgent.currentSessionId;
         if (isMatch) {
-          if (payload.status === 'error') {
+          if (payload.status === 'error' || payload.phase === 'failed') {
             setErrorMsg(payload.message || 'Process error');
             setPhase('error');
           } else if (payload.status === 'exited' || payload.status === 'stopped') {

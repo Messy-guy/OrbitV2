@@ -207,6 +207,8 @@ pub struct AgentStatusEvent {
     pub agent_id: String,
     pub session_id: Option<String>,
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     pub pid: Option<u32>,
     pub exit_code: Option<i32>,
     pub message: Option<String>,

@@ -21,7 +21,9 @@ macro_rules! dbg_log {
 use crate::discovery::{find_executable, get_augmented_host_path, is_unusable_sandbox_shim};
 use crate::models::{AgentOutputEvent, AgentStatusEvent};
 use crate::runtime::activity_detector::ActivityDetector;
+use crate::runtime::provider_specs::runtime_spec;
 use crate::runtime::session::PtySession;
+use crate::runtime::session_supervisor::SessionPhase;
 use crate::runtime::session_events::{SessionEvent, SessionEventType};
 
 pub struct PtyManager {
@@ -237,6 +239,7 @@ impl PtyManager {
                             agent_id: agent_id.clone(),
                             session_id: Some(session_id.clone()),
                             status: "working".to_string(),
+                            phase: Some("reattached".to_string()),
                             pid: Some(pid),
                             exit_code: None,
                             message: Some(format!("Reattached to existing PTY session PID {}", pid)),
@@ -852,24 +855,8 @@ impl PtyManager {
         // NO role prelude. These agents render their own input UI; injecting a
         // `[ORBIT CONTINUOUS INVARIANT]` prelude mid-startup crashes/hangs the TUI, and
         // buffering keystrokes in `line_buffer` swallows typed input entirely.
-        let is_direct_cli = prov == "terminal" || prov == "shell"
-            // All 16 modern interactive TUI CLIs — manage their own input, pass keystrokes raw
-            || prov == "antigravity" || prov == "agy"
-            || prov == "claude"
-            || prov == "codex" || prov == "openai-codex"
-            || prov == "opencode"
-            || prov == "kilocode" || prov == "kilo" || prov == "@kilocode/cli"
-            || prov == "freebuff" || prov == "freebuff-ai" || prov == "freebuff-cli"
-            || prov == "cline"
-            || prov == "copilot" || prov == "github-copilot" || prov == "github-copilot-cli" || prov == "gh-copilot"
-            || prov == "goose" || prov == "goose-ai"
-            || prov == "kiro" || prov == "kiro-cli"
-            || prov == "qwen" || prov == "qwen-code" || prov == "qwen-agent"
-            || prov == "mimo" || prov == "mimo-cli" || prov == "mimocode"
-            || prov == "muse" || prov == "muse-cli" || prov == "musecode"
-            || prov == "vibe" || prov == "mistral-vibe" || prov == "vibe-cli"
-            || prov == "qoder" || prov == "qoder-cli" || prov == "qodercli"
-            || is_shell_process;
+        let runtime_spec = runtime_spec(&prov);
+        let is_direct_cli = runtime_spec.direct_cli || is_shell_process;
 
         let session = PtySession::new(
             session_id.clone(),
@@ -884,6 +871,12 @@ impl PtyManager {
             cols_val,
             is_direct_cli,
         );
+
+        let lifecycle = session.lifecycle.clone();
+        if let Ok(mut state) = lifecycle.lock() {
+            state.transition(SessionPhase::PtyReady);
+            state.transition(SessionPhase::Booting);
+        }
 
         let _child_arc = session.child.clone();
         let _history_arc = session.output_history.clone();
@@ -913,28 +906,7 @@ impl PtyManager {
                 // Full-screen TUI agents (Textual/Rich) need 1.5-2s to mount their input
                 // box; injecting a prompt at 800ms lands mid-startup and hangs the TUI
                 // (the Mistral Vibe crash class). Shell terminals are instant.
-                let is_tui_cli = prov == "mimo" || prov == "mimo-cli" || prov == "mimocode"
-                    || prov == "qwen" || prov == "qwen-code" || prov == "qwen-agent"
-                    || prov == "muse" || prov == "muse-cli" || prov == "musecode"
-                    || prov == "qoder" || prov == "qoder-cli" || prov == "qodercli"
-                    || prov == "cline"
-                    || prov == "kilocode" || prov == "kilo" || prov == "@kilocode/cli"
-                    || prov == "freebuff" || prov == "freebuff-ai" || prov == "freebuff-cli"
-                    || prov == "copilot" || prov == "github-copilot" || prov == "github-copilot-cli" || prov == "gh-copilot"
-                    || prov == "goose" || prov == "goose-ai"
-                    || prov == "kiro" || prov == "kiro-cli";
-                let is_mimo = prov == "mimo" || prov == "mimo-cli" || prov == "mimocode";
-                let delay = if is_mimo {
-                    5000
-                } else if prov == "opencode" {
-                    2200
-                } else if prov == "vibe" || prov == "mistral-vibe" {
-                    1800
-                } else if is_tui_cli {
-                    2000
-                } else {
-                    800
-                };
+                let delay = runtime_spec.startup_delay_ms;
                 thread::spawn(move || {
                     // A panic here would poison the shared writer mutex; swallow it.
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -981,6 +953,7 @@ impl PtyManager {
                 agent_id: agent_id.clone(),
                 session_id: Some(session_id.clone()),
                 status: "working".to_string(),
+                phase: Some("booting".to_string()),
                 pid: Some(pid),
                 exit_code: None,
                 message: Some(format!("PTY session active on PID {}", pid)),
@@ -995,6 +968,7 @@ impl PtyManager {
         let workspace_id_reader = workspace_id.clone();
         let workspace_path_reader = workspace_path.clone();
         let detector_reader = self.activity_detector.clone();
+        let lifecycle_reader = lifecycle.clone();
         let mut reader = initial_reader;
         dbg_log!("[ORBIT DEBUG] Spawning reader thread...");
         thread::spawn(move || {
@@ -1067,15 +1041,46 @@ impl PtyManager {
             drop(coalescer_handle);
 
             let mut buf = [0u8; 4096];
+            let mut terminal_query_responder = TerminalQueryResponder::default();
+            let mut first_output_emitted = false;
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let chunk_bytes = &buf[..n];
 
+                        if let Ok(mut state) = lifecycle_reader.lock() {
+                            state.record_output(n);
+                        }
+
+                        if !first_output_emitted {
+                            first_output_emitted = true;
+                            dbg_log!(
+                                "[ORBIT PTY] First output received agent_id={} session_id={} bytes={}",
+                                agent_id_reader,
+                                session_id_reader,
+                                n
+                            );
+                            let _ = app_reader.emit(
+                                "agent-status",
+                                AgentStatusEvent {
+                                    agent_id: agent_id_reader.clone(),
+                                    session_id: Some(session_id_reader.clone()),
+                                    status: "working".to_string(),
+                                    phase: Some("ready".to_string()),
+                                    pid: None,
+                                    exit_code: None,
+                                    message: Some("First PTY output received".to_string()),
+                                },
+                            );
+                        }
+
                         // Emulate terminal query auto-responses (DSR, Kitty keyboard/graphics, OSC 10/11 color queries, DECRQM modes, XTGETTCAP)
                         // so modern interactive TUI CLIs (Jetski/Bubbletea, OpenTUI, Ink, Textual) never freeze waiting for terminal capabilities.
-                        if let Some(resp) = generate_terminal_query_responses(chunk_bytes) {
+                        if let Some(resp) = terminal_query_responder.feed(chunk_bytes) {
+                            if let Ok(mut state) = lifecycle_reader.lock() {
+                                state.record_terminal_query_response();
+                            }
                             if let Ok(mut w) = writer_for_terminal_queries.lock() {
                                 let _ = w.write_all(&resp);
                                 let _ = w.flush();
@@ -1116,7 +1121,40 @@ impl PtyManager {
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        if is_normal_pty_close(&err) {
+                            dbg_log!(
+                                "[ORBIT PTY] Reader closed normally agent_id={} session_id={} error={}",
+                                agent_id_reader,
+                                session_id_reader,
+                                err
+                            );
+                            break;
+                        }
+                        let error_message = err.to_string();
+                        if let Ok(mut state) = lifecycle_reader.lock() {
+                            state.fail(error_message.clone());
+                        }
+                        dbg_log!(
+                            "[ORBIT PTY] Reader error agent_id={} session_id={} error={}",
+                            agent_id_reader,
+                            session_id_reader,
+                            error_message
+                        );
+                        let _ = app_reader.emit(
+                            "agent-status",
+                            AgentStatusEvent {
+                                agent_id: agent_id_reader.clone(),
+                                session_id: Some(session_id_reader.clone()),
+                                status: "error".to_string(),
+                                phase: Some("failed".to_string()),
+                                pid: None,
+                                exit_code: None,
+                                message: Some(format!("PTY reader failed: {}", error_message)),
+                            },
+                        );
+                        break;
+                    }
                 }
             }
             drop(reader_tx);
@@ -1129,6 +1167,7 @@ impl PtyManager {
         let workspace_id_watcher = workspace_id.clone();
         let workspace_path_watcher = workspace_path.clone();
         let detector_watcher = self.activity_detector.clone();
+        let lifecycle_watcher = lifecycle.clone();
         let sessions_for_watcher = self.sessions.clone();
         thread::spawn(move || {
             loop {
@@ -1137,6 +1176,9 @@ impl PtyManager {
                 match guard.try_wait() {
                     Ok(Some(status)) => {
                         let exit_code = if status.success() { 0 } else { 1 };
+                        if let Ok(mut state) = lifecycle_watcher.lock() {
+                            state.transition(SessionPhase::Exited);
+                        }
 
                         // A previous watcher can finish after this agent has already
                         // been respawned. Never let that stale watcher emit an exited
@@ -1176,6 +1218,7 @@ impl PtyManager {
                                 agent_id: agent_id_watcher.clone(),
                                 session_id: Some(session_id_watcher.clone()),
                                 status: "exited".to_string(),
+                                phase: Some("exited".to_string()),
                                 pid: Some(pid),
                                 exit_code: Some(exit_code),
                                 message: Some(format!("PTY session exited with code {}", exit_code)),
@@ -1379,6 +1422,36 @@ fn workspace_paths_contains(paths: &[String], candidate: &str) -> bool {
     paths.iter().any(|p| p.as_str() == candidate)
 }
 
+/// Stateful terminal capability responder for the PTY transport.
+///
+/// PTY reads are arbitrary byte chunks. Interactive CLIs may split an escape
+/// sequence over several reads, especially in optimized/release builds. Keep
+/// a bounded rolling buffer so capability queries are recognized without
+/// altering the raw output stream delivered to the terminal renderer.
+#[derive(Default)]
+struct TerminalQueryResponder {
+    buffer: Vec<u8>,
+}
+
+impl TerminalQueryResponder {
+    const MAX_BUFFER_BYTES: usize = 4096;
+
+    fn feed(&mut self, chunk: &[u8]) -> Option<Vec<u8>> {
+        self.buffer.extend_from_slice(chunk);
+        if self.buffer.len() > Self::MAX_BUFFER_BYTES {
+            let keep_from = self.buffer.len() - Self::MAX_BUFFER_BYTES;
+            self.buffer.drain(..keep_from);
+        }
+
+        let response = generate_terminal_query_responses(&self.buffer);
+        if response.is_some() {
+            // Do not answer the same query repeatedly on later output chunks.
+            self.buffer.clear();
+        }
+        response
+    }
+}
+
 fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
     let mut resp = Vec::new();
 
@@ -1509,5 +1582,39 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
         None
     } else {
         Some(resp)
+    }
+}
+
+/// Linux PTY masters commonly report EIO (errno 5) when the child closes its
+/// slave side. The lifecycle watcher will emit the authoritative `exited`
+/// event, so this must not be reported as a reader failure.
+#[cfg(unix)]
+fn is_normal_pty_close(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(5)
+}
+
+#[cfg(not(unix))]
+fn is_normal_pty_close(_error: &std::io::Error) -> bool {
+    false
+}
+
+#[cfg(test)]
+mod terminal_query_tests {
+    use super::TerminalQueryResponder;
+
+    #[test]
+    fn responds_when_dsr_query_is_split_across_reads() {
+        let mut responder = TerminalQueryResponder::default();
+
+        assert!(responder.feed(b"\x1b[").is_none());
+        assert_eq!(responder.feed(b"6n"), Some(b"\x1b[1;1R".to_vec()));
+    }
+
+    #[test]
+    fn does_not_repeat_a_query_on_unrelated_output() {
+        let mut responder = TerminalQueryResponder::default();
+
+        assert_eq!(responder.feed(b"\x1b[6n"), Some(b"\x1b[1;1R".to_vec()));
+        assert!(responder.feed(b"ordinary output").is_none());
     }
 }

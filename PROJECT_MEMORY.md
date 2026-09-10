@@ -26,10 +26,12 @@ The product is designed to remove repeated re-explanation when switching between
 2. `Home` selects or creates a workspace; `WorkspaceView` hosts the project workspace and agent canvas.
 3. `useWorkspaceStore` manages workspaces, spaces, active selection, launcher view mode, and pinned projects.
 4. `useAgentStore` loads agents/sessions, initializes Tauri event listeners, batches PTY output into terminal logs, and coordinates agent actions.
-5. `AgentTerminal.tsx` renders the live xterm canvas, forwards keystrokes to the backend, restores scrollback, and resizes the PTY when its container changes.
+5. `AgentTerminal.tsx` renders the live xterm canvas, forwards keystrokes to the backend, restores scrollback, and resizes the PTY when its container changes. It also treats backend PTY failure phases as terminal errors.
 6. `src/services/tauri.service.ts` is the frontend IPC boundary. It safely falls back for browser preview paths when Tauri is unavailable.
 7. Rust `PtyManager` allocates a native PTY, resolves the provider executable, starts the child process in the workspace directory, streams `agent-output` and `agent-status`, tracks scrollback, and handles input, resize, interrupt, stop, and reattach.
-8. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, and PTY operations through Tauri IPC.
+8. `runtime/provider_specs.rs` owns provider-neutral terminal behavior (direct TUI mode and startup delay); executable resolution remains in `PtyManager`.
+9. `runtime/session_supervisor.rs` records lifecycle phase, first/last output, byte counts, terminal-query responses, and reader failures without becoming part of remote input control.
+10. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, and PTY operations through Tauri IPC.
 
 ## Important domain model
 
@@ -64,12 +66,15 @@ The context engine should remain provider-agnostic and local. When changing its 
 - `storage.rs`: in-memory mutex-protected state mirrored to JSON; deleting a workspace also deletes its agents, sessions, checkpoints, contexts, and handoffs.
 - `commands.rs`: Tauri command façade.
 - `runtime/activity_detector.rs` and `session_events.rs`: runtime activity/session projection support.
+- `runtime/provider_specs.rs` and `runtime/session_supervisor.rs`: provider-neutral launch behavior and observable PTY lifecycle state.
 
 ## Frontend conventions
 
 - Prefer existing service wrappers and Zustand actions over direct `invoke` calls inside components.
 - Use `isTauriAvailable()` when adding a desktop-only operation so the Vite/browser preview remains usable.
 - Keep terminal output event-driven; avoid adding synthetic banners or simulated process/tool states to the real runtime.
+- Keep PTY output as raw terminal data. Capability-query replies may be written back to the PTY, but must not be injected into `agent-output`.
+- Treat `src/services/remoteControl/ptyDelivery.ts`, `ptySpawnTracker.ts`, `UniversalRemoteController.ts`, and `tauriService.sendAgentInput` as a protected input boundary. Rendering/lifecycle changes must not change their semantics.
 - Preserve the distinction between terminal mode and structured chat mode.
 - New persisted fields must be compatible with existing JSON state and legacy data.
 - UI components are grouped by feature under `src/components/`; shared primitives live under `src/components/ui/`.
@@ -85,9 +90,20 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 Desktop development is normally launched with the Tauri host wrapper from `package.json` (`npm run dev:desktop` / `npm run tauri:host`), while `npm run dev` starts the Vite frontend. The project’s documented verified host CLIs are Antigravity `agy` and Claude Code `claude`; executable resolution should remain environment-aware rather than hard-coding only those paths.
 
+## Production PTY troubleshooting memory
+
+The observed Linux production failure was a blank xterm for some full-screen CLIs even though the child process was alive and worked under `script -qec` in a normal terminal. Logs showed successful executable resolution, PTY creation, child spawn, and session insertion. This means “process spawned” is not equivalent to “terminal rendered.” The important production-sensitive layers are:
+
+- packaged GUI environment and augmented `PATH`;
+- PTY dimensions and `TERM`/`COLORTERM` capability negotiation;
+- output listener attachment and startup scrollback replay;
+- xterm rendering and raw-byte event delivery.
+
+The runtime now uses a stateful bounded terminal-query responder so escape queries split across PTY reads are handled, and emits `ready` only after first output. Reader failures emit `agent-status` with `phase: failed`. These diagnostics are intentionally additive and do not alter remote-control input delivery.
+
 ## Current repository caveat
 
-At the time of this review, Git reports one pre-existing modified file: `src/components/agent/AgentTerminal.tsx`. It was not changed while creating this memory. Treat that worktree change as user-owned and inspect it before modifying terminal behavior.
+The worktree contains the production PTY hardening described above. `AgentTerminal.tsx` also contains a user-owned theme change; preserve it when making further terminal edits. Do not publish a release automatically from a dirty worktree: the release script commits and pushes changes.
 
 ## Useful starting points
 
@@ -100,4 +116,3 @@ At the time of this review, Git reports one pre-existing modified file: `src/com
 - Persistence: `src-tauri/src/storage.rs`.
 - PTY runtime: `src-tauri/src/runtime/pty_manager.rs`.
 - Context engine: `src-tauri/src/context.rs`.
-

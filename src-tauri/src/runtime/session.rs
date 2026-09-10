@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use portable_pty::{Child, MasterPty};
+use crate::runtime::session_supervisor::{new_shared_lifecycle, SharedSessionLifecycle};
 
 #[allow(dead_code)]
 pub struct PtySession {
@@ -23,6 +24,7 @@ pub struct PtySession {
     /// `line_buffer` (the architect/reviewer role guard would otherwise swallow
     /// user input before it reaches the agent's TUI).
     pub direct_cli: bool,
+    pub lifecycle: SharedSessionLifecycle,
 }
 
 impl PtySession {
@@ -54,6 +56,7 @@ impl PtySession {
             cols,
             created_at: chrono_now_millis(),
             direct_cli,
+            lifecycle: new_shared_lifecycle(),
         }
     }
 }
