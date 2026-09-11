@@ -1,6 +1,6 @@
+use crate::models::{ChangedFileItem, GitState};
 use std::path::Path;
 use std::process::Command;
-use crate::models::{ChangedFileItem, GitState};
 
 pub fn inspect_git_state(project_path: &str) -> GitState {
     let path = Path::new(project_path);
@@ -22,7 +22,11 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
         .and_then(|out| {
             if out.status.success() {
                 let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !name.is_empty() { Some(name) } else { None }
+                if !name.is_empty() {
+                    Some(name)
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -38,7 +42,11 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
         .and_then(|out| {
             if out.status.success() {
                 let h = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !h.is_empty() { Some(h) } else { None }
+                if !h.is_empty() {
+                    Some(h)
+                } else {
+                    None
+                }
             } else {
                 None
             }

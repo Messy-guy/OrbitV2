@@ -72,7 +72,9 @@ pub fn redact_secrets(input: &str) -> String {
     }
 
     // 2. Generic Password / Token flags in CLI commands (e.g. --password=xyz, -p xyz)
-    if let Ok(re) = regex::Regex::new(r"(?i)(password|passwd|token|secret|api_key|apikey)[=:\s]+([^\s]+)") {
+    if let Ok(re) =
+        regex::Regex::new(r"(?i)(password|passwd|token|secret|api_key|apikey)[=:\s]+([^\s]+)")
+    {
         scrubbed = re.replace_all(&scrubbed, "$1=[REDACTED]").to_string();
     }
 

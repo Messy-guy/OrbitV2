@@ -1,3 +1,4 @@
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -6,7 +7,6 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tauri::{AppHandle, Emitter};
 
 macro_rules! dbg_log {
@@ -23,19 +23,25 @@ use crate::models::{AgentOutputEvent, AgentStatusEvent};
 use crate::runtime::activity_detector::ActivityDetector;
 use crate::runtime::provider_specs::runtime_spec;
 use crate::runtime::session::PtySession;
-use crate::runtime::session_supervisor::SessionPhase;
 use crate::runtime::session_events::{SessionEvent, SessionEventType};
+use crate::runtime::session_supervisor::SessionPhase;
+use crate::runtime::terminal_stream::TerminalStreamBroker;
 
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>, // agent_id -> PtySession
-    roles: Arc<Mutex<HashMap<String, String>>>,        // agent_id -> role (e.g. "architect", "reviewer", "implementer")
-    spawning_mutex: Arc<Mutex<()>>,                   // serialization mutex for atomic PTY session creation
+    roles: Arc<Mutex<HashMap<String, String>>>, // agent_id -> role (e.g. "architect", "reviewer", "implementer")
+    spawning_mutex: Arc<Mutex<()>>, // serialization mutex for atomic PTY session creation
     pub activity_detector: Arc<ActivityDetector>,
+    terminal_stream: TerminalStreamBroker,
 }
 
 impl PtyManager {
-    pub fn new(activity_detector: Arc<ActivityDetector>) -> Self {
-        let sessions: Arc<Mutex<HashMap<String, PtySession>>> = Arc::new(Mutex::new(HashMap::new()));
+    pub fn new(
+        activity_detector: Arc<ActivityDetector>,
+        terminal_stream: TerminalStreamBroker,
+    ) -> Self {
+        let sessions: Arc<Mutex<HashMap<String, PtySession>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let roles: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
         let spawning_mutex = Arc::new(Mutex::new(()));
 
@@ -49,7 +55,9 @@ impl PtyManager {
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 let (workspace_ids, workspace_paths): (Vec<String>, Vec<String>) = {
-                    let map = sessions_for_git.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let map = sessions_for_git
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let mut ids: Vec<String> = Vec::new();
                     let mut paths: Vec<String> = Vec::new();
                     for session in map.values() {
@@ -71,17 +79,23 @@ impl PtyManager {
             roles,
             spawning_mutex,
             activity_detector,
+            terminal_stream,
         }
     }
 
     pub fn set_role(&self, agent_id: &str, role: &str) {
-        let mut map = self.roles.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut map = self
+            .roles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         map.insert(agent_id.to_string(), role.to_string());
 
         // Update the isolated profile rule file dynamically for the specific agent session
         let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let profiles_dir = std::path::Path::new(&user_home).join(".orbit").join("profiles");
-        
+        let profiles_dir = std::path::Path::new(&user_home)
+            .join(".orbit")
+            .join("profiles");
+
         let role_rule_content = match role {
             "architect" => "# ROLE: SYSTEM ARCHITECT\n- You are in PLAN ONLY mode.\n- Do NOT create, write, edit, or modify any files.\n- Do NOT execute file modifying bash commands.\n- Only output specifications, architecture, and markdown plans.",
             "reviewer" => "# ROLE: CODE REVIEWER\n- You are in AUDIT ONLY mode.\n- Do NOT modify any files.\n- Focus exclusively on reviewing diffs, security flaws, and type safety.",
@@ -89,7 +103,10 @@ impl PtyManager {
         };
 
         // If active session exists, update only this agent's profile sandbox
-        let sess_map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sess_map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(session) = sess_map.get(agent_id) {
             let prof_path = profiles_dir.join(&session.agent_id);
             let gemini_config = prof_path.join(".gemini").join("config");
@@ -123,12 +140,18 @@ impl PtyManager {
     }
 
     pub fn get_role(&self, agent_id: &str) -> String {
-        let map = self.roles.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = self
+            .roles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(r) = map.get(agent_id) {
             return r.clone();
         }
         // Check if agent_id is session_id
-        let sess_map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sess_map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(k) = Self::find_session_key(&sess_map, agent_id) {
             if let Some(r) = map.get(&k) {
                 return r.clone();
@@ -138,11 +161,17 @@ impl PtyManager {
     }
 
     pub fn get_history(&self, agent_id: &str) -> String {
-        let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let target_key = Self::find_session_key(&map, agent_id);
         if let Some(key) = target_key {
             if let Some(session) = map.get(&key) {
-                let hist = session.output_history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let hist = session
+                    .output_history
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 return hist.clone();
             }
         }
@@ -151,9 +180,15 @@ impl PtyManager {
 
     pub fn terminate_by_provider(&self, provider: &str) {
         let prov = provider.to_lowercase();
-        let mut map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let keys_to_kill: Vec<String> = map.iter()
-            .filter(|(k, s)| k.to_lowercase().contains(&prov) || s.agent_id.to_lowercase().contains(&prov))
+        let mut map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let keys_to_kill: Vec<String> = map
+            .iter()
+            .filter(|(k, s)| {
+                k.to_lowercase().contains(&prov) || s.agent_id.to_lowercase().contains(&prov)
+            })
             .map(|(k, _)| k.clone())
             .collect();
         for key in keys_to_kill {
@@ -169,7 +204,10 @@ impl PtyManager {
         // Clone the child Arc while holding the map lock, then drop the lock
         // before calling try_lock on the child — avoids nested lock ordering issues.
         let child_arc = {
-            let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let map = self
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let key = match Self::find_session_key(&map, agent_id) {
                 Some(k) => k,
                 None => return false,
@@ -204,8 +242,16 @@ impl PtyManager {
         rows: u16,
         cols: u16,
     ) -> Result<u32, String> {
-        let _spawn_lock = self.spawning_mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        dbg_log!("[ORBIT DEBUG] create_session called: agent_id={} provider={} profile={:?}", agent_id, provider, profile_id);
+        let _spawn_lock = self
+            .spawning_mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        dbg_log!(
+            "[ORBIT DEBUG] create_session called: agent_id={} provider={} profile={:?}",
+            agent_id,
+            provider,
+            profile_id
+        );
 
         // If already running for this agent and no prompt, verify the OS process is
         // actually still alive, then re-emit status so the frontend can reattach.
@@ -216,7 +262,10 @@ impl PtyManager {
         if prompt.is_none() {
             // Clone what we need from the map (child Arc + pid) before dropping the lock.
             let existing_info = {
-                let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let map = self
+                    .sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 map.get(&agent_id).map(|s| (s.child.clone(), s.pid))
             };
 
@@ -232,7 +281,10 @@ impl PtyManager {
                 };
 
                 if process_alive {
-                    dbg_log!("[ORBIT DEBUG] Reattaching to existing live session PID={}", pid);
+                    dbg_log!(
+                        "[ORBIT DEBUG] Reattaching to existing live session PID={}",
+                        pid
+                    );
                     let _ = app.emit(
                         "agent-status",
                         AgentStatusEvent {
@@ -242,7 +294,10 @@ impl PtyManager {
                             phase: Some("reattached".to_string()),
                             pid: Some(pid),
                             exit_code: None,
-                            message: Some(format!("Reattached to existing PTY session PID {}", pid)),
+                            message: Some(format!(
+                                "Reattached to existing PTY session PID {}",
+                                pid
+                            )),
                         },
                     );
                     return Ok(pid);
@@ -259,7 +314,9 @@ impl PtyManager {
 
         let cwd = if Path::new(&workspace_path).is_dir() {
             workspace_path.clone()
-        } else if !workspace_path.trim().is_empty() && std::fs::create_dir_all(&workspace_path).is_ok() {
+        } else if !workspace_path.trim().is_empty()
+            && std::fs::create_dir_all(&workspace_path).is_ok()
+        {
             workspace_path.clone()
         } else {
             std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
@@ -282,7 +339,10 @@ impl PtyManager {
             })
             .map_err(|e| format!("Failed to open PTY pair: {}", e))?;
 
-        dbg_log!("[ORBIT DEBUG] PTY opened. Resolving executable for provider={}", provider);
+        dbg_log!(
+            "[ORBIT DEBUG] PTY opened. Resolving executable for provider={}",
+            provider
+        );
 
         // Resolve executable command and arguments
         let prov = provider.to_lowercase();
@@ -314,9 +374,11 @@ impl PtyManager {
                     (cmd, false)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -333,9 +395,11 @@ impl PtyManager {
                     (cmd, false)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -343,7 +407,8 @@ impl PtyManager {
                 }
             }
             "codex" | "openai-codex" => {
-                if let Some(bin) = find_executable(&["codex", "openai-codex", "@openai/codex"], &[]) {
+                if let Some(bin) = find_executable(&["codex", "openai-codex", "@openai/codex"], &[])
+                {
                     let is_shell = bin
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -356,9 +421,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -379,9 +446,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -402,9 +471,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -412,7 +483,9 @@ impl PtyManager {
                 }
             }
             "freebuff" | "freebuff-ai" | "freebuff-cli" => {
-                if let Some(bin) = find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &[]) {
+                if let Some(bin) =
+                    find_executable(&["freebuff", "freebuff-ai", "freebuff-cli"], &[])
+                {
                     let is_shell = bin
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -425,9 +498,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -448,9 +523,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -458,8 +535,16 @@ impl PtyManager {
                 }
             }
             "copilot" | "github-copilot" | "github-copilot-cli" | "gh-copilot" => {
-                let copilot_bin = find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[])
-                    .filter(|p| !is_unusable_sandbox_shim(p));
+                let copilot_bin = find_executable(
+                    &[
+                        "copilot",
+                        "github-copilot",
+                        "github-copilot-cli",
+                        "gh-copilot",
+                    ],
+                    &[],
+                )
+                .filter(|p| !is_unusable_sandbox_shim(p));
                 if let Some(bin) = copilot_bin {
                     let is_shell = bin
                         .file_name()
@@ -473,9 +558,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -496,9 +583,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -519,9 +608,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -542,9 +633,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -565,9 +658,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -588,9 +683,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -611,9 +708,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -634,9 +733,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -656,7 +757,8 @@ impl PtyManager {
                     } else {
                         cmd.env("PYTHONUNBUFFERED", "1");
                         cmd.env("PYTHONIOENCODING", "utf-8");
-                        let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+                        let user_home =
+                            std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
                         cmd.env("VIBE_HOME", format!("{}/.vibe", user_home));
                         if let Ok(dbus) = std::env::var("DBUS_SESSION_BUS_ADDRESS") {
                             cmd.env("DBUS_SESSION_BUS_ADDRESS", dbus);
@@ -664,9 +766,14 @@ impl PtyManager {
                         let vibe_env_path = format!("{}/.vibe/.env", user_home);
                         if let Ok(env_contents) = std::fs::read_to_string(&vibe_env_path) {
                             for line in env_contents.lines() {
-                                if let Some((k, v)) = line.splitn(2, '=').collect::<Vec<_>>().split_first().and_then(|(k, rest)| {
-                                    rest.first().map(|v| (k.trim(), v.trim().trim_matches('"')))
-                                }) {
+                                if let Some((k, v)) = line
+                                    .splitn(2, '=')
+                                    .collect::<Vec<_>>()
+                                    .split_first()
+                                    .and_then(|(k, rest)| {
+                                        rest.first().map(|v| (k.trim(), v.trim().trim_matches('"')))
+                                    })
+                                {
                                     if !k.starts_with('#') && !k.is_empty() {
                                         cmd.env(k, v);
                                     }
@@ -678,9 +785,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -688,7 +797,9 @@ impl PtyManager {
                 }
             }
             "qoder" | "qoder-cli" | "qodercli" => {
-                if let Some(bin) = find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[]) {
+                if let Some(bin) =
+                    find_executable(&["qodercli", "qoder", "qoder-cli", "qoder_cli"], &[])
+                {
                     let is_shell = bin
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -701,9 +812,11 @@ impl PtyManager {
                     (cmd, is_shell)
                 } else {
                     #[cfg(target_os = "windows")]
-                    let bin = find_executable(&["powershell", "cmd"], &[]).unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
+                    let bin = find_executable(&["powershell", "cmd"], &[])
+                        .unwrap_or_else(|| Path::new("powershell.exe").to_path_buf());
                     #[cfg(not(target_os = "windows"))]
-                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"]).unwrap_or_else(|| Path::new("bash").to_path_buf());
+                    let bin = find_executable(&["bash", "sh"], &["/bin/bash", "/usr/bin/bash"])
+                        .unwrap_or_else(|| Path::new("bash").to_path_buf());
                     let mut cmd = CommandBuilder::new(bin);
                     #[cfg(not(target_os = "windows"))]
                     cmd.arg("-i");
@@ -712,7 +825,11 @@ impl PtyManager {
             }
             custom_or_shell => {
                 let parts: Vec<&str> = custom_or_shell.split_whitespace().collect();
-                let bin_token = if parts.is_empty() { custom_or_shell } else { parts[0] };
+                let bin_token = if parts.is_empty() {
+                    custom_or_shell
+                } else {
+                    parts[0]
+                };
                 let custom_bin = find_executable(&[bin_token], &[]);
 
                 if let Some(bin) = custom_bin {
@@ -746,6 +863,67 @@ impl PtyManager {
                 }
             }
         };
+
+        // A configured AI provider must never degrade into an unrelated shell.
+        // That made packaged builds look like a blank/non-spawning agent and
+        // hid the real executable-resolution failure from the user.
+        let requires_cli = matches!(
+            prov.as_str(),
+            "antigravity"
+                | "agy"
+                | "claude"
+                | "codex"
+                | "openai-codex"
+                | "opencode"
+                | "opencode-ai"
+                | "kilocode"
+                | "kilo"
+                | "@kilocode/cli"
+                | "freebuff"
+                | "freebuff-ai"
+                | "freebuff-cli"
+                | "cline"
+                | "copilot"
+                | "github-copilot"
+                | "github-copilot-cli"
+                | "gh-copilot"
+                | "kiro"
+                | "kiro-cli"
+                | "goose"
+                | "goose-ai"
+                | "qwen"
+                | "qwen-code"
+                | "qwen-agent"
+                | "mimo"
+                | "mimo-cli"
+                | "mimocode"
+                | "muse"
+                | "muse-cli"
+                | "musecode"
+                | "continue"
+                | "cn"
+                | "continuedev"
+                | "aider"
+                | "aider-chat"
+                | "vibe"
+                | "mistral-vibe"
+                | "vibe-cli"
+                | "qoder"
+                | "qoder-cli"
+                | "qodercli"
+        );
+        if requires_cli && is_shell_process {
+            let searched_path = get_augmented_host_path();
+            dbg_log!(
+                "[ORBIT LAUNCH] Provider executable missing provider={} searched_path={}",
+                provider,
+                searched_path
+            );
+            return Err(format!(
+                "{} CLI was not found in the packaged desktop PATH. Searched PATH: {}",
+                provider, searched_path
+            ));
+        }
 
         // Build augmented PATH: prepends all user tool dirs (NVM, cargo, pnpm, bun, Orbit engines…)
         // so node-based CLIs with #!/usr/bin/env node work from the GUI desktop launcher.
@@ -801,13 +979,19 @@ impl PtyManager {
 
         // 4. Apply the fully augmented PATH — guarantees user binaries, NVM node, and user scripts resolve
         cmd_builder.env("PATH", &host_path);
-        dbg_log!("[ORBIT PTY] Augmented PATH={}", &host_path[..host_path.len().min(300)]);
+        dbg_log!(
+            "[ORBIT PTY] Augmented PATH={}",
+            &host_path[..host_path.len().min(300)]
+        );
 
         // Apply isolated profile environment sandbox only if a custom profile is explicitly specified
         if let Some(ref prof) = profile_id {
             if prof != "default" && !prof.trim().is_empty() {
                 let user_home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-                let profile_root = std::path::Path::new(&user_home).join(".orbit").join("profiles").join(prof.trim());
+                let profile_root = std::path::Path::new(&user_home)
+                    .join(".orbit")
+                    .join("profiles")
+                    .join(prof.trim());
                 let _ = std::fs::create_dir_all(&profile_root);
                 let gemini_dir = profile_root.join(".gemini");
                 let config_dir = profile_root.join(".config");
@@ -820,8 +1004,17 @@ impl PtyManager {
                 cmd_builder.env("HOME", &prof_str);
                 cmd_builder.env("XDG_CONFIG_HOME", config_dir.to_string_lossy().to_string());
                 cmd_builder.env("XDG_DATA_HOME", data_dir.to_string_lossy().to_string());
-                cmd_builder.env("ANTIGRAVITY_CONFIG_DIR", gemini_dir.to_string_lossy().to_string());
-                cmd_builder.env("JETSKI_APP_DATA_DIR", gemini_dir.join("antigravity-cli").to_string_lossy().to_string());
+                cmd_builder.env(
+                    "ANTIGRAVITY_CONFIG_DIR",
+                    gemini_dir.to_string_lossy().to_string(),
+                );
+                cmd_builder.env(
+                    "JETSKI_APP_DATA_DIR",
+                    gemini_dir
+                        .join("antigravity-cli")
+                        .to_string_lossy()
+                        .to_string(),
+                );
                 cmd_builder.env("ORBIT_PROFILE_ID", prof.trim());
 
                 // Disable DBUS / GNOME Keyring fallback so custom sandbox profile doesn't leak host keyring
@@ -829,7 +1022,10 @@ impl PtyManager {
                 cmd_builder.env("GNOME_KEYRING_CONTROL", "");
                 cmd_builder.env("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring");
 
-                dbg_log!("[ORBIT PROFILE] Isolated custom sandbox mounted at: {}", prof_str);
+                dbg_log!(
+                    "[ORBIT PROFILE] Isolated custom sandbox mounted at: {}",
+                    prof_str
+                );
             }
         }
 
@@ -845,19 +1041,25 @@ impl PtyManager {
         cmd_builder.env("ORBIT_AGENT_ID", &agent_id);
 
         // Spawn PTY process
-        let child = pair.slave.spawn_command(cmd_builder)
+        let child = pair
+            .slave
+            .spawn_command(cmd_builder)
             .map_err(|e| format!("Failed to spawn command in PTY: {}", e))?;
 
         let pid = child.process_id().unwrap_or(0);
         dbg_log!("[ORBIT DEBUG] Child spawned with PID={}", pid);
 
         // Take the writer
-        let writer = pair.master.take_writer()
+        let writer = pair
+            .master
+            .take_writer()
             .map_err(|e| format!("Failed to take PTY writer: {}", e))?;
         dbg_log!("[ORBIT DEBUG] Writer taken");
 
         // Clone reader immediately so the master PTY read channel is actively open before child writes
-        let initial_reader = pair.master.try_clone_reader()
+        let initial_reader = pair
+            .master
+            .try_clone_reader()
             .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
 
         // Store the master PTY — for resize operations
@@ -900,7 +1102,11 @@ impl PtyManager {
         } else if !role_directive.is_empty() {
             if let Some(ref p) = prompt_to_send {
                 if !p.trim().is_empty() {
-                    Some(format!("[ORBIT CONTINUOUS INVARIANT: {}]\nTask: {}", role_directive, p.trim()))
+                    Some(format!(
+                        "[ORBIT CONTINUOUS INVARIANT: {}]\nTask: {}",
+                        role_directive,
+                        p.trim()
+                    ))
                 } else {
                     None
                 }
@@ -944,14 +1150,18 @@ impl PtyManager {
                 "workspacePath": workspace_path,
             }),
         );
-        self.activity_detector.process_event(&start_evt, &workspace_path);
+        self.activity_detector
+            .process_event(&start_evt, &workspace_path);
 
         let child_arc = session.child.clone();
         let history_arc = session.output_history.clone();
         let writer_for_terminal_queries = session.writer.clone();
 
         {
-            let mut map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut map = self
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             map.insert(agent_id.clone(), session);
         }
         dbg_log!("[ORBIT DEBUG] Session inserted into map");
@@ -980,6 +1190,7 @@ impl PtyManager {
         let workspace_path_reader = workspace_path.clone();
         let detector_reader = self.activity_detector.clone();
         let lifecycle_reader = lifecycle.clone();
+        let terminal_stream_reader = self.terminal_stream.clone();
         let mut reader = initial_reader;
         dbg_log!("[ORBIT DEBUG] Spawning reader thread...");
         thread::spawn(move || {
@@ -1091,9 +1302,15 @@ impl PtyManager {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let chunk_bytes = &buf[..n];
+                        // Publish the raw PTY bytes before any UTF-8 conversion or
+                        // legacy event coalescing. The local terminal renderer
+                        // attaches to this session-scoped stream, so control
+                        // sequences and split multibyte data remain lossless.
+                        terminal_stream_reader.publish(&session_id_reader, chunk_bytes);
                         read_chunks = read_chunks.saturating_add(1);
                         if read_chunks <= 8 {
-                            let escape_count = chunk_bytes.iter().filter(|byte| **byte == 0x1b).count();
+                            let escape_count =
+                                chunk_bytes.iter().filter(|byte| **byte == 0x1b).count();
                             dbg_log!(
                                 "[ORBIT PTY] Read output agent_id={} session_id={} chunk={} bytes={} escapes={}",
                                 agent_id_reader,
@@ -1132,19 +1349,21 @@ impl PtyManager {
 
                         // Emulate terminal query auto-responses (DSR, Kitty keyboard/graphics, OSC 10/11 color queries, DECRQM modes, XTGETTCAP)
                         // so modern interactive TUI CLIs (Jetski/Bubbletea, OpenTUI, Ink, Textual) never freeze waiting for terminal capabilities.
-                        if let Some(resp) = terminal_query_responder.feed(chunk_bytes) {
-                            if let Ok(mut state) = lifecycle_reader.lock() {
-                                state.record_terminal_query_response();
-                            }
-                            dbg_log!(
+                        if !terminal_stream_reader.has_subscribers(&session_id_reader) {
+                            if let Some(resp) = terminal_query_responder.feed(chunk_bytes) {
+                                if let Ok(mut state) = lifecycle_reader.lock() {
+                                    state.record_terminal_query_response();
+                                }
+                                dbg_log!(
                                 "[ORBIT PTY] Responding to terminal capability query agent_id={} session_id={} response_bytes={}",
                                 agent_id_reader,
                                 session_id_reader,
                                 resp.len()
                             );
-                            if let Ok(mut w) = writer_for_terminal_queries.lock() {
-                                let _ = w.write_all(&resp);
-                                let _ = w.flush();
+                                if let Ok(mut w) = writer_for_terminal_queries.lock() {
+                                    let _ = w.write_all(&resp);
+                                    let _ = w.flush();
+                                }
                             }
                         }
 
@@ -1230,10 +1449,13 @@ impl PtyManager {
         let detector_watcher = self.activity_detector.clone();
         let lifecycle_watcher = lifecycle.clone();
         let sessions_for_watcher = self.sessions.clone();
+        let terminal_stream_watcher = self.terminal_stream.clone();
         thread::spawn(move || {
             loop {
                 thread::sleep(std::time::Duration::from_millis(500));
-                let mut guard = child_arc.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut guard = child_arc
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 match guard.try_wait() {
                     Ok(Some(status)) => {
                         let exit_code = if status.success() { 0 } else { 1 };
@@ -1264,6 +1486,8 @@ impl PtyManager {
                             break;
                         }
 
+                        terminal_stream_watcher.publish_exit(&session_id_watcher);
+
                         let exit_evt = SessionEvent::new(
                             &session_id_watcher,
                             &agent_id_watcher,
@@ -1282,7 +1506,10 @@ impl PtyManager {
                                 phase: Some("exited".to_string()),
                                 pid: Some(pid),
                                 exit_code: Some(exit_code),
-                                message: Some(format!("PTY session exited with code {}", exit_code)),
+                                message: Some(format!(
+                                    "PTY session exited with code {}",
+                                    exit_code
+                                )),
                             },
                         );
                         let _ = app_watcher.emit(
@@ -1291,7 +1518,10 @@ impl PtyManager {
                                 agent_id: agent_id_watcher.clone(),
                                 session_id: session_id_watcher.clone(),
                                 stream: "system".to_string(),
-                                text: format!("\r\n\x1b[38;5;244m[Process exited with code {}]\x1b[0m\r\n", exit_code),
+                                text: format!(
+                                    "\r\n\x1b[38;5;244m[Process exited with code {}]\x1b[0m\r\n",
+                                    exit_code
+                                ),
                                 timestamp: chrono_now_millis(),
                             },
                         );
@@ -1302,7 +1532,9 @@ impl PtyManager {
                 }
             }
 
-            let mut map = sessions_for_watcher.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut map = sessions_for_watcher
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let owns_current_session = map
                 .get(&agent_id_watcher)
                 .map(|session| session.session_id == session_id_watcher && session.pid == pid)
@@ -1319,7 +1551,10 @@ impl PtyManager {
             }
         });
 
-        dbg_log!("[ORBIT DEBUG] Returning Ok(pid={}) from create_session", pid);
+        dbg_log!(
+            "[ORBIT DEBUG] Returning Ok(pid={}) from create_session",
+            pid
+        );
         Ok(pid)
     }
 
@@ -1327,7 +1562,12 @@ impl PtyManager {
         self.write_with_fallback(agent_id, "", data)
     }
 
-    pub fn write_with_fallback(&self, agent_id: &str, session_id: &str, data: &str) -> Result<(), String> {
+    pub fn write_with_fallback(
+        &self,
+        agent_id: &str,
+        session_id: &str,
+        data: &str,
+    ) -> Result<(), String> {
         dbg_log!(
             "[ORBIT DEBUG] PTY write requested agent_id={} session_id={} bytes={}",
             agent_id,
@@ -1335,10 +1575,18 @@ impl PtyManager {
             data.len()
         );
         let current_role = self.get_role(agent_id);
-        let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let target_key = Self::find_session_key(&map, agent_id)
-            .or_else(|| if !session_id.is_empty() { Self::find_session_key(&map, session_id) } else { None });
+        let target_key = Self::find_session_key(&map, agent_id).or_else(|| {
+            if !session_id.is_empty() {
+                Self::find_session_key(&map, session_id)
+            } else {
+                None
+            }
+        });
 
         if let Some(key) = target_key {
             if let Some(session) = map.get(&key) {
@@ -1346,8 +1594,13 @@ impl PtyManager {
                 // Enter key is pressed. SKIPPED entirely for full-screen TUI agents (Mimo, Vibe,
                 // Qwen, …) and raw shells — those render their own input box, so every keystroke
                 // must pass through raw or the agent appears to swallow all typed input.
-                if !session.direct_cli && (current_role == "architect" || current_role == "reviewer") {
-                    let mut buf_guard = session.line_buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !session.direct_cli
+                    && (current_role == "architect" || current_role == "reviewer")
+                {
+                    let mut buf_guard = session
+                        .line_buffer
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
                     for ch in data.chars() {
                         if ch == '\r' || ch == '\n' {
@@ -1365,8 +1618,15 @@ impl PtyManager {
                                 || (full_line.starts_with("rm ") && !full_line.contains("--help"));
 
                             if is_mutation {
-                                dbg_log!("[ORBIT GUARD BLOCK] Blocked mutating command in role '{}': {}", current_role, full_line);
-                                let mut writer = session.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                dbg_log!(
+                                    "[ORBIT GUARD BLOCK] Blocked mutating command in role '{}': {}",
+                                    current_role,
+                                    full_line
+                                );
+                                let mut writer = session
+                                    .writer
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 let warning_msg = format!(
                                     "\r\n\x1b[1;33m[ORBIT ROLE GUARD]\x1b[0m File mutation is blocked in \x1b[1;35m{} Mode\x1b[0m. Switch to \x1b[1;32mCode Mode\x1b[0m to apply changes.\r\n",
                                     current_role.to_uppercase()
@@ -1388,18 +1648,19 @@ impl PtyManager {
                     }
                 }
 
-                let mut writer = session.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                writer
-                    .write_all(data.as_bytes())
-                    .map_err(|e| {
-                        dbg_log!(
-                            "[ORBIT DEBUG] PTY write failed agent_id={} session_id={} error={}",
-                            agent_id,
-                            session.session_id,
-                            e
-                        );
-                        format!("Failed to write to PTY: {}", e)
-                    })?;
+                let mut writer = session
+                    .writer
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                writer.write_all(data.as_bytes()).map_err(|e| {
+                    dbg_log!(
+                        "[ORBIT DEBUG] PTY write failed agent_id={} session_id={} error={}",
+                        agent_id,
+                        session.session_id,
+                        e
+                    );
+                    format!("Failed to write to PTY: {}", e)
+                })?;
                 let _ = writer.flush();
 
                 // Record UserInput event in activity detector
@@ -1410,7 +1671,8 @@ impl PtyManager {
                     SessionEventType::UserInput,
                     serde_json::json!({ "text": data }),
                 );
-                self.activity_detector.process_event(&in_evt, &session.workspace_path);
+                self.activity_detector
+                    .process_event(&in_evt, &session.workspace_path);
 
                 return Ok(());
             }
@@ -1424,11 +1686,17 @@ impl PtyManager {
     }
 
     pub fn resize(&self, agent_id: &str, rows: u16, cols: u16) -> Result<(), String> {
-        let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let target_key = Self::find_session_key(&map, agent_id);
         if let Some(key) = target_key {
             if let Some(session) = map.get(&key) {
-                let master = session.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let master = session
+                    .master
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 master
                     .resize(PtySize {
                         rows: if rows > 0 { rows } else { 30 },
@@ -1444,11 +1712,17 @@ impl PtyManager {
     }
 
     pub fn interrupt(&self, agent_id: &str) -> Result<(), String> {
-        let map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let target_key = Self::find_session_key(&map, agent_id);
         if let Some(key) = target_key {
             if let Some(session) = map.get(&key) {
-                let mut writer = session.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut writer = session
+                    .writer
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // Send ETX (Ctrl+C) to pseudo-terminal
                 writer
                     .write_all(b"\x03")
@@ -1461,11 +1735,17 @@ impl PtyManager {
     }
 
     pub fn terminate(&self, agent_id: &str) {
-        let mut map = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let target_key = Self::find_session_key(&map, agent_id);
         if let Some(key) = target_key {
             if let Some(session) = map.remove(&key) {
-                let mut child = session.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut child = session
+                    .child
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let _ = child.kill();
             }
         }
@@ -1599,7 +1879,9 @@ fn generate_terminal_query_responses(data: &[u8]) -> Option<Vec<u8>> {
                 let idx_str = &sub[..semi_pos];
                 if let Ok(idx) = idx_str.parse::<u16>() {
                     if idx < 256 {
-                        resp.extend_from_slice(format!("\x1b]4;{};rgb:8080/8080/8080\x1b\\", idx).as_bytes());
+                        resp.extend_from_slice(
+                            format!("\x1b]4;{};rgb:8080/8080/8080\x1b\\", idx).as_bytes(),
+                        );
                     }
                 }
                 remaining = &sub[semi_pos + 2..];

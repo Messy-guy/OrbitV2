@@ -1,6 +1,6 @@
 # OrbitV2 Project Memory
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 ## What this project is
 
@@ -26,12 +26,26 @@ The product is designed to remove repeated re-explanation when switching between
 2. `Home` selects or creates a workspace; `WorkspaceView` hosts the project workspace and agent canvas.
 3. `useWorkspaceStore` manages workspaces, spaces, active selection, launcher view mode, and pinned projects.
 4. `useAgentStore` loads agents/sessions, initializes Tauri event listeners, batches PTY output into terminal logs, and coordinates agent actions.
-5. `AgentTerminal.tsx` renders the live xterm canvas, forwards keystrokes to the backend, restores scrollback, and resizes the PTY when its container changes. It also treats backend PTY failure phases as terminal errors.
+5. `AgentTerminal.tsx` renders the live xterm canvas through the session-scoped V2 raw-byte transport, forwards keystrokes to the backend, reattaches with sequence replay, and resizes the PTY when its container changes. It also treats backend PTY failure phases as terminal errors.
 6. `src/services/tauri.service.ts` is the frontend IPC boundary. It safely falls back for browser preview paths when Tauri is unavailable.
-7. Rust `PtyManager` allocates a native PTY, resolves the provider executable, starts the child process in the workspace directory, streams `agent-output` and `agent-status`, tracks scrollback, and handles input, resize, interrupt, stop, and reattach.
+7. Rust `PtyManager` allocates a native PTY, resolves the provider executable, starts the child process in the workspace directory, publishes raw PTY bytes into the session-scoped V2 stream, continues the legacy `agent-output` stream for stores/remote consumers, tracks scrollback, and handles input, resize, interrupt, stop, and reattach.
 8. `runtime/provider_specs.rs` owns provider-neutral terminal behavior (direct TUI mode and startup delay); executable resolution remains in `PtyManager`.
 9. `runtime/session_supervisor.rs` records lifecycle phase, first/last output, byte counts, terminal-query responses, and reader failures without becoming part of remote input control.
-10. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, and PTY operations through Tauri IPC.
+10. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, PTY operations, and terminal stream attach/detach through Tauri IPC.
+
+## Terminal reconstruction status
+
+The production blank-panel issue was traced to a renderer attach/transport race,
+not to the affected CLIs failing to spawn: installed-build logs showed child
+spawn, PTY reads, and `agent-output` emission for Antigravity and the other
+affected providers. The local renderer now uses `terminal_stream` and Tauri
+Channels with raw bytes and replay/live sequencing. Remote-control files and
+the `send_agent_input` writer boundary were intentionally not changed.
+
+Known provider launch failures now surface as errors instead of silently
+starting Bash. This makes packaged PATH problems diagnosable, but packaged
+Linux installation testing is still required before claiming provider-matrix
+completion.
 
 ## Important domain model
 

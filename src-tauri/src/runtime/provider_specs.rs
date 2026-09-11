@@ -65,11 +65,10 @@ pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
             clear_multiplexer_env: true,
             term_program: Some("xterm.js"),
         },
-        "kilocode" | "kilo" | "@kilocode/cli" | "freebuff" | "freebuff-ai"
-        | "freebuff-cli" | "cline" | "copilot" | "github-copilot"
-        | "github-copilot-cli" | "gh-copilot" | "goose" | "goose-ai" | "kiro"
-        | "kiro-cli" | "qwen" | "qwen-code" | "qwen-agent" | "muse" | "muse-cli"
-        | "musecode" | "qoder" | "qoder-cli" | "qodercli" => TUI_SPEC,
+        "kilocode" | "kilo" | "@kilocode/cli" | "freebuff" | "freebuff-ai" | "freebuff-cli"
+        | "cline" | "copilot" | "github-copilot" | "github-copilot-cli" | "gh-copilot"
+        | "goose" | "goose-ai" | "kiro" | "kiro-cli" | "qwen" | "qwen-code" | "qwen-agent"
+        | "muse" | "muse-cli" | "musecode" | "qoder" | "qoder-cli" | "qodercli" => TUI_SPEC,
         _ => DEFAULT_SPEC,
     }
 }

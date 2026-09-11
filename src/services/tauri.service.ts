@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { markPtySpawn } from './remoteControl/ptySpawnTracker';
 import {
@@ -42,6 +42,19 @@ export interface AgentStatusPayload {
   pid?: number;
   exitCode?: number;
   message?: string;
+}
+
+export interface TerminalStreamFrame {
+  sessionId: string;
+  sequence: number;
+  kind: 'replay' | 'live' | 'exit' | 'error' | string;
+  bytes: number[] | Uint8Array;
+}
+
+export interface TerminalStreamAttach {
+  subscriptionId: number;
+  currentSequence: number;
+  replayedFrom: number;
 }
 
 export const isTauriAvailable = (): boolean => {
@@ -159,6 +172,27 @@ export const tauriService = {
     // (must receive remote messages instantly).
     markPtySpawn(agentId);
     return pid;
+  },
+
+  async attachTerminalStream(
+    sessionId: string,
+    fromSequence: number,
+    onFrame: (frame: TerminalStreamFrame) => void,
+  ): Promise<TerminalStreamAttach & { detach: () => Promise<void> }> {
+    if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
+    const channel = new Channel<TerminalStreamFrame>(onFrame);
+    const attach = await invoke<TerminalStreamAttach>('attach_terminal_stream', {
+      sessionId,
+      fromSequence,
+      channel,
+    });
+    return {
+      ...attach,
+      detach: () => invoke<void>('detach_terminal_stream', {
+        sessionId,
+        subscriptionId: attach.subscriptionId,
+      }),
+    };
   },
 
   async sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void> {

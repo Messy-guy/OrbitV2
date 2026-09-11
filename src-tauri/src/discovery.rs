@@ -1,8 +1,8 @@
+use crate::models::DetectedAgent;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use crate::models::DetectedAgent;
 
 static DETECTION_CACHE: Mutex<Option<(Instant, Vec<DetectedAgent>)>> = Mutex::new(None);
 
@@ -50,9 +50,13 @@ pub fn get_login_shell_environment() -> HashMap<String, String> {
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| {
         #[cfg(not(target_os = "windows"))]
-        { "/bin/bash".to_string() }
+        {
+            "/bin/bash".to_string()
+        }
         #[cfg(target_os = "windows")]
-        { "cmd.exe".to_string() }
+        {
+            "cmd.exe".to_string()
+        }
     });
 
     #[cfg(not(target_os = "windows"))]
@@ -64,7 +68,9 @@ pub fn get_login_shell_environment() -> HashMap<String, String> {
     if let Ok(out) = output {
         if out.status.success() {
             for entry in out.stdout.split(|&b| b == 0) {
-                if entry.is_empty() { continue; }
+                if entry.is_empty() {
+                    continue;
+                }
                 if let Ok(s) = std::str::from_utf8(entry) {
                     if let Some((k, v)) = s.split_once('=') {
                         if !k.is_empty() {
@@ -103,9 +109,13 @@ pub fn get_login_shell_path() -> Option<String> {
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| {
         #[cfg(not(target_os = "windows"))]
-        { "/bin/bash".to_string() }
+        {
+            "/bin/bash".to_string()
+        }
         #[cfg(target_os = "windows")]
-        { "cmd.exe".to_string() }
+        {
+            "cmd.exe".to_string()
+        }
     });
 
     #[cfg(not(target_os = "windows"))]
@@ -137,13 +147,15 @@ pub fn get_login_shell_path() -> Option<String> {
 pub fn get_host_search_dirs() -> Vec<String> {
     let home = match std::env::var("HOME") {
         Ok(h) if !h.is_empty() => h,
-        _ => return vec![
-            "/usr/local/bin".to_string(),
-            "/usr/bin".to_string(),
-            "/bin".to_string(),
-            "/usr/sbin".to_string(),
-            "/sbin".to_string(),
-        ],
+        _ => {
+            return vec![
+                "/usr/local/bin".to_string(),
+                "/usr/bin".to_string(),
+                "/bin".to_string(),
+                "/usr/sbin".to_string(),
+                "/sbin".to_string(),
+            ]
+        }
     };
 
     let mut dirs: Vec<String> = Vec::new();
@@ -194,7 +206,11 @@ pub fn get_host_search_dirs() -> Vec<String> {
     ]);
 
     // 3. Local Orbit engine node_modules/.bin
-    let orbit_engines_local = Path::new(&home).join(".local").join("share").join("orbit").join("engines");
+    let orbit_engines_local = Path::new(&home)
+        .join(".local")
+        .join("share")
+        .join("orbit")
+        .join("engines");
     if let Ok(entries) = std::fs::read_dir(&orbit_engines_local) {
         for entry in entries.flatten() {
             let bin_dir = entry.path().join("node_modules").join(".bin");
@@ -205,7 +221,8 @@ pub fn get_host_search_dirs() -> Vec<String> {
     }
 
     // 4. VS Code Flatpak orbit engine node_modules/.bin
-    let vscode_orbit_engines = Path::new(&home).join(".var/app/com.visualstudio.code/data/orbit/engines");
+    let vscode_orbit_engines =
+        Path::new(&home).join(".var/app/com.visualstudio.code/data/orbit/engines");
     if let Ok(entries) = std::fs::read_dir(&vscode_orbit_engines) {
         for entry in entries.flatten() {
             let bin_dir = entry.path().join("node_modules").join(".bin");
@@ -239,8 +256,13 @@ pub fn get_augmented_host_path() -> String {
     // 1. Dynamic login shell PATH (highest priority — mirrors terminal environment)
     if let Some(login_path) = get_login_shell_path() {
         for seg in login_path.split(':') {
-            let trimmed = seg.trim().trim_matches(|c| c == '\\' || c == '"' || c == '\'');
-            if !trimmed.is_empty() && Path::new(trimmed).is_dir() && seen.insert(trimmed.to_string()) {
+            let trimmed = seg
+                .trim()
+                .trim_matches(|c| c == '\\' || c == '"' || c == '\'');
+            if !trimmed.is_empty()
+                && Path::new(trimmed).is_dir()
+                && seen.insert(trimmed.to_string())
+            {
                 parts.push(trimmed.to_string());
             }
         }
@@ -277,7 +299,9 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     let mut expanded_names: Vec<String> = Vec::new();
     for name in names {
         let trimmed = name.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
         expanded_names.push(trimmed.to_string());
 
         if trimmed.starts_with('@') && trimmed.contains('/') {
@@ -311,7 +335,9 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
             expanded_names.push("kilocode".to_string());
             expanded_names.push("kilo".to_string());
         }
-        if trimmed.contains("aider") { expanded_names.push("aider".to_string()); }
+        if trimmed.contains("aider") {
+            expanded_names.push("aider".to_string());
+        }
         if trimmed.contains("gemini") {
             expanded_names.push("gemini".to_string());
             expanded_names.push("gemini-cli".to_string());
@@ -393,9 +419,13 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
                 #[cfg(target_os = "windows")]
                 {
                     let exe_candidate = dir.join(format!("{}.exe", name));
-                    if exe_candidate.is_file() { return Some(exe_candidate); }
+                    if exe_candidate.is_file() {
+                        return Some(exe_candidate);
+                    }
                     let cmd_candidate = dir.join(format!("{}.cmd", name));
-                    if cmd_candidate.is_file() { return Some(cmd_candidate); }
+                    if cmd_candidate.is_file() {
+                        return Some(cmd_candidate);
+                    }
                 }
             }
         }
@@ -411,7 +441,11 @@ pub fn get_cli_version(path: &Path, _version_flag: &str) -> Option<String> {
 
 pub fn get_engine_state_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
-        Path::new(&home).join(".local").join("share").join("orbit").join("engine-state.json")
+        Path::new(&home)
+            .join(".local")
+            .join("share")
+            .join("orbit")
+            .join("engine-state.json")
     } else {
         PathBuf::from("/tmp/orbit-engine-state.json")
     }
@@ -423,7 +457,9 @@ pub fn is_provider_orbit_managed(provider: &str) -> bool {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(managed_arr) = json.get("orbit_managed").and_then(|v| v.as_array()) {
                 let target = provider.to_lowercase();
-                return managed_arr.iter().any(|v| v.as_str().map(|s| s.to_lowercase()) == Some(target.clone()));
+                return managed_arr
+                    .iter()
+                    .any(|v| v.as_str().map(|s| s.to_lowercase()) == Some(target.clone()));
             }
         }
     }
@@ -444,7 +480,11 @@ pub fn set_provider_orbit_managed(provider: &str, managed: bool) {
     let mut list: Vec<String> = state_json
         .get("orbit_managed")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let prov = provider.to_lowercase();
@@ -457,7 +497,10 @@ pub fn set_provider_orbit_managed(provider: &str, managed: bool) {
     }
 
     state_json["orbit_managed"] = serde_json::json!(list);
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(&state_json).unwrap_or_default());
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&state_json).unwrap_or_default(),
+    );
 }
 
 fn make_detected_agent(
@@ -484,9 +527,11 @@ fn make_detected_agent(
     }
 
     if let Some(path) = path_opt {
-        let version = get_cli_version(&path, "--version")
-            .or_else(|| default_version.map(|v| v.to_string()));
-        let is_orbit_path = path.to_string_lossy().contains(".local/share/orbit/engines")
+        let version =
+            get_cli_version(&path, "--version").or_else(|| default_version.map(|v| v.to_string()));
+        let is_orbit_path = path
+            .to_string_lossy()
+            .contains(".local/share/orbit/engines")
             || path.to_string_lossy().contains("orbit/engines");
         let is_orbit_managed = is_managed || is_orbit_path;
         DetectedAgent {
@@ -496,7 +541,11 @@ fn make_detected_agent(
             version,
             is_available: true,
             description: desc_ready.to_string(),
-            installation_source: Some(if is_orbit_managed { "orbit".to_string() } else { "external".to_string() }),
+            installation_source: Some(if is_orbit_managed {
+                "orbit".to_string()
+            } else {
+                "external".to_string()
+            }),
             installed_by_orbit: Some(is_orbit_managed),
         }
     } else {
@@ -602,7 +651,15 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     ));
 
     // 8. GitHub Copilot CLI
-    let copilot_path = match find_executable(&["copilot", "github-copilot", "github-copilot-cli", "gh-copilot"], &[]) {
+    let copilot_path = match find_executable(
+        &[
+            "copilot",
+            "github-copilot",
+            "github-copilot-cli",
+            "gh-copilot",
+        ],
+        &[],
+    ) {
         Some(p) if is_unusable_sandbox_shim(&p) => None,
         Some(p) => Some(p),
         None => None,

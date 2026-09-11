@@ -8,6 +8,8 @@ import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useUIStore } from '../../stores/ui.store';
 import { isTauriAvailable, tauriService } from '../../services/tauri.service';
+import { installTerminalCapabilityBridge } from '../../services/terminalV2/terminalCapabilities';
+import { TerminalSessionTransport } from '../../services/terminalV2/terminalTransport';
 import { useContextStore } from '../../stores/context.store';
 import { Play, RotateCcw, Terminal as TerminalIcon } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -160,27 +162,36 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
     const rows = Math.max(term.rows || 0, estimatedRows, 24);
     const cols = Math.max(term.cols || 0, estimatedCols, 80);
+    const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
+    let terminalTransport: TerminalSessionTransport | null = null;
+    let disposeCapabilities: (() => void) | null = null;
 
     try {
       if (!isTauriAvailable()) {
         throw new Error('Tauri runtime not available.');
       }
 
-      let receivedLiveOutput = false;
-
-      // 2. Subscribe to output events with immediate high-throughput PTY stream writing
-      const unlistenOutput = await tauriService.onAgentOutput((payload) => {
-        const curAgent = agentRef.current;
-        const isMatch = payload.agentId === curAgent.id ||
-                        payload.sessionId === curAgent.id ||
-                        payload.agentId === curAgent.currentSessionId ||
-                        payload.sessionId === curAgent.currentSessionId;
-        if (isMatch && termRef.current) {
-          receivedLiveOutput = true;
-          termRef.current.write(payload.text);
-          termRef.current.scrollToBottom();
-        }
+      // 2. Attach before spawning. The backend stream is session-scoped,
+      // replays bounded raw PTY history, and then delivers live bytes through
+      // the same channel. This removes the startup race inherent in global
+      // agent-output events while leaving the PTY writer untouched.
+      terminalTransport = new TerminalSessionTransport(sessionId, (frame) => {
+        if (frame.kind === 'exit' || !termRef.current) return;
+        const bytes = frame.bytes instanceof Uint8Array
+          ? frame.bytes
+          : Uint8Array.from(frame.bytes);
+        termRef.current.write(bytes, () => {
+          if (termRef.current) {
+            termRef.current.scrollToBottom();
+            termRef.current.refresh(0, Math.max(0, termRef.current.rows - 1));
+          }
+        });
+      }, (message) => {
+        setErrorMsg(message);
+        setPhase('error');
       });
+      await terminalTransport.attach(0);
+      disposeCapabilities = installTerminalCapabilityBridge(term, agentRef.current.id, sessionId);
 
       // 3. Forward user input to PTY directly
       term.onData((data) => {
@@ -215,14 +226,21 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       });
 
       unlistenRef.current = () => {
-        unlistenOutput();
         unlistenStatus();
+        if (disposeCapabilities) {
+          disposeCapabilities();
+          disposeCapabilities = null;
+        }
+        if (terminalTransport) {
+          const transport = terminalTransport;
+          terminalTransport = null;
+          void transport.detach().catch(() => {});
+        }
       };
 
       // 5. Spawn or Reattach PTY session (backend create_session handles atomic liveness check & reattach)
       const ws = workspaceRef.current;
       const projPath = ws?.projectPath || '';
-      const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
 
       if (agentRef.current.role) {
         await tauriService.setAgentRole(agentRef.current.id, agentRef.current.role).catch(() => {});
@@ -248,29 +266,6 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       setPhase('active');
       resizeTerminal(agentRef.current.id, rows, cols);
       term.focus();
-
-      // 6. Multi-stage history buffer sync (covers startup race conditions & session reattachments)
-      const checkAndReplayHistory = async () => {
-        if (!receivedLiveOutput && termRef.current) {
-          const history = await tauriService.getAgentTerminalHistory(agentRef.current.id).catch(() => '');
-          if (history && history.length > 0 && termRef.current && !receivedLiveOutput) {
-            receivedLiveOutput = true;
-            termRef.current.write(history);
-            termRef.current.scrollToBottom();
-            try { fitAddon.fit(); } catch {}
-          }
-        }
-      };
-
-      await checkAndReplayHistory();
-      // A packaged desktop build can take longer to deliver the first PTY
-      // event than the dev server. Keep polling the backend scrollback during
-      // startup so output emitted before the xterm listener is fully attached
-      // is still visible. Once live output arrives, replay stops to avoid
-      // duplicating the stream.
-      startupReplayTimersRef.current = [250, 750, 1500, 3000, 5000].map((delay) =>
-        setTimeout(checkAndReplayHistory, delay)
-      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);

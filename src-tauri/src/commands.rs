@@ -1,18 +1,23 @@
-use tauri::{AppHandle, State};
-use std::sync::Arc;
 use crate::context::build_context_package;
 use crate::discovery::detect_all_agents;
 use crate::git::inspect_git_state;
 use crate::models::{
-    Agent, ChangedFileItem, Checkpoint, ContextPackage, DetectedAgent, GitState,
-    HandoffRecord, ProjectContext, Session, Workspace,
+    Agent, ChangedFileItem, Checkpoint, ContextPackage, DetectedAgent, GitState, HandoffRecord,
+    ProjectContext, Session, Workspace,
+};
+use crate::runtime::terminal_stream::{
+    TerminalStreamAttach, TerminalStreamBroker, TerminalStreamFrame,
 };
 use crate::runtime::PtyManager;
 use crate::storage::StorageManager;
+use std::sync::Arc;
+use tauri::ipc::Channel;
+use tauri::{AppHandle, State};
 
 pub struct AppState {
     pub pty_manager: Arc<PtyManager>,
     pub storage: Arc<StorageManager>,
+    pub terminal_stream: TerminalStreamBroker,
 }
 
 #[tauri::command]
@@ -27,7 +32,11 @@ pub fn get_workspaces(state: State<'_, AppState>) -> Vec<Workspace> {
 }
 
 #[tauri::command]
-pub fn create_workspace(state: State<'_, AppState>, name: String, project_path: String) -> Workspace {
+pub fn create_workspace(
+    state: State<'_, AppState>,
+    name: String,
+    project_path: String,
+) -> Workspace {
     state.storage.add_workspace(name, project_path)
 }
 
@@ -52,7 +61,11 @@ pub fn open_folder_dialog() -> Option<String> {
     {
         // Zenity / KDialog / Python Tkinter folder dialog on Linux
         if let Ok(output) = std::process::Command::new("zenity")
-            .args(["--file-selection", "--directory", "--title=Select Project Folder for Orbit Workspace"])
+            .args([
+                "--file-selection",
+                "--directory",
+                "--title=Select Project Folder for Orbit Workspace",
+            ])
             .output()
         {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -62,7 +75,11 @@ pub fn open_folder_dialog() -> Option<String> {
         }
 
         if let Ok(output) = std::process::Command::new("kdialog")
-            .args(["--getexistingdirectory", "--title", "Select Project Folder for Orbit Workspace"])
+            .args([
+                "--getexistingdirectory",
+                "--title",
+                "Select Project Folder for Orbit Workspace",
+            ])
             .output()
         {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -304,6 +321,30 @@ pub async fn stop_agent_session(
     .map_err(|e| format!("Failed to stop PTY session: {}", e))?
 }
 
+/// Attach a local terminal renderer to one concrete PTY session. The broker
+/// replays bounded raw-byte history before switching the channel to live
+/// frames, preventing a startup race between spawn and renderer mount.
+#[tauri::command]
+pub fn attach_terminal_stream(
+    state: State<'_, AppState>,
+    session_id: String,
+    from_sequence: Option<u64>,
+    channel: Channel<TerminalStreamFrame>,
+) -> Result<TerminalStreamAttach, String> {
+    state
+        .terminal_stream
+        .attach(&session_id, from_sequence.unwrap_or(0), channel)
+}
+
+#[tauri::command]
+pub fn detach_terminal_stream(
+    state: State<'_, AppState>,
+    session_id: String,
+    subscription_id: u64,
+) {
+    state.terminal_stream.detach(&session_id, subscription_id);
+}
+
 // Phase 3: Git State
 #[tauri::command]
 pub fn get_git_state(project_path: String) -> GitState {
@@ -312,12 +353,18 @@ pub fn get_git_state(project_path: String) -> GitState {
 
 // Phase 3: Project Context
 #[tauri::command]
-pub fn get_project_context(state: State<'_, AppState>, workspace_id: String) -> Option<ProjectContext> {
+pub fn get_project_context(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Option<ProjectContext> {
     state.storage.get_project_context(&workspace_id)
 }
 
 #[tauri::command]
-pub fn save_project_context(state: State<'_, AppState>, context: ProjectContext) -> Result<(), String> {
+pub fn save_project_context(
+    state: State<'_, AppState>,
+    context: ProjectContext,
+) -> Result<(), String> {
     state.storage.save_project_context(context);
     Ok(())
 }
@@ -408,7 +455,14 @@ pub fn execute_agent_handoff(
 
         // 2a. Active Handoff briefing file
         let handoff_file = orbit_dir.join("HANDOFF.md");
-        let _ = std::fs::write(&handoff_file, handoff.context_package.formatted_instruction.as_deref().unwrap_or(""));
+        let _ = std::fs::write(
+            &handoff_file,
+            handoff
+                .context_package
+                .formatted_instruction
+                .as_deref()
+                .unwrap_or(""),
+        );
 
         // 2b. Cumulative SESSION.md memory
         let session_log_entry = format!(
@@ -423,16 +477,19 @@ pub fn execute_agent_handoff(
             handoff.context_package.known_issues.join("; ")
         );
         let session_file = memory_dir.join("SESSION.md");
-        let mut session_content = std::fs::read_to_string(&session_file).unwrap_or_else(|_| "# Orbit Continuous Project Memory\n".to_string());
+        let mut session_content = std::fs::read_to_string(&session_file)
+            .unwrap_or_else(|_| "# Orbit Continuous Project Memory\n".to_string());
         session_content.push_str(&session_log_entry);
         let _ = std::fs::write(&session_file, session_content);
 
         // 2c. Cumulative DECISIONS.md
         if !handoff.context_package.decisions.is_empty() {
             let decisions_file = memory_dir.join("DECISIONS.md");
-            let mut decisions_content = std::fs::read_to_string(&decisions_file).unwrap_or_else(|_| "# Architectural Decisions Record\n".to_string());
+            let mut decisions_content = std::fs::read_to_string(&decisions_file)
+                .unwrap_or_else(|_| "# Architectural Decisions Record\n".to_string());
             for dec in &handoff.context_package.decisions {
-                decisions_content.push_str(&format!("\n- [{}]: {}", handoff.source_agent_name, dec));
+                decisions_content
+                    .push_str(&format!("\n- [{}]: {}", handoff.source_agent_name, dec));
             }
             let _ = std::fs::write(&decisions_file, decisions_content);
         }
@@ -440,7 +497,8 @@ pub fn execute_agent_handoff(
         // 2d. Cumulative BUGS.md
         if !handoff.context_package.known_issues.is_empty() {
             let bugs_file = memory_dir.join("BUGS.md");
-            let mut bugs_content = std::fs::read_to_string(&bugs_file).unwrap_or_else(|_| "# Tracked Project Blockers & Issues\n".to_string());
+            let mut bugs_content = std::fs::read_to_string(&bugs_file)
+                .unwrap_or_else(|_| "# Tracked Project Blockers & Issues\n".to_string());
             for bug in &handoff.context_package.known_issues {
                 bugs_content.push_str(&format!("\n- ⚠️ [{}] {}", handoff.source_agent_name, bug));
             }
@@ -459,7 +517,9 @@ pub fn execute_agent_handoff(
     //    Never kill a live session during a handoff.
     if state.pty_manager.is_running(&handoff.target_agent_id) {
         // Append \r so TUI agents (Ink, readline) submit the input immediately
-        let _ = state.pty_manager.write(&handoff.target_agent_id, &format!("{}\r", concise_prompt));
+        let _ = state
+            .pty_manager
+            .write(&handoff.target_agent_id, &format!("{}\r", concise_prompt));
         return Ok(0);
     }
 
@@ -468,7 +528,11 @@ pub fn execute_agent_handoff(
     //    and the TUI mounts cleanly. We then deliver the prompt via a delayed write,
     //    giving the TUI time to fully initialize before receiving any input.
     let target_session_id = handoff.target_session_id.unwrap_or_else(|| {
-        format!("sess-{}-{}", handoff.target_agent_id, chrono_now_millis() % 10000)
+        format!(
+            "sess-{}-{}",
+            handoff.target_agent_id,
+            chrono_now_millis() % 10000
+        )
     });
 
     // Spawn without prompt so the TUI initializes cleanly
@@ -492,7 +556,11 @@ pub fn execute_agent_handoff(
     let prov_lower = target_provider.to_lowercase();
     std::thread::spawn(move || {
         // Delay: 2500ms for opencode (Ink TUI), 1000ms for all others
-        let delay_ms = if prov_lower.contains("opencode") { 2500 } else { 1000 };
+        let delay_ms = if prov_lower.contains("opencode") {
+            2500
+        } else {
+            1000
+        };
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         let _ = pty_manager.write(&agent_id_clone, &format!("{}\r", concise_prompt));
     });
@@ -515,7 +583,10 @@ pub fn generate_context_draft(
     workspace_id: String,
     project_path: String,
 ) -> crate::runtime::ContextDraft {
-    state.pty_manager.activity_detector.generate_draft(&workspace_id, &project_path)
+    state
+        .pty_manager
+        .activity_detector
+        .generate_draft(&workspace_id, &project_path)
 }
 
 #[tauri::command]
@@ -526,21 +597,24 @@ pub fn apply_context_draft(
     progress: u32,
     active_work: String,
 ) -> Result<ProjectContext, String> {
-    let mut ctx = state.storage.get_project_context(&workspace_id).unwrap_or_else(|| ProjectContext {
-        id: format!("ctx-{}", &workspace_id),
-        workspace_id: workspace_id.clone(),
-        current_task: String::new(),
-        goal: String::new(),
-        progress: 0,
-        active_work: String::new(),
-        decisions: Vec::new(),
-        issues: Vec::new(),
-        notes: Vec::new(),
-        architecture: String::new(),
-        relevant_files: Vec::new(),
-        last_checkpoint_time: None,
-        updated_at: chrono_now_millis(),
-    });
+    let mut ctx = state
+        .storage
+        .get_project_context(&workspace_id)
+        .unwrap_or_else(|| ProjectContext {
+            id: format!("ctx-{}", &workspace_id),
+            workspace_id: workspace_id.clone(),
+            current_task: String::new(),
+            goal: String::new(),
+            progress: 0,
+            active_work: String::new(),
+            decisions: Vec::new(),
+            issues: Vec::new(),
+            notes: Vec::new(),
+            architecture: String::new(),
+            relevant_files: Vec::new(),
+            last_checkpoint_time: None,
+            updated_at: chrono_now_millis(),
+        });
     ctx.current_task = current_task;
     ctx.progress = progress;
     ctx.active_work = active_work;
@@ -557,21 +631,24 @@ pub fn record_user_decision(
     description: Option<String>,
     author_agent: Option<String>,
 ) -> Result<crate::models::ProjectDecision, String> {
-    let mut ctx = state.storage.get_project_context(&workspace_id).unwrap_or_else(|| ProjectContext {
-        id: format!("ctx-{}", &workspace_id),
-        workspace_id: workspace_id.clone(),
-        current_task: String::new(),
-        goal: String::new(),
-        progress: 0,
-        active_work: String::new(),
-        decisions: Vec::new(),
-        issues: Vec::new(),
-        notes: Vec::new(),
-        architecture: String::new(),
-        relevant_files: Vec::new(),
-        last_checkpoint_time: None,
-        updated_at: chrono_now_millis(),
-    });
+    let mut ctx = state
+        .storage
+        .get_project_context(&workspace_id)
+        .unwrap_or_else(|| ProjectContext {
+            id: format!("ctx-{}", &workspace_id),
+            workspace_id: workspace_id.clone(),
+            current_task: String::new(),
+            goal: String::new(),
+            progress: 0,
+            active_work: String::new(),
+            decisions: Vec::new(),
+            issues: Vec::new(),
+            notes: Vec::new(),
+            architecture: String::new(),
+            relevant_files: Vec::new(),
+            last_checkpoint_time: None,
+            updated_at: chrono_now_millis(),
+        });
     let decision = crate::models::ProjectDecision {
         id: format!("dec-{}", chrono_now_millis() % 100000),
         title,
@@ -620,7 +697,8 @@ pub fn get_agent_usage_stats(
             let brain_path = std::path::Path::new(&home).join(".gemini/antigravity-cli/brain");
             if let Ok(entries) = std::fs::read_dir(&brain_path) {
                 for entry in entries.flatten() {
-                    let transcript_file = entry.path().join(".system_generated/logs/transcript.jsonl");
+                    let transcript_file =
+                        entry.path().join(".system_generated/logs/transcript.jsonl");
                     if transcript_file.exists() {
                         if let Ok(content) = std::fs::read_to_string(&transcript_file) {
                             turns = content.lines().count();
@@ -641,7 +719,8 @@ pub fn get_agent_usage_stats(
         }
 
         let max_context_tokens = 1_000_000; // 1M tokens context ceiling for Gemini 1.5/2.0
-        let percentage_used = ((active_tokens as f32 / max_context_tokens as f32) * 100.0).min(100.0);
+        let percentage_used =
+            ((active_tokens as f32 / max_context_tokens as f32) * 100.0).min(100.0);
         let estimated_cost_usd = (active_tokens as f32 / 1_000_000.0) * 0.35; // Gemini Flash baseline pricing
 
         return crate::models::AgentUsageStats {
@@ -673,7 +752,11 @@ pub fn get_agent_usage_stats(
 }
 
 #[tauri::command]
-pub fn write_project_skill_file(project_path: String, relative_path: String, content: String) -> Result<bool, String> {
+pub fn write_project_skill_file(
+    project_path: String,
+    relative_path: String,
+    content: String,
+) -> Result<bool, String> {
     let base = std::path::Path::new(&project_path);
     if !base.is_dir() {
         return Err("Target project path is not a valid directory".to_string());
@@ -687,14 +770,19 @@ pub fn write_project_skill_file(project_path: String, relative_path: String, con
     }
 
     if let Some(parent) = normalized.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create skill directory: {}", e))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create skill directory: {}", e))?;
     }
-    std::fs::write(&normalized, content).map_err(|e| format!("Failed to write skill file: {}", e))?;
+    std::fs::write(&normalized, content)
+        .map_err(|e| format!("Failed to write skill file: {}", e))?;
     Ok(true)
 }
 
 #[tauri::command]
-pub fn remove_project_skill_file(project_path: String, relative_path: String) -> Result<bool, String> {
+pub fn remove_project_skill_file(
+    project_path: String,
+    relative_path: String,
+) -> Result<bool, String> {
     let base = std::path::Path::new(&project_path);
     let full_path = base.join(&relative_path);
     let normalized = full_path.components().collect::<std::path::PathBuf>();
@@ -725,11 +813,27 @@ pub fn refresh_detected_agents() -> Vec<DetectedAgent> {
 pub async fn install_agent_cli(provider: String, command: String) -> Result<String, String> {
     let prov = provider.to_lowercase().trim().to_string();
     let allowlist = [
-        "antigravity", "claude", "codex", "opencode", "kilocode", "freebuff", "cline",
-        "copilot", "goose", "kiro", "qwen", "mimo", "muse", "vibe", "qoder",
+        "antigravity",
+        "claude",
+        "codex",
+        "opencode",
+        "kilocode",
+        "freebuff",
+        "cline",
+        "copilot",
+        "goose",
+        "kiro",
+        "qwen",
+        "mimo",
+        "muse",
+        "vibe",
+        "qoder",
     ];
     if !allowlist.contains(&prov.as_str()) {
-        return Err(format!("Provider '{}' is not supported for 1-click install.", provider));
+        return Err(format!(
+            "Provider '{}' is not supported for 1-click install.",
+            provider
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -756,30 +860,43 @@ pub async fn install_agent_cli(provider: String, command: String) -> Result<Stri
     let host_path = crate::discovery::get_augmented_host_path();
     cmd.env("PATH", &host_path);
 
-    let output = cmd.output().map_err(|e| format!("Failed to execute installer: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to execute installer: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {
-        return Err(format!("Installer exited with error:\n{}{}", stdout, stderr));
+        return Err(format!(
+            "Installer exited with error:\n{}{}",
+            stdout, stderr
+        ));
     }
 
     // Mark as orbit-managed and invalidate discovery cache
     crate::discovery::set_provider_orbit_managed(&prov, true);
     crate::discovery::invalidate_detection_cache();
     let detected = detect_all_agents();
-    let is_now_available = detected.iter().any(|d| d.provider.to_lowercase() == prov && d.is_available);
+    let is_now_available = detected
+        .iter()
+        .any(|d| d.provider.to_lowercase() == prov && d.is_available);
 
     let summary = if stdout.is_empty() { stderr } else { stdout };
     if is_now_available {
-        Ok(format!("✅ Successfully installed and verified {}\n{}", prov, summary))
+        Ok(format!(
+            "✅ Successfully installed and verified {}\n{}",
+            prov, summary
+        ))
     } else {
         Ok(format!("Installer completed for {}.\n{}", prov, summary))
     }
 }
 
 #[tauri::command]
-pub async fn uninstall_agent_cli(state: State<'_, AppState>, provider: String) -> Result<String, String> {
+pub async fn uninstall_agent_cli(
+    state: State<'_, AppState>,
+    provider: String,
+) -> Result<String, String> {
     let prov = provider.to_lowercase().trim().to_string();
     if prov == "terminal" || prov == "shell" {
         return Err("The system shell terminal cannot be uninstalled.".to_string());
@@ -805,7 +922,12 @@ pub async fn uninstall_agent_cli(state: State<'_, AppState>, provider: String) -
 
     let cmd_str = match uninstall_map.iter().find(|(p, _)| *p == prov.as_str()) {
         Some((_, c)) => *c,
-        None => return Err(format!("Unknown provider '{}' for uninstallation.", provider)),
+        None => {
+            return Err(format!(
+                "Unknown provider '{}' for uninstallation.",
+                provider
+            ))
+        }
     };
 
     // 1. Terminate any active sessions for this provider
@@ -831,7 +953,9 @@ pub async fn uninstall_agent_cli(state: State<'_, AppState>, provider: String) -
     let host_path = crate::discovery::get_augmented_host_path();
     cmd.env("PATH", &host_path);
 
-    let output = cmd.output().map_err(|e| format!("Failed to execute uninstaller: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to execute uninstaller: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -839,7 +963,10 @@ pub async fn uninstall_agent_cli(state: State<'_, AppState>, provider: String) -
     crate::discovery::set_provider_orbit_managed(&prov, false);
     crate::discovery::invalidate_detection_cache();
 
-    Ok(format!("Agent {} uninstalled successfully.\n{}{}", prov, stdout, stderr))
+    Ok(format!(
+        "Agent {} uninstalled successfully.\n{}{}",
+        prov, stdout, stderr
+    ))
 }
 
 #[tauri::command]

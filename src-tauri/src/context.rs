@@ -4,10 +4,22 @@ pub fn redact_secrets(input: &str) -> String {
     let mut result = input.to_string();
 
     let secret_patterns = [
-        ("(?i)(api[_-]?key|apikey)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?", "[REDACTED_API_KEY]"),
-        ("(?i)(secret[_-]?key|secret)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?", "[REDACTED_SECRET]"),
-        ("(?i)(token|auth[_-]?token|bearer)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?", "[REDACTED_TOKEN]"),
-        ("(?i)(password|passwd|pwd)\\s*[:=]\\s*['\"]?([^\\s'\"]{4,})['\"]?", "[REDACTED_PASSWORD]"),
+        (
+            "(?i)(api[_-]?key|apikey)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?",
+            "[REDACTED_API_KEY]",
+        ),
+        (
+            "(?i)(secret[_-]?key|secret)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?",
+            "[REDACTED_SECRET]",
+        ),
+        (
+            "(?i)(token|auth[_-]?token|bearer)\\s*[:=]\\s*['\"]?([a-zA-Z0-9_\\-]{8,})['\"]?",
+            "[REDACTED_TOKEN]",
+        ),
+        (
+            "(?i)(password|passwd|pwd)\\s*[:=]\\s*['\"]?([^\\s'\"]{4,})['\"]?",
+            "[REDACTED_PASSWORD]",
+        ),
     ];
 
     for (pattern, replacement) in &secret_patterns {
@@ -24,7 +36,12 @@ fn regex_simple_replace(text: &str, _pattern: &str, _replacement: &str) -> Resul
     let mut out = String::new();
     for line in text.lines() {
         let lower = line.to_lowercase();
-        if lower.contains("api_key=") || lower.contains("apikey=") || lower.contains("secret=") || lower.contains("token=") || lower.contains("password=") {
+        if lower.contains("api_key=")
+            || lower.contains("apikey=")
+            || lower.contains("secret=")
+            || lower.contains("token=")
+            || lower.contains("password=")
+        {
             if let Some(eq_pos) = line.find('=') {
                 out.push_str(&line[..=eq_pos]);
                 out.push_str("[REDACTED]\n");
@@ -43,7 +60,11 @@ fn regex_simple_replace(text: &str, _pattern: &str, _replacement: &str) -> Resul
 pub fn estimate_tokens(text: &str) -> usize {
     // Standard rule of thumb: ~4 characters per token
     let chars = text.chars().count();
-    if chars == 0 { 0 } else { (chars / 4).max(1) }
+    if chars == 0 {
+        0
+    } else {
+        (chars / 4).max(1)
+    }
 }
 
 pub fn format_context_instruction(
@@ -62,8 +83,14 @@ pub fn format_context_instruction(
     prompt.push_str("============================================================\n");
     prompt.push_str("ORBIT CONTEXT HANDOFF\n");
     prompt.push_str("============================================================\n\n");
-    prompt.push_str(&format!("You are continuing work on project: {}\n", workspace_name));
-    prompt.push_str(&format!("Previous agent context transferred from: {}\n\n", source_agent));
+    prompt.push_str(&format!(
+        "You are continuing work on project: {}\n",
+        workspace_name
+    ));
+    prompt.push_str(&format!(
+        "Previous agent context transferred from: {}\n\n",
+        source_agent
+    ));
 
     prompt.push_str("--- CURRENT TASK ---\n");
     prompt.push_str(current_task);

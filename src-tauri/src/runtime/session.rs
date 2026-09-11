@@ -1,7 +1,7 @@
+use crate::runtime::session_supervisor::{new_shared_lifecycle, SharedSessionLifecycle};
+use portable_pty::{Child, MasterPty};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use portable_pty::{Child, MasterPty};
-use crate::runtime::session_supervisor::{new_shared_lifecycle, SharedSessionLifecycle};
 
 #[allow(dead_code)]
 pub struct PtySession {

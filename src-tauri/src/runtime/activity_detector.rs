@@ -1,10 +1,10 @@
+use crate::models::{ChangedFileItem, GitState};
+use crate::runtime::session_events::{redact_secrets, SessionEvent, SessionEventType};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use regex::Regex;
-use crate::models::{ChangedFileItem, GitState};
-use crate::runtime::session_events::{redact_secrets, SessionEvent, SessionEventType};
 
 static TEST_REGEX: OnceLock<Regex> = OnceLock::new();
 static TS_ERROR_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -15,7 +15,9 @@ fn get_test_regex() -> &'static Regex {
 }
 
 fn get_ts_error_regex() -> &'static Regex {
-    TS_ERROR_REGEX.get_or_init(|| Regex::new(r"(?m)([a-zA-Z0-9_\-\./]+)\((\d+),(\d+)\):\s*error\s*(TS\d+):\s*(.+)$").unwrap())
+    TS_ERROR_REGEX.get_or_init(|| {
+        Regex::new(r"(?m)([a-zA-Z0-9_\-\./]+)\((\d+),(\d+)\):\s*error\s*(TS\d+):\s*(.+)$").unwrap()
+    })
 }
 
 fn get_cached_git_state(project_path: &str) -> GitState {
@@ -27,7 +29,10 @@ fn get_cached_git_state(project_path: &str) -> GitState {
             }
         }
         let fresh_state = crate::git::inspect_git_state(project_path);
-        map.insert(project_path.to_string(), (Instant::now(), fresh_state.clone()));
+        map.insert(
+            project_path.to_string(),
+            (Instant::now(), fresh_state.clone()),
+        );
         fresh_state
     } else {
         crate::git::inspect_git_state(project_path)
@@ -150,19 +155,21 @@ impl ActivityDetector {
 
     pub fn process_event(&self, event: &SessionEvent, _project_path: &str) {
         let mut map = self.states.lock().unwrap();
-        let state = map.entry(event.workspace_id.clone()).or_insert_with(|| ProjectActivityState {
-            workspace_id: event.workspace_id.clone(),
-            active_agent_id: Some(event.agent_id.clone()),
-            recent_commands: Vec::new(),
-            changed_files: Vec::new(),
-            recent_issues: Vec::new(),
-            last_build: None,
-            last_test: None,
-            git_state: GitState::default(),
-            last_activity_at: event.timestamp,
-            last_checkpoint_time: None,
-            context_freshness: 100,
-        });
+        let state = map
+            .entry(event.workspace_id.clone())
+            .or_insert_with(|| ProjectActivityState {
+                workspace_id: event.workspace_id.clone(),
+                active_agent_id: Some(event.agent_id.clone()),
+                recent_commands: Vec::new(),
+                changed_files: Vec::new(),
+                recent_issues: Vec::new(),
+                last_build: None,
+                last_test: None,
+                git_state: GitState::default(),
+                last_activity_at: event.timestamp,
+                last_checkpoint_time: None,
+                context_freshness: 100,
+            });
 
         state.active_agent_id = Some(event.agent_id.clone());
         state.last_activity_at = event.timestamp;
@@ -171,7 +178,15 @@ impl ActivityDetector {
             SessionEventType::UserInput => {
                 if let Some(txt) = event.payload.get("text").and_then(|v| v.as_str()) {
                     let clean = redact_secrets(txt.trim());
-                    if !clean.is_empty() && (clean.starts_with("npm ") || clean.starts_with("pnpm ") || clean.starts_with("cargo ") || clean.starts_with("git ") || clean.starts_with("pytest ") || clean.starts_with("node ") || clean.starts_with("python ")) {
+                    if !clean.is_empty()
+                        && (clean.starts_with("npm ")
+                            || clean.starts_with("pnpm ")
+                            || clean.starts_with("cargo ")
+                            || clean.starts_with("git ")
+                            || clean.starts_with("pytest ")
+                            || clean.starts_with("node ")
+                            || clean.starts_with("python "))
+                    {
                         state.recent_commands.push(CommandRecord {
                             command: clean,
                             timestamp: event.timestamp,
@@ -221,32 +236,43 @@ impl ActivityDetector {
         };
 
         let mut map = self.states.lock().unwrap();
-        let state = map.entry(workspace_id.to_string()).or_insert_with(|| ProjectActivityState {
-            workspace_id: workspace_id.to_string(),
-            active_agent_id: None,
-            recent_commands: Vec::new(),
-            changed_files: Vec::new(),
-            recent_issues: Vec::new(),
-            last_build: None,
-            last_test: None,
-            git_state: GitState::default(),
-            last_activity_at: chrono::Utc::now().timestamp_millis(),
-            last_checkpoint_time: None,
-            context_freshness: 100,
-        });
+        let state = map
+            .entry(workspace_id.to_string())
+            .or_insert_with(|| ProjectActivityState {
+                workspace_id: workspace_id.to_string(),
+                active_agent_id: None,
+                recent_commands: Vec::new(),
+                changed_files: Vec::new(),
+                recent_issues: Vec::new(),
+                last_build: None,
+                last_test: None,
+                git_state: GitState::default(),
+                last_activity_at: chrono::Utc::now().timestamp_millis(),
+                last_checkpoint_time: None,
+                context_freshness: 100,
+            });
         state.changed_files = git_st.modified_files.clone();
         state.git_state = git_st;
         state.context_freshness = freshness;
     }
 
-    fn parse_technical_signals(&self, state: &mut ProjectActivityState, text: &str, timestamp: i64) {
+    fn parse_technical_signals(
+        &self,
+        state: &mut ProjectActivityState,
+        text: &str,
+        timestamp: i64,
+    ) {
         // 1. Detect Test Results (Vitest, Jest, Cargo test, Pytest)
         if text.contains("passed") || text.contains("failed") || text.contains("test result:") {
             if let Some(caps) = get_test_regex().captures(text) {
                 let failed: u32 = caps[1].parse().unwrap_or(0);
                 let passed: u32 = caps[2].parse().unwrap_or(0);
                 state.last_test = Some(TestSummary {
-                    status: if failed > 0 { "failed".to_string() } else { "passed".to_string() },
+                    status: if failed > 0 {
+                        "failed".to_string()
+                    } else {
+                        "passed".to_string()
+                    },
                     passed_count: passed,
                     failed_count: failed,
                     total_count: passed + failed,
@@ -256,7 +282,11 @@ impl ActivityDetector {
             } else if text.contains("test result: ok") || text.contains("test result: FAILED") {
                 let is_fail = text.contains("FAILED");
                 state.last_test = Some(TestSummary {
-                    status: if is_fail { "failed".to_string() } else { "passed".to_string() },
+                    status: if is_fail {
+                        "failed".to_string()
+                    } else {
+                        "passed".to_string()
+                    },
                     passed_count: 1,
                     failed_count: if is_fail { 1 } else { 0 },
                     total_count: 1,
@@ -270,9 +300,15 @@ impl ActivityDetector {
         if text.contains("error TS") {
             for caps in get_ts_error_regex().captures_iter(text) {
                 let file = caps.get(1).map(|m| m.as_str().to_string());
-                let line: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+                let line: u32 = caps
+                    .get(2)
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(1);
                 let code = caps.get(4).map(|m| m.as_str().to_string());
-                let msg = caps.get(5).map(|m| m.as_str().to_string()).unwrap_or_else(|| "TypeScript Compile Error".to_string());
+                let msg = caps
+                    .get(5)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_else(|| "TypeScript Compile Error".to_string());
 
                 let issue_id = format!("ts-{}-{}", code.as_deref().unwrap_or("err"), line);
                 if let Some(existing) = state.recent_issues.iter_mut().find(|i| i.id == issue_id) {
@@ -297,7 +333,10 @@ impl ActivityDetector {
         }
 
         // 3. Detect Build Success vs Failure
-        if text.contains("✓ built in") || text.contains("Finished `dev` profile") || text.contains("Compiled successfully") {
+        if text.contains("✓ built in")
+            || text.contains("Finished `dev` profile")
+            || text.contains("Compiled successfully")
+        {
             state.last_build = Some(BuildSummary {
                 status: "passed".to_string(),
                 error_count: 0,
@@ -311,7 +350,10 @@ impl ActivityDetector {
                     issue.status = "resolved".to_string();
                 }
             }
-        } else if text.contains("error[E") || text.contains("Failed to compile") || text.contains("Build failed") {
+        } else if text.contains("error[E")
+            || text.contains("Failed to compile")
+            || text.contains("Build failed")
+        {
             state.last_build = Some(BuildSummary {
                 status: "failed".to_string(),
                 error_count: 1,
@@ -329,13 +371,14 @@ impl ActivityDetector {
 
         // 1. Task Proposal: Infer from active Git branch or latest user command
         let branch_name = &state.git_state.current_branch;
-        let task_text = if !branch_name.is_empty() && branch_name != "main" && branch_name != "master" {
-            format!("Feature/Task on branch `{}`", branch_name)
-        } else if let Some(last_cmd) = state.recent_commands.last() {
-            format!("Development activity around `{}`", last_cmd.command)
-        } else {
-            "Active workspace development".to_string()
-        };
+        let task_text =
+            if !branch_name.is_empty() && branch_name != "main" && branch_name != "master" {
+                format!("Feature/Task on branch `{}`", branch_name)
+            } else if let Some(last_cmd) = state.recent_commands.last() {
+                format!("Development activity around `{}`", last_cmd.command)
+            } else {
+                "Active workspace development".to_string()
+            };
 
         let task_proposal = DraftItem {
             text: task_text,
@@ -348,7 +391,10 @@ impl ActivityDetector {
         let mut progress_proposals = Vec::new();
         if let Some(test) = &state.last_test {
             progress_proposals.push(DraftItem {
-                text: format!("Test Suite: {} passed, {} failed", test.passed_count, test.failed_count),
+                text: format!(
+                    "Test Suite: {} passed, {} failed",
+                    test.passed_count, test.failed_count
+                ),
                 confidence: "High".to_string(),
                 source: "tests".to_string(),
                 confirmed: false,
@@ -363,9 +409,19 @@ impl ActivityDetector {
             });
         }
         if !state.changed_files.is_empty() {
-            let files_summary = state.changed_files.iter().take(4).map(|f| f.path.as_str()).collect::<Vec<_>>().join(", ");
+            let files_summary = state
+                .changed_files
+                .iter()
+                .take(4)
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
             progress_proposals.push(DraftItem {
-                text: format!("Modified {} files: {}", state.changed_files.len(), files_summary),
+                text: format!(
+                    "Modified {} files: {}",
+                    state.changed_files.len(),
+                    files_summary
+                ),
                 confidence: "High".to_string(),
                 source: "git".to_string(),
                 confirmed: false,
@@ -373,12 +429,21 @@ impl ActivityDetector {
         }
 
         // 3. Active Issues (Failing tests or unresolved compiler errors)
-        let active_issues = state.recent_issues.iter().filter(|i| i.status != "resolved").cloned().collect();
+        let active_issues = state
+            .recent_issues
+            .iter()
+            .filter(|i| i.status != "resolved")
+            .cloned()
+            .collect();
 
         // 4. Git Summary
         let git_summary = format!(
             "Branch `{}` with {} modified files",
-            if state.git_state.current_branch.is_empty() { "main" } else { &state.git_state.current_branch },
+            if state.git_state.current_branch.is_empty() {
+                "main"
+            } else {
+                &state.git_state.current_branch
+            },
             state.changed_files.len()
         );
 

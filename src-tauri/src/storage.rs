@@ -1,11 +1,9 @@
+use crate::git::inspect_git_state;
+use crate::models::{Agent, Checkpoint, HandoffRecord, ProjectContext, Session, Workspace};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
-use crate::git::inspect_git_state;
-use crate::models::{
-    Agent, Checkpoint, HandoffRecord, ProjectContext, Session, Workspace,
-};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OrbitState {
@@ -32,12 +30,16 @@ impl StorageManager {
 
         let initial_state = if file_path.is_file() {
             match fs::read_to_string(&file_path) {
-                Ok(content) => serde_json::from_str::<OrbitState>(&content).unwrap_or_else(|_| Self::default_state()),
+                Ok(content) => serde_json::from_str::<OrbitState>(&content)
+                    .unwrap_or_else(|_| Self::default_state()),
                 Err(_) => Self::default_state(),
             }
         } else {
             let def = Self::default_state();
-            let _ = fs::write(&file_path, serde_json::to_string_pretty(&def).unwrap_or_default());
+            let _ = fs::write(
+                &file_path,
+                serde_json::to_string_pretty(&def).unwrap_or_default(),
+            );
             def
         };
 
@@ -112,7 +114,9 @@ impl StorageManager {
 
     pub fn add_workspace(&self, name: String, project_path: String) -> Workspace {
         let now = chrono_now_millis();
-        let slug = name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-");
+        let slug = name
+            .to_lowercase()
+            .replace(|c: char| !c.is_alphanumeric(), "-");
         let id = format!("ws-{}-{}", slug, now % 10000);
 
         if !project_path.trim().is_empty() {
@@ -153,7 +157,12 @@ impl StorageManager {
     // Agents
     pub fn get_agents(&self, workspace_id: &str) -> Vec<Agent> {
         let state = self.state.lock().unwrap();
-        state.agents.iter().filter(|a| a.workspace_id == workspace_id).cloned().collect()
+        state
+            .agents
+            .iter()
+            .filter(|a| a.workspace_id == workspace_id)
+            .cloned()
+            .collect()
     }
 
     pub fn save_agent(&self, agent: Agent) {
@@ -180,7 +189,12 @@ impl StorageManager {
     // Sessions
     pub fn get_sessions(&self, workspace_id: &str) -> Vec<Session> {
         let state = self.state.lock().unwrap();
-        state.sessions.iter().filter(|s| s.workspace_id == workspace_id).cloned().collect()
+        state
+            .sessions
+            .iter()
+            .filter(|s| s.workspace_id == workspace_id)
+            .cloned()
+            .collect()
     }
 
     pub fn add_session(&self, session: Session) {
@@ -194,7 +208,12 @@ impl StorageManager {
     // Checkpoints
     pub fn get_checkpoints(&self, workspace_id: &str) -> Vec<Checkpoint> {
         let state = self.state.lock().unwrap();
-        state.checkpoints.iter().filter(|c| c.workspace_id == workspace_id).cloned().collect()
+        state
+            .checkpoints
+            .iter()
+            .filter(|c| c.workspace_id == workspace_id)
+            .cloned()
+            .collect()
     }
 
     pub fn save_checkpoint(&self, checkpoint: Checkpoint) {
@@ -220,13 +239,21 @@ impl StorageManager {
     // Project Context
     pub fn get_project_context(&self, workspace_id: &str) -> Option<ProjectContext> {
         let state = self.state.lock().unwrap();
-        state.project_contexts.iter().find(|ctx| ctx.workspace_id == workspace_id).cloned()
+        state
+            .project_contexts
+            .iter()
+            .find(|ctx| ctx.workspace_id == workspace_id)
+            .cloned()
     }
 
     pub fn save_project_context(&self, context: ProjectContext) {
         {
             let mut state = self.state.lock().unwrap();
-            if let Some(pos) = state.project_contexts.iter().position(|ctx| ctx.workspace_id == context.workspace_id) {
+            if let Some(pos) = state
+                .project_contexts
+                .iter()
+                .position(|ctx| ctx.workspace_id == context.workspace_id)
+            {
                 state.project_contexts[pos] = context;
             } else {
                 state.project_contexts.push(context);
@@ -238,7 +265,12 @@ impl StorageManager {
     // Handoff History
     pub fn get_handoff_history(&self, workspace_id: &str) -> Vec<HandoffRecord> {
         let state = self.state.lock().unwrap();
-        state.handoffs.iter().filter(|h| h.workspace_id == workspace_id).cloned().collect()
+        state
+            .handoffs
+            .iter()
+            .filter(|h| h.workspace_id == workspace_id)
+            .cloned()
+            .collect()
     }
 
     pub fn record_handoff(&self, handoff: HandoffRecord) {

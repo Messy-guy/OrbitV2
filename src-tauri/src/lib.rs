@@ -1,26 +1,28 @@
-mod models;
-mod discovery;
-mod storage;
-mod git;
-mod context;
-mod runtime;
 mod auth;
-mod mcp;
 mod commands;
+mod context;
+mod discovery;
+mod git;
+mod mcp;
+mod models;
+mod runtime;
+mod storage;
 
-use std::sync::Arc;
 use commands::{
-    create_session, create_workspace, delete_agent, delete_checkpoint, delete_workspace,
-    detect_agents, execute_agent_handoff, generate_context_package, get_checkpoints,
-    get_git_state, get_handoff_history, get_project_context, get_sessions,
-    get_workspace_agents, get_workspaces, interrupt_agent_session, open_folder_dialog, open_file_dialog, record_handoff,
-    resize_agent_terminal, save_agent, save_checkpoint, save_project_context,
-    send_agent_input, set_agent_role, get_agent_mcp_tools, start_agent_session, stop_agent_session, get_agent_terminal_history,
-    is_agent_process_running, get_project_activity, generate_context_draft, apply_context_draft,
-    record_user_decision, resolve_project_issue, get_agent_usage_stats, write_project_skill_file, remove_project_skill_file,
-    install_agent_cli, uninstall_agent_cli, refresh_detected_agents, open_external_url, AppState,
+    apply_context_draft, attach_terminal_stream, create_session, create_workspace, delete_agent,
+    delete_checkpoint, delete_workspace, detach_terminal_stream, detect_agents,
+    execute_agent_handoff, generate_context_draft, generate_context_package, get_agent_mcp_tools,
+    get_agent_terminal_history, get_agent_usage_stats, get_checkpoints, get_git_state,
+    get_handoff_history, get_project_activity, get_project_context, get_sessions,
+    get_workspace_agents, get_workspaces, install_agent_cli, interrupt_agent_session,
+    is_agent_process_running, open_external_url, open_file_dialog, open_folder_dialog,
+    record_handoff, record_user_decision, refresh_detected_agents, remove_project_skill_file,
+    resize_agent_terminal, resolve_project_issue, save_agent, save_checkpoint,
+    save_project_context, send_agent_input, set_agent_role, start_agent_session,
+    stop_agent_session, uninstall_agent_cli, write_project_skill_file, AppState,
 };
-use runtime::{ActivityDetector, PtyManager};
+use runtime::{ActivityDetector, PtyManager, TerminalStreamBroker};
+use std::sync::Arc;
 use storage::StorageManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,13 +33,22 @@ pub fn run() {
     // backtrace here makes the actual first failure diagnosable.
     std::panic::set_hook(Box::new(|info| {
         let log_path = std::env::temp_dir().join("orbit-debug.log");
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+        {
             use std::io::Write;
-            let payload = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+            let payload = info
+                .payload()
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
                 .or_else(|| info.payload().downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "unknown panic payload".to_string());
             let _ = writeln!(f, "\n===== ORBIT PANIC: {} =====", payload);
-            let location = info.location().map(|l| format!(" at {}:{}", l.file(), l.line()))
+            let location = info
+                .location()
+                .map(|l| format!(" at {}:{}", l.file(), l.line()))
                 .unwrap_or_default();
             let _ = writeln!(f, "location: {}", location);
             let full_bt = std::backtrace::Backtrace::capture().to_string();
@@ -50,12 +61,17 @@ pub fn run() {
     }));
 
     let activity_detector = Arc::new(ActivityDetector::new());
-    let pty_manager = Arc::new(PtyManager::new(activity_detector.clone()));
+    let terminal_stream = TerminalStreamBroker::new();
+    let pty_manager = Arc::new(PtyManager::new(
+        activity_detector.clone(),
+        terminal_stream.clone(),
+    ));
     let storage = Arc::new(StorageManager::new());
 
     let state = AppState {
         pty_manager,
         storage,
+        terminal_stream,
     };
 
     // Pre-warm agent detection in background thread so opening modal is instantaneous
@@ -110,6 +126,8 @@ pub fn run() {
             install_agent_cli,
             uninstall_agent_cli,
             open_external_url,
+            attach_terminal_stream,
+            detach_terminal_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running orbit application");

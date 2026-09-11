@@ -29,7 +29,9 @@ impl McpRoleManager {
 
     pub fn get_agent_role(&self, agent_id: &str) -> String {
         let map = self.agent_roles.lock().unwrap();
-        map.get(agent_id).cloned().unwrap_or_else(|| "raw".to_string())
+        map.get(agent_id)
+            .cloned()
+            .unwrap_or_else(|| "raw".to_string())
     }
 
     /// Returns the allowed tool list for the current role
@@ -77,7 +79,8 @@ impl McpRoleManager {
                 vec![
                     McpToolDefinition {
                         name: "get_git_diff".to_string(),
-                        description: "Inspect uncommitted git diffs across the workspace".to_string(),
+                        description: "Inspect uncommitted git diffs across the workspace"
+                            .to_string(),
                         input_schema: serde_json::json!({ "type": "object" }),
                     },
                     McpToolDefinition {
@@ -126,7 +129,8 @@ impl McpRoleManager {
                     },
                     McpToolDefinition {
                         name: "run_tests".to_string(),
-                        description: "Run automated test suites to verify implementation".to_string(),
+                        description: "Run automated test suites to verify implementation"
+                            .to_string(),
                         input_schema: serde_json::json!({ "type": "object" }),
                     },
                 ]
@@ -158,11 +162,15 @@ impl McpRoleManager {
     pub fn is_action_allowed(&self, agent_id: &str, tool_name: &str) -> Result<(), String> {
         let role = self.get_agent_role(agent_id);
 
-        if role == "architect" && (tool_name == "write_file" || tool_name == "edit_file" || tool_name == "bash_mutate") {
+        if role == "architect"
+            && (tool_name == "write_file" || tool_name == "edit_file" || tool_name == "bash_mutate")
+        {
             return Err("PERMISSION_DENIED: Write operations are disabled in PLAN Mode. Focus on SPEC.md and test contracts.".to_string());
         }
 
-        if role == "reviewer" && (tool_name == "write_file" || tool_name == "edit_file" || tool_name == "bash_mutate") {
+        if role == "reviewer"
+            && (tool_name == "write_file" || tool_name == "edit_file" || tool_name == "bash_mutate")
+        {
             return Err("PERMISSION_DENIED: Write operations are disabled in REVIEW Mode. Focus on diff audit and security findings.".to_string());
         }
 
