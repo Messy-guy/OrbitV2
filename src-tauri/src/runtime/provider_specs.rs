@@ -9,16 +9,22 @@
 pub struct ProviderRuntimeSpec {
     pub direct_cli: bool,
     pub startup_delay_ms: u64,
+    pub clear_multiplexer_env: bool,
+    pub term_program: Option<&'static str>,
 }
 
 const DEFAULT_SPEC: ProviderRuntimeSpec = ProviderRuntimeSpec {
     direct_cli: false,
     startup_delay_ms: 800,
+    clear_multiplexer_env: false,
+    term_program: None,
 };
 
 const TUI_SPEC: ProviderRuntimeSpec = ProviderRuntimeSpec {
     direct_cli: true,
     startup_delay_ms: 2000,
+    clear_multiplexer_env: true,
+    term_program: Some("xterm.js"),
 };
 
 pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
@@ -26,22 +32,38 @@ pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
         "terminal" | "shell" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 0,
+            clear_multiplexer_env: true,
+            term_program: Some("xterm.js"),
         },
         "opencode" | "opencode-ai" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 2200,
+            clear_multiplexer_env: true,
+            term_program: Some("xterm.js"),
         },
-        "antigravity" | "agy" | "claude" | "codex" | "openai-codex" => ProviderRuntimeSpec {
+        "antigravity" | "agy" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 800,
+            clear_multiplexer_env: true,
+            term_program: Some("alacritty"),
+        },
+        "claude" | "codex" | "openai-codex" => ProviderRuntimeSpec {
+            direct_cli: true,
+            startup_delay_ms: 800,
+            clear_multiplexer_env: true,
+            term_program: Some("xterm.js"),
         },
         "mimo" | "mimo-cli" | "mimocode" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 5000,
+            clear_multiplexer_env: true,
+            term_program: Some("xterm.js"),
         },
         "vibe" | "mistral-vibe" | "vibe-cli" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 1800,
+            clear_multiplexer_env: true,
+            term_program: Some("xterm.js"),
         },
         "kilocode" | "kilo" | "@kilocode/cli" | "freebuff" | "freebuff-ai"
         | "freebuff-cli" | "cline" | "copilot" | "github-copilot"
@@ -68,5 +90,6 @@ mod tests {
         let spec = runtime_spec("shell");
         assert!(spec.direct_cli);
         assert_eq!(spec.startup_delay_ms, 0);
+        assert!(spec.clear_multiplexer_env);
     }
 }

@@ -750,6 +750,7 @@ impl PtyManager {
         // Build augmented PATH: prepends all user tool dirs (NVM, cargo, pnpm, bun, Orbit engines…)
         // so node-based CLIs with #!/usr/bin/env node work from the GUI desktop launcher.
         let host_path = get_augmented_host_path();
+        let runtime_spec = runtime_spec(&prov);
 
         // 1. Inherit complete user login shell environment (NVM, pyenv, cargo, keys, tokens, paths)
         let login_env = crate::discovery::get_login_shell_environment();
@@ -790,6 +791,14 @@ impl PtyManager {
         cmd_builder.env_remove("JETSKI_AGENT_ID");
         cmd_builder.env_remove("AI_AGENT");
 
+        // Do not leak a multiplexer identity into an interactive CLI launched
+        // inside Orbit. Some TUIs change protocol negotiation or suppress
+        // their UI when TMUX/STY is present even though they have a real PTY.
+        if runtime_spec.clear_multiplexer_env {
+            cmd_builder.env_remove("TMUX");
+            cmd_builder.env_remove("STY");
+        }
+
         // 4. Apply the fully augmented PATH — guarantees user binaries, NVM node, and user scripts resolve
         cmd_builder.env("PATH", &host_path);
         dbg_log!("[ORBIT PTY] Augmented PATH={}", &host_path[..host_path.len().min(300)]);
@@ -827,6 +836,9 @@ impl PtyManager {
         cmd_builder.cwd(&cwd);
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
+        if let Some(term_program) = runtime_spec.term_program {
+            cmd_builder.env("TERM_PROGRAM", term_program);
+        }
         cmd_builder.env("LINES", rows_val.to_string());
         cmd_builder.env("COLUMNS", cols_val.to_string());
         cmd_builder.env("ORBIT_WORKSPACE_ID", &workspace_id);
@@ -855,7 +867,6 @@ impl PtyManager {
         // NO role prelude. These agents render their own input UI; injecting a
         // `[ORBIT CONTINUOUS INVARIANT]` prelude mid-startup crashes/hangs the TUI, and
         // buffering keystrokes in `line_buffer` swallows typed input entirely.
-        let runtime_spec = runtime_spec(&prov);
         let is_direct_cli = runtime_spec.direct_cli || is_shell_process;
 
         let session = PtySession::new(
@@ -984,6 +995,7 @@ impl PtyManager {
             let session_id_coalescer = session_id_reader.clone();
             let coalescer_handle = thread::spawn(move || {
                 let mut pending: String = String::new();
+                let mut emitted_chunks: u32 = 0;
                 loop {
                     match coalescer_rx.recv_timeout(Duration::from_millis(16)) {
                         Ok((chunk, ts)) => {
@@ -994,6 +1006,16 @@ impl PtyManager {
                                 pending.push_str(&extra);
                             }
                             if !pending.is_empty() {
+                                emitted_chunks = emitted_chunks.saturating_add(1);
+                                if emitted_chunks <= 8 {
+                                    dbg_log!(
+                                        "[ORBIT PTY] Emitting output event agent_id={} session_id={} chunk={} chars={}",
+                                        agent_id_coalescer,
+                                        session_id_coalescer,
+                                        emitted_chunks,
+                                        pending.len()
+                                    );
+                                }
                                 let _ = app_coalescer.emit(
                                     "agent-output",
                                     AgentOutputEvent {
@@ -1008,6 +1030,16 @@ impl PtyManager {
                         }
                         Err(RecvTimeoutError::Timeout) => {
                             if !pending.is_empty() {
+                                emitted_chunks = emitted_chunks.saturating_add(1);
+                                if emitted_chunks <= 8 {
+                                    dbg_log!(
+                                        "[ORBIT PTY] Emitting output event agent_id={} session_id={} chunk={} chars={}",
+                                        agent_id_coalescer,
+                                        session_id_coalescer,
+                                        emitted_chunks,
+                                        pending.len()
+                                    );
+                                }
                                 let _ = app_coalescer.emit(
                                     "agent-output",
                                     AgentOutputEvent {
@@ -1022,6 +1054,16 @@ impl PtyManager {
                         }
                         Err(RecvTimeoutError::Disconnected) => {
                             if !pending.is_empty() {
+                                emitted_chunks = emitted_chunks.saturating_add(1);
+                                if emitted_chunks <= 8 {
+                                    dbg_log!(
+                                        "[ORBIT PTY] Emitting output event agent_id={} session_id={} chunk={} chars={}",
+                                        agent_id_coalescer,
+                                        session_id_coalescer,
+                                        emitted_chunks,
+                                        pending.len()
+                                    );
+                                }
                                 let _ = app_coalescer.emit(
                                     "agent-output",
                                     AgentOutputEvent {
@@ -1043,11 +1085,24 @@ impl PtyManager {
             let mut buf = [0u8; 4096];
             let mut terminal_query_responder = TerminalQueryResponder::default();
             let mut first_output_emitted = false;
+            let mut read_chunks: u32 = 0;
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let chunk_bytes = &buf[..n];
+                        read_chunks = read_chunks.saturating_add(1);
+                        if read_chunks <= 8 {
+                            let escape_count = chunk_bytes.iter().filter(|byte| **byte == 0x1b).count();
+                            dbg_log!(
+                                "[ORBIT PTY] Read output agent_id={} session_id={} chunk={} bytes={} escapes={}",
+                                agent_id_reader,
+                                session_id_reader,
+                                read_chunks,
+                                n,
+                                escape_count
+                            );
+                        }
 
                         if let Ok(mut state) = lifecycle_reader.lock() {
                             state.record_output(n);
@@ -1081,6 +1136,12 @@ impl PtyManager {
                             if let Ok(mut state) = lifecycle_reader.lock() {
                                 state.record_terminal_query_response();
                             }
+                            dbg_log!(
+                                "[ORBIT PTY] Responding to terminal capability query agent_id={} session_id={} response_bytes={}",
+                                agent_id_reader,
+                                session_id_reader,
+                                resp.len()
+                            );
                             if let Ok(mut w) = writer_for_terminal_queries.lock() {
                                 let _ = w.write_all(&resp);
                                 let _ = w.flush();
