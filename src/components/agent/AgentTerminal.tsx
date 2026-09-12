@@ -165,11 +165,30 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
     let terminalTransport: TerminalSessionTransport | null = null;
     let disposeCapabilities: (() => void) | null = null;
+    let unlistenLegacyOutput: (() => void) | null = null;
+    let streamFrameReceived = false;
+    let legacyFallbackActive = false;
+    const legacyOutputBuffer: string[] = [];
 
     try {
       if (!isTauriAvailable()) {
         throw new Error('Tauri runtime not available.');
       }
+
+      // Keep a session-exact compatibility listener during the attach window.
+      // This is not the primary renderer path: it is a safety net for older
+      // packaged WebViews where Tauri Channel delivery can fail independently
+      // of the PTY. Once a raw stream frame arrives, buffered legacy text is
+      // discarded and this listener becomes inert.
+      unlistenLegacyOutput = await tauriService.onAgentOutput((payload) => {
+        if (payload.sessionId !== sessionId || streamFrameReceived) return;
+        if (legacyFallbackActive && termRef.current) {
+          termRef.current.write(payload.text);
+          termRef.current.scrollToBottom();
+          return;
+        }
+        legacyOutputBuffer.push(payload.text);
+      });
 
       // 2. Attach before spawning. The backend stream is session-scoped,
       // replays bounded raw PTY history, and then delivers live bytes through
@@ -177,6 +196,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       // agent-output events while leaving the PTY writer untouched.
       terminalTransport = new TerminalSessionTransport(sessionId, (frame) => {
         if (frame.kind === 'exit' || !termRef.current) return;
+        if (frame.bytes.length > 0) {
+          streamFrameReceived = true;
+          legacyOutputBuffer.length = 0;
+        }
         const bytes = frame.bytes instanceof Uint8Array
           ? frame.bytes
           : Uint8Array.from(frame.bytes);
@@ -192,6 +215,26 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       });
       await terminalTransport.attach(0);
       disposeCapabilities = installTerminalCapabilityBridge(term, agentRef.current.id, sessionId);
+
+      // If the new Channel has not delivered a byte shortly after the PTY
+      // starts, switch this view to the exact-session legacy event stream. It
+      // keeps affected packaged WebViews usable without changing PTY input,
+      // remote control, or the backend's authoritative raw transport.
+      const fallbackTimer = setTimeout(() => {
+        if (streamFrameReceived || !termRef.current) return;
+        legacyFallbackActive = true;
+        const buffered = legacyOutputBuffer.splice(0).join('');
+        if (buffered && termRef.current) {
+          termRef.current.write(buffered);
+          termRef.current.scrollToBottom();
+        }
+        if (terminalTransport) {
+          const transport = terminalTransport;
+          terminalTransport = null;
+          void transport.detach().catch(() => {});
+        }
+      }, 1500);
+      startupReplayTimersRef.current.push(fallbackTimer);
 
       // 3. Forward user input to PTY directly
       term.onData((data) => {
@@ -227,6 +270,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
 
       unlistenRef.current = () => {
         unlistenStatus();
+        if (unlistenLegacyOutput) {
+          unlistenLegacyOutput();
+          unlistenLegacyOutput = null;
+        }
         if (disposeCapabilities) {
           disposeCapabilities();
           disposeCapabilities = null;
@@ -268,6 +315,15 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       term.focus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (unlistenLegacyOutput) {
+        unlistenLegacyOutput();
+        unlistenLegacyOutput = null;
+      }
+      if (terminalTransport) {
+        const transport = terminalTransport;
+        terminalTransport = null;
+        void transport.detach().catch(() => {});
+      }
       setErrorMsg(msg);
       setPhase('error');
       if (termRef.current) {
