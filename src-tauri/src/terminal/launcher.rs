@@ -332,7 +332,15 @@ mod tests {
     fn built_in_terminal_provider_resolves_to_an_interactive_shell() {
         let spec = resolve("terminal", "/tmp", 24, 80, None, None, None).unwrap();
         assert_eq!(spec.args, vec!["-i"]);
-        assert!(spec.executable.ends_with("bash") || spec.executable.ends_with("sh"));
+        // Windows shell executables include the `.exe` suffix (for example
+        // `bash.exe`), while Unix paths do not. Compare the executable's
+        // stem so the invariant is platform-independent.
+        let executable_stem = spec
+            .executable
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default();
+        assert!(matches!(executable_stem, "bash" | "sh"));
     }
 
     #[test]
