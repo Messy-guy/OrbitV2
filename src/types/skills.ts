@@ -26,6 +26,24 @@ export interface SkillItem {
   isPopular?: boolean;
   installedPath?: string;
   icon?: string;
+  /** Complete files for multi-file skills imported from GitHub. */
+  files?: SkillBundleFile[];
+  sourceRef?: string;
+  commitSha?: string;
+  trust?: 'bundled' | 'verified' | 'community' | 'unreviewed';
+  dependencies?: SkillDependency[];
+}
+
+export interface SkillBundleFile {
+  relativePath: string;
+  content: string;
+  size: number;
+}
+
+export interface SkillDependency {
+  name: string;
+  kind: 'tool' | 'service' | 'runtime' | 'command';
+  required: boolean;
 }
 
 export interface DraggedSkillPayload {
@@ -36,6 +54,7 @@ export interface DraggedSkillPayload {
 }
 
 export interface AgentSkillAssignment {
+  workspaceId: string;
   agentId: string;
   skillId: string;
   skill: SkillItem;

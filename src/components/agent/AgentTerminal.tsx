@@ -3,6 +3,8 @@ import { Play, RotateCcw, Terminal as TerminalIcon } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
+import { useSkillStore } from '../../stores/skill.store';
+import { ProviderSkillAdapterService } from '../../services/providerSkillAdapter.service';
 import { isTauriAvailable, tauriService } from '../../services/tauri.service';
 import { TerminalGridView } from '../terminal/TerminalGridView';
 import { TerminalSessionStore, createBlankSnapshot, useTerminalSnapshot } from '../../services/terminal/terminalSessionStore';
@@ -20,6 +22,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const [errorMsg, setErrorMsg] = useState('');
   const [fallbackSnapshot, setFallbackSnapshot] = useState(() => createBlankSnapshot(sessionRef.current, 30, 100));
   const { resizeTerminal } = useAgentStore();
+  const setActiveSession = useAgentStore(s => s.setActiveSession);
   const activeWorkspace = useWorkspaceStore(s => s.getActiveWorkspace());
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
@@ -72,6 +75,14 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     const provider = agentProvider === 'custom' ? (agentCommand?.trim() || agentName?.trim() || 'terminal') : agentProvider;
     sessionRef.current = agentSessionId || `sess-${agentId}`;
     try {
+      // Reconcile assigned skills before the CLI starts so native providers
+      // discover the bundle on first boot and assisted providers receive a
+      // valid path in the same workspace.
+      const assignedSkills = useSkillStore.getState().getEquippedSkills(agentId);
+      if (workspace?.projectPath && assignedSkills.length > 0) {
+        await ProviderSkillAdapterService.mountSkillsForProvider(workspace.projectPath, agentProvider, assignedSkills);
+      }
+      setActiveSession(agentId, sessionRef.current);
       await tauriService.startNativeTerminal(sessionRef.current, agentId, provider, workspace?.projectPath || '', rows, columns, agentRole, agentDirective, agentProfileId);
       await reattach();
       if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);

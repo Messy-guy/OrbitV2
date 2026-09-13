@@ -24,6 +24,8 @@ export const SkillBrowserModal: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<SkillCategory>('all');
   const [githubUrl, setGithubUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<SkillItem | null>(null);
+  const [importError, setImportError] = useState('');
 
   const loadSkills = async (force: boolean = false) => {
     setIsLoading(true);
@@ -89,15 +91,24 @@ export const SkillBrowserModal: React.FC = () => {
   const handleImportGitHub = async () => {
     if (!githubUrl.trim()) return;
     setIsImporting(true);
+    setImportError('');
     try {
       const imported = await skillAggregatorService.importSkillFromGitHub(githubUrl);
-      await installSkill(imported);
-      setGithubUrl('');
+      setImportPreview(imported);
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
       console.warn('Import error:', err);
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview) return;
+    await installSkill(importPreview);
+    setImportPreview(null);
+    setGithubUrl('');
   };
 
   return (
@@ -159,6 +170,16 @@ export const SkillBrowserModal: React.FC = () => {
             <RefreshCw size={12} className={clsx(isLoading && "animate-spin")} />
           </button>
         </div>
+        {importError && <div className="text-[11px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded px-2 py-1">{importError}</div>}
+        {importPreview && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0"><div className="text-xs font-mono text-text-primary truncate">Review imported skill: {importPreview.name}</div><div className="text-[10px] text-text-muted">Commit {importPreview.commitSha?.slice(0, 12)} · {importPreview.files?.length || 0} files · {importPreview.trust}</div></div>
+              <div className="flex gap-1 shrink-0"><button onClick={() => setImportPreview(null)} className="px-2 py-1 text-[10px] font-mono text-text-muted border border-border rounded">Cancel</button><button onClick={confirmImport} className="px-2 py-1 text-[10px] font-mono bg-text-primary text-background rounded">Install</button></div>
+            </div>
+            {importPreview.dependencies?.length ? <div className="text-[10px] text-amber-300">External requirements: {importPreview.dependencies.map(d => d.name).join(', ')}. Review before running the skill.</div> : null}
+          </div>
+        )}
 
         {/* Minimal Category Tab Strip */}
         <div className="flex items-center gap-1 border-b border-border pb-2 overflow-x-auto custom-scroll">

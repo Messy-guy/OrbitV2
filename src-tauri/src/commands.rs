@@ -933,19 +933,42 @@ pub fn write_project_skill_file(
         return Err("Target project path is not a valid directory".to_string());
     }
 
-    // Security: normalize and verify that destination stays strictly inside project_path
-    let full_path = base.join(&relative_path);
-    let normalized = full_path.components().collect::<std::path::PathBuf>();
-    if !normalized.starts_with(base) {
+    // Security: skill projections are always relative to the workspace and
+    // may not escape through `..`, absolute paths, or symlinked parents.
+    let relative = std::path::Path::new(&relative_path);
+    if relative.is_absolute() || relative.components().any(|component| {
+        matches!(component, std::path::Component::ParentDir)
+    }) {
         return Err("Path traversal attempt detected: skill write blocked".to_string());
     }
-
-    if let Some(parent) = normalized.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+    let canonical_base = base
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+    let full_path = canonical_base.join(relative);
+    let parent = full_path
+        .parent()
+        .ok_or_else(|| "Invalid skill destination".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve skill directory: {}", e))?;
+    if !canonical_parent.starts_with(&canonical_base) {
+        return Err("Skill destination escaped project directory".to_string());
     }
-    std::fs::write(&normalized, content)
+    let normalized = canonical_parent.join(
+        full_path
+            .file_name()
+            .ok_or_else(|| "Invalid skill filename".to_string())?,
+    );
+
+    // Atomic replacement prevents partially written SKILL.md files if the
+    // process is interrupted while a bundle is being mounted.
+    let temp = normalized.with_extension("orbit.tmp");
+    std::fs::write(&temp, content)
         .map_err(|e| format!("Failed to write skill file: {}", e))?;
+    std::fs::rename(&temp, &normalized)
+        .map_err(|e| format!("Failed to commit skill file: {}", e))?;
     Ok(true)
 }
 
@@ -955,10 +978,25 @@ pub fn remove_project_skill_file(
     relative_path: String,
 ) -> Result<bool, String> {
     let base = std::path::Path::new(&project_path);
-    let full_path = base.join(&relative_path);
-    let normalized = full_path.components().collect::<std::path::PathBuf>();
-    if !normalized.starts_with(base) {
+    let relative = std::path::Path::new(&relative_path);
+    if relative.is_absolute() || relative.components().any(|component| {
+        matches!(component, std::path::Component::ParentDir)
+    }) {
         return Err("Path traversal attempt detected: skill removal blocked".to_string());
+    }
+    let canonical_base = base
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+    let normalized = canonical_base.join(relative);
+    if let Some(parent) = normalized.parent() {
+        if parent.exists() {
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| format!("Failed to resolve skill directory: {}", e))?;
+            if !canonical_parent.starts_with(&canonical_base) {
+                return Err("Skill removal escaped project directory".to_string());
+            }
+        }
     }
 
     if normalized.is_file() {

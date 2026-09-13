@@ -54,6 +54,10 @@ impl LaunchSpec {
         command.env("PATH", get_augmented_host_path());
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        // Tell TUIs that the host terminal uses a light foreground on a dark
+        // background. Without this hint, providers such as OpenCode can
+        // choose their light theme even though Orbit renders a dark canvas.
+        command.env("COLORFGBG", "15;0");
         command.env("LINES", self.rows.to_string());
         command.env("COLUMNS", self.columns.to_string());
         command.env(

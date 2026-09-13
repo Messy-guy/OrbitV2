@@ -1026,6 +1026,10 @@ impl PtyManager {
         cmd_builder.cwd(&cwd);
         cmd_builder.env("TERM", "xterm-256color");
         cmd_builder.env("COLORTERM", "truecolor");
+        // Keep provider TUIs aligned with Orbit's dark terminal canvas.
+        // COLORFGBG is the conventional terminal hint used by applications
+        // when selecting a default light/dark palette.
+        cmd_builder.env("COLORFGBG", "15;0");
         if let Some(term_program) = runtime_spec.term_program {
             cmd_builder.env("TERM_PROGRAM", term_program);
         }

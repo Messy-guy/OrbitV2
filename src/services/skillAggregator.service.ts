@@ -197,25 +197,67 @@ export const skillAggregatorService = {
   },
 
   async importSkillFromGitHub(repoUrl: string): Promise<SkillItem> {
-    const cleanUrl = repoUrl.trim();
-    const parts = cleanUrl.replace('https://github.com/', '').split('/');
-    const owner = parts[0] || 'community';
-    const repo = parts[1] || 'custom-skill';
-    const skillName = repo.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const cleanUrl = repoUrl.trim().replace(/\.git$/, '').replace(/\/$/, '');
+    const match = cleanUrl.match(/^(?:https?:\/\/github\.com\/)?([^/]+)\/([^/#]+)(?:\/tree\/([^/]+)(?:\/(.*))?)?$/i);
+    if (!match) throw new Error('Enter a GitHub repository URL such as github.com/owner/repository');
+    const [, owner, repo, requestedRef, requestedPath] = match;
+    const apiBase = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const headers = { Accept: 'application/vnd.github+json' };
+    const repoInfo = await fetch(apiBase, { headers });
+    if (!repoInfo.ok) throw new Error(`GitHub repository lookup failed (${repoInfo.status})`);
+    const metadata = await repoInfo.json() as { default_branch?: string; license?: { spdx_id?: string } };
+    const ref = requestedRef || metadata.default_branch || 'main';
+    const commitResponse = await fetch(`${apiBase}/commits/${encodeURIComponent(ref)}`, { headers });
+    if (!commitResponse.ok) throw new Error(`GitHub ref '${ref}' could not be resolved`);
+    const commit = await commitResponse.json() as { sha: string };
+    const treeResponse = await fetch(`${apiBase}/git/trees/${commit.sha}?recursive=1`, { headers });
+    if (!treeResponse.ok) throw new Error(`GitHub tree lookup failed (${treeResponse.status})`);
+    const tree = await treeResponse.json() as { tree?: Array<{ path: string; type: string; size?: number }> };
+    const files = (tree.tree || []).filter(item => item.type === 'blob');
+    const skillFile = files.find(item => {
+      if (!item.path.endsWith('SKILL.md')) return false;
+      return !requestedPath || item.path === `${requestedPath.replace(/\/$/, '')}/SKILL.md` || item.path.startsWith(`${requestedPath.replace(/\/$/, '')}/`);
+    });
+    if (!skillFile) throw new Error('No SKILL.md was found in this GitHub repository or selected skill directory');
+    const skillRoot = skillFile.path.slice(0, -'SKILL.md'.length).replace(/\/$/, '');
+    const bundleFiles = files.filter(item => item.path === skillFile.path || item.path.startsWith(`${skillRoot}/`));
+    const downloaded: Array<{ relativePath: string; content: string; size: number }> = [];
+    for (const file of bundleFiles) {
+      const response = await fetch(`${apiBase}/contents/${file.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(commit.sha)}`, { headers });
+      if (!response.ok) throw new Error(`Could not download ${file.path} (${response.status})`);
+      const payload = await response.json() as { content?: string; encoding?: string; size?: number };
+      if (payload.encoding !== 'base64' || !payload.content) throw new Error(`Unsupported GitHub content encoding for ${file.path}`);
+      const binary = atob(payload.content.replace(/\n/g, ''));
+      const content = new TextDecoder().decode(Uint8Array.from(binary, char => char.charCodeAt(0)));
+      downloaded.push({ relativePath: file.path.slice(skillRoot ? skillRoot.length + 1 : 0), content, size: payload.size ?? content.length });
+    }
+    const skillMarkdown = downloaded.find(file => file.relativePath === 'SKILL.md')?.content || '';
+    const description = skillMarkdown.match(/description:\s*[|>]?(?:\s*)([^\n]+)/i)?.[1]?.trim() || `Imported from ${owner}/${repo}`;
+    const skillName = skillRoot.split('/').pop() || repo.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const dependencyText = `${skillMarkdown}\n${downloaded.map(file => file.content).join('\n')}`;
+    const dependencies: import('../types/skills').SkillDependency[] = [];
+    for (const [name, kind] of [['ffmpeg', 'tool'], ['ffprobe', 'tool'], ['python', 'runtime'], ['higgsfield', 'service'], ['monid', 'service']] as const) {
+      if (new RegExp(`\\b${name}\\b`, 'i').test(dependencyText)) dependencies.push({ name, kind, required: true });
+    }
 
     return {
-      id: `gh-${skillName.toLowerCase()}`,
+      id: `github-${owner.toLowerCase()}-${repo.toLowerCase()}-${skillName.toLowerCase()}`,
       name: `${owner}/${repo}`,
       shortLabel: repo,
-      description: `Custom AI skill imported directly from GitHub repository (${cleanUrl}).`,
+      description,
       source: 'github',
       sourceLabel: 'GitHub Repo',
       category: 'workflow',
       author: owner,
       tags: ['github', 'custom', 'imported'],
       isPopular: false,
-      directive: `[ORBIT SKILL INVARIANT: ${repo.toUpperCase()}]: Follow all guidelines and architectural rules specified in ${cleanUrl}.`,
-      rawContent: `---\nname: ${skillName}\ndescription: Imported from ${cleanUrl}\n---\n# ${repo}\nImported skill guidelines from ${cleanUrl}.`,
+      directive: `Use the imported skill bundle at .orbit/skills/${skillName}/SKILL.md when relevant.`,
+      rawContent: skillMarkdown,
+      files: downloaded,
+      sourceRef: ref,
+      commitSha: commit.sha,
+      trust: 'unreviewed',
+      dependencies,
     };
   }
 };

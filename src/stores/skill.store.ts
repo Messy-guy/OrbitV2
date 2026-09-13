@@ -31,6 +31,19 @@ interface SkillState {
   isSkillInstalled: (skillId: string) => boolean;
 }
 
+const activeWorkspaceId = (): string => {
+  // Kept as a small resolver so assignments cannot silently apply to another
+  // project after the user switches workspaces.
+  try {
+    const workspace = useWorkspaceStore.getState().getActiveWorkspace();
+    return workspace?.id || 'unscoped';
+  } catch {
+    return 'unscoped';
+  }
+};
+
+import { useWorkspaceStore } from './workspace.store';
+
 // In-flight concurrency guards for (agentId:skillId)
 const inFlightEquips = new Set<string>();
 
@@ -111,7 +124,9 @@ export const useSkillStore = create<SkillState>()(
         inFlightEquips.add(lockKey);
 
         const now = Date.now();
+        const workspaceId = activeWorkspaceId();
         const initialAssignment: AgentSkillAssignment = {
+          workspaceId,
           agentId,
           skillId: skill.id,
           skill,
@@ -143,7 +158,7 @@ export const useSkillStore = create<SkillState>()(
 
           // Check if already equipped (idempotency guard)
           const existingAssignment = get().assignmentsByAgent[agentId]?.[skill.id];
-          if (existingAssignment?.status === 'equipped') {
+          if (existingAssignment?.status === 'equipped' && existingAssignment.workspaceId === workspaceId) {
             inFlightEquips.delete(lockKey);
             return existingAssignment;
           }
@@ -270,13 +285,13 @@ export const useSkillStore = create<SkillState>()(
       getEquippedSkills: (agentId: string) => {
         const map = get().assignmentsByAgent[agentId] || {};
         return Object.values(map)
-          .filter((a) => a.status === 'equipped' || a.status === 'mounting')
+          .filter((a) => a.workspaceId === activeWorkspaceId() && (a.status === 'equipped' || a.status === 'mounting'))
           .map((a) => a.skill);
       },
 
       getAgentSkillAssignments: (agentId: string) => {
         const map = get().assignmentsByAgent[agentId] || {};
-        return Object.values(map);
+        return Object.values(map).filter((a) => a.workspaceId === activeWorkspaceId());
       },
     }),
     {

@@ -281,9 +281,20 @@ ${skill.rawContent ? `\n## Extended Specification\n${skill.rawContent}` : ''}
     const fileContent = this.formatSkillMarkdown(skill);
 
     if (isTauriAvailable()) {
-      const written = await tauriService.writeProjectSkillFile(projectPath, relativePath, fileContent);
-      if (!written) {
-        throw new Error(`Failed to write skill file to ${relativePath}`);
+      if (skill.files?.length) {
+        // Preserve complete imported skill bundles (SKILL.md plus references
+        // and scripts) instead of collapsing them into a generated wrapper.
+        const skillDirectory = relativePath.slice(0, -'SKILL.md'.length);
+        for (const file of skill.files) {
+          const filePath = `${skillDirectory}${file.relativePath}`;
+          const written = await tauriService.writeProjectSkillFile(projectPath, filePath, file.content);
+          if (!written) throw new Error(`Failed to write skill file to ${filePath}`);
+        }
+      } else {
+        const written = await tauriService.writeProjectSkillFile(projectPath, relativePath, fileContent);
+        if (!written) {
+          throw new Error(`Failed to write skill file to ${relativePath}`);
+        }
       }
     }
 
