@@ -1,0 +1,21 @@
+{
+  "name": "orbit-cli",
+  "version": "0.1.0",
+  "description": "Orbit - The Central Brain and Control Layer around AI Coding CLIs",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "orbit": "./bin/orbit.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node bin/orbit.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

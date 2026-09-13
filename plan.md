@@ -1,488 +1,214 @@
-# Orbit Terminal Reconstruction Plan
+# Orbit: Unified Control Layer & Architecture Integration Plan
 
-Status: Source implementation complete; native release provider matrix passed on this host; CI now has a FUSE-independent AppImage fallback; packaged GUI matrix remains the final acceptance gate
+> **Core Philosophy**: Orbit is the **Central Brain and Operating/Control Layer around authentic AI CLIs** (Claude, Codex, OpenCode, Antigravity, Gemini, Aider, and custom CLIs). It manages the lifecycle, context, skills, multiplexing, cross-agent handoffs, and remote control.
+> 
+> **Architectural Invariant**: **Zero Breaking Changes to Existing Architecture**. All existing Rust backend subsystems (`TerminalService`, `alacritty_terminal`, `portable-pty`, `context.rs`, `git.rs`, `storage.rs`), Desktop GUI (`AgentTerminal`, Canvas grid renderer, Zustand stores), and Remote Control protocol remain 100% intact and serve as the foundational engine. The Orbit CLI is an additive interface surface over this exact architecture.
 
-Release acceptance procedure: `TERMINAL_RELEASE_VALIDATION.md`.
-
-## Objective
-
-Reconstruct Orbit's terminal subsystem with a native terminal architecture instead of continuing to patch the current PTY/event/xterm path. The new system must reliably render Antigravity, Codex, OpenCode, KiloCode, Freebuff, Cline, GitHub Copilot, Kiro CLI, Claude, and shell terminals in development and packaged Linux builds.
-
-Remote control must remain functional throughout the reconstruction.
-
-## Why the current architecture is being replaced
-
-The current implementation combines PTY allocation, provider discovery, process lifecycle, startup delays, role prompt injection, terminal capability replies, output history, Tauri event broadcasting, frontend output matching, xterm.js parsing/rendering, and remote-control compatibility.
-
-Production logs prove that affected CLIs can spawn and emit PTY output while the packaged terminal remains blank. The current system therefore lacks reliable ownership boundaries between process output, terminal state, IPC, and rendering.
-
-The replacement establishes this model:
+---
 
 ```text
-AI CLI process
-   │
-   ▼
-Native PTY session
-   │ raw bytes
-   ▼
-Rust TerminalSession
-   ├── terminal parser/state model
-   ├── cursor, modes, scrollback
-   ├── capability responses
-   ├── input arbiter
-   └── screen snapshots/patches
-          │
-          ▼
-Tauri control IPC
-          │
-          ▼
-Orbit Canvas/Grid Renderer
+                                 ┌─────────────────────────────────────────┐
+                                 │            ORBIT FOUNDATION             │
+                                 │     Shared Core State & Rust Engine     │
+                                 │  (Storage, Git, Context Engine, PTYs)   │
+                                 └────────────────────┬────────────────────┘
+                                                      │
+         ┌────────────────────────────────────────────┼────────────────────────────────────────────┐
+         │                                            │                                            │
+         ▼                                            ▼                                            ▼
+┌─────────────────────────┐              ┌─────────────────────────┐              ┌─────────────────────────┐
+│     ORBIT CLI (`orbit`) │              │   ORBIT DESKTOP (GUI)   │              │   ORBIT MOBILE / RELAY  │
+│                         │              │                         │              │                         │
+│ • Terminal Multiplexer  │              │ • Spatial Agent Canvas  │              │ • Project Status Hub    │
+│ • Orbit Command Layer   │              │ • Canvas Grid Renderer  │              │ • Remote Input / PTY    │
+│ • Skill Projection      │              │ • Multi-Agent Visualizer│              │ • Handshake & Alerts    │
+│ • CLI /handoff & switch │              │ • Context & Handoff UI  │              │ • On-Demand Terminal    │
+└────────────┬────────────┘              └────────────┬────────────┘              └────────────┬────────────┘
+             │                                        │                                        │
+             └────────────────────────────────────────┼────────────────────────────────────────┘
+                                                      │
+                                                      ▼
+                                       ┌─────────────────────────────┐
+                                       │   RUST NATIVE TERMINAL      │
+                                       │   `src-tauri/src/terminal/` │
+                                       │  • `portable-pty` worker    │
+                                       │  • `alacritty_terminal`     │
+                                       │  • Input arbiter & router   │
+                                       │  • Screen snapshots/patches │
+                                       └──────────────┬──────────────┘
+                                                      │
+                       ┌──────────────────────────────┼──────────────────────────────┐
+                       │                              │                              │
+                       ▼                              ▼                              ▼
+                ┌──────────────┐               ┌──────────────┐               ┌──────────────┐
+                │ Claude Code  │               │  Codex CLI   │               │   OpenCode   │
+                │   REAL PTY   │               │   REAL PTY   │               │   REAL PTY   │
+                │ (CLAUDE.md)  │               │ (AGENTS.md)  │               │(skills/rules)│
+                └──────────────┘               └──────────────┘               └──────────────┘
 ```
 
-The frontend receives terminal state, not raw ANSI and not arbitrary global output events.
+---
 
-## Library decisions
+## 1. Preserving Current Architecture: Foundation & Invariants
 
-### Rust
+The existing codebase already contains mature, production-grade subsystems that are preserved without regression:
 
-- `portable-pty` for native PTY allocation, resize, reader, writer, process groups, and child lifecycle. It is already a sound primitive and should not be replaced merely because the surrounding architecture is weak.
-- `alacritty_terminal` as the canonical terminal emulator and VT parser. It provides terminal grid state, cursor state, modes, selection, scrollback, and parser integration in Rust.
-- Dedicated Rust worker threads and `std::sync` channels for session scheduling
-  and serialized input handling. Tauri's async runtime is used only to keep
-  blocking command calls off the UI thread; a second async runtime is not
-  needed inside the terminal subsystem.
-- `parking_lot` for high-frequency terminal state synchronization.
-- `tracing` and `thiserror` for structured lifecycle diagnostics.
-- `serde` with a compact snapshot/patch representation for IPC.
+| Existing Subsystem | Location | Role in Unified Orbit Architecture | Invariant / Preservation Contract |
+| :--- | :--- | :--- | :--- |
+| **Native Terminal Service** | `src-tauri/src/terminal/` | Allocates PTYs, manages child processes, runs `alacritty_terminal` VT parsing, serializes input, emits screen snapshots. | **UNTOUCHED & REUSED**: The CLI multiplexer and Desktop GUI both attach to the exact same Rust `TerminalSession` instances. |
+| **Context & Handoff Engine** | `src-tauri/src/context.rs` | Builds deterministic `ContextPackage` (Git state, diffs, decisions, token estimation, secret redaction). | **UNTOUCHED & REUSED**: Powers both the GUI handoff modal and the CLI `orbit> /handoff` command. |
+| **Storage & Workspace State** | `src-tauri/src/storage.rs` | Local JSON persistence at `~/.config/orbit/orbit_state.json`. | **UNTOUCHED & REUSED**: Single source of truth for workspaces, agents, sessions, and handoff history. |
+| **Desktop Canvas Renderer** | `src/components/terminal/` | Canvas grid renderer (`TerminalCanvasRenderer.ts`) consuming dirty-row patches & full snapshots. | **PRESERVED**: Desktop spatial canvas continues rendering unmodified. |
+| **Universal Remote Controller** | `src/services/remoteControl/` | Headless PTY delivery and remote input bridging for mobile/relay. | **PRESERVED**: InputArbiter and remote boundaries remain 100% stable. |
+| **Provider Discovery** | `src-tauri/src/discovery.rs` | Strictly discovers installed CLIs (Claude, Codex, OpenCode, Agy, Kilo, Copilot, etc.). | **PRESERVED**: Used by CLI launcher to list and validate available agents. |
 
-`libghostty-vt` should be evaluated later for maximum terminal fidelity, but not made the first production dependency because its public API is still evolving.
+---
 
-### Frontend
+## 2. Orbit CLI User Experience (`orbit`)
 
-Remove terminal-emulation responsibility from:
+### 2.1 The Terminal Experience
 
-- `@xterm/xterm`
-- `@xterm/addon-fit`
-- frontend ANSI parsing
-- frontend terminal capability responses
-- React components that directly consume raw PTY output
+When launched from any project directory:
+```bash
+orbit
+```
 
-Add:
-
-- `TerminalGridView`
-- Canvas or WebGL cell rendering
-- `TerminalSessionStore`
-- `useSyncExternalStore` for screen updates
-- `ResizeObserver` for geometry only
-
-The renderer paints glyphs, colors, attributes, wide characters, cursor, and selection. The browser must not parse ANSI escape sequences.
-
-## Backend modules
-
-Create an isolated subsystem:
+Orbit identifies the project workspace from `orbit_state.json` / current git root and presents the active sessions:
 
 ```text
-src-tauri/src/terminal/
-  mod.rs
-  service.rs          // global TerminalService
-  session.rs          // one TerminalSession
-  registry.rs         // session_id -> session
-  pty.rs              // PTY allocation and process lifecycle
-  launcher.rs         // typed provider launch specifications
-  emulator.rs         // alacritty_terminal integration
-  input.rs            // serialized local/remote input
-  snapshots.rs        // screen snapshots and dirty patches
-  protocol.rs         // attach, patch, exit, resync messages
-  diagnostics.rs      // structured lifecycle metrics
+  ORBIT
+
+  Project: OrbitV2
+
+  ┌─────────────────────────────────────────┐
+  │  Active Sessions                        │
+  │                                         │
+  │  1  Claude       frontend-auth ● working│
+  │  2  Codex        backend       ● idle   │
+  │  3  OpenCode     testing       ● working│
+  │                                         │
+  │  + Launch new session                   │
+  └─────────────────────────────────────────┘
+
+  Select session:
+  ❯ Claude — frontend-auth
+    Codex — backend
+    OpenCode — testing
+    Launch new session
 ```
 
-The existing `PtyManager` should be retired after migration. It currently owns too many unrelated responsibilities.
+Selecting an agent attaches directly to the **real running PTY**.
 
-Each `TerminalSession` owns:
+### 2.2 Orbit Command Interceptor vs. Agent Passthrough
 
-- `session_id`, `agent_id`, provider, and workspace;
-- child process and PTY master;
-- one serialized input writer;
-- canonical terminal emulator state;
-- scrollback, cursor, modes, and exit metadata;
-- monotonically increasing screen sequence;
-- lifecycle state and renderer subscribers.
-
-No component outside `TerminalSession` may write directly to the PTY.
-
-## Session lifecycle protocol
+Inside an active Orbit session:
 
 ```text
-create_session(session_id)
-  → create PTY
-  → launch exact executable
-  → start reader
-  → start emulator
-  → publish initial screen state
-
-attach(session_id)
-  → register subscriber
-  → send complete screen snapshot
-  → send future screen patches
-
-input(session_id, bytes)
-  → serialized input arbiter
-  → PTY writer
-
-resize(session_id, rows, cols)
-  → resize PTY
-  → resize emulator
-  → publish screen snapshot
-
-detach(session_id)
-  → remove renderer subscriber
-  → keep process alive
-
-exit(session_id)
-  → publish final state
-  → retain scrollback and exit metadata
+orbit> 
 ```
 
-Attach must register the subscriber before returning the initial snapshot. This removes the startup race.
+Orbit's command arbiter splits input deterministically:
 
-## Screen protocol
+1. **Orbit Commands (Intercepted by Orbit)**:
+   * `/sessions` $\rightarrow$ List all active sessions and lifecycle statuses.
+   * `/new [agent] [name]` $\rightarrow$ Launch a new real CLI in a persistent background PTY.
+   * `/switch [name]` $\rightarrow$ Seamlessly detach current view and attach to target PTY.
+   * `/skills` / `/skills enable [name]` $\rightarrow$ Manage and project skills into agent-native files.
+   * `/context` $\rightarrow$ Display current workspace context, active tasks, and git state.
+   * `/handoff [from] [to]` $\rightarrow$ Extract context package and inject into target CLI.
+   * `/detach` $\rightarrow$ Detach back to Orbit session picker (agent continues running in background).
+   * `/status` $\rightarrow$ Show memory, token estimates, and runtime diagnostics.
 
-The frontend receives complete snapshots and dirty-row patches:
+2. **Agent Prompts & Native Commands (Direct Passthrough)**:
+   * Regular prompts (e.g. `fix the type error in session.rs`) $\rightarrow$ Sent directly to the active CLI's stdin.
+   * CLI-native commands (e.g. `/compact`, `/help`, `/review`) $\rightarrow$ Passed through to the underlying CLI untouched.
 
-```ts
-type ScreenPatch = {
-  sessionId: string;
-  sequence: number;
-  rows: number;
-  cols: number;
-  dirtyRows: Array<{
-    row: number;
-    cells: TerminalCell[];
-  }>;
-  cursor: CursorState;
-};
-```
+---
 
-The protocol must support initial snapshots, ordered patches, duplicate suppression, sequence-gap resync, full snapshot recovery, exit/failure, resize, detach without termination, and reattach after frontend recreation.
+## 3. Universal Skills: Native Projection Engine
 
-PTY reads may be frequent, but screen updates should be batched at approximately 30–60 FPS. React must not repaint for every PTY read.
-
-## Terminal emulator responsibilities
-
-`alacritty_terminal` becomes the canonical terminal state owner for:
-
-- ANSI/VT parsing;
-- cursor movement;
-- alternate screen;
-- scroll regions;
-- colors and attributes;
-- Unicode and wide characters;
-- bracketed paste;
-- mouse reporting;
-- keyboard modes;
-- terminal title changes;
-- device and mode queries;
-- scrollback.
-
-Terminal capability responses must be generated from emulator state and written through the session input arbiter. There must be no regex-based terminal query responder in `pty_manager.rs`.
-
-## Provider launcher
-
-Create a typed launcher:
-
-```rust
-struct LaunchSpec {
-    executable: PathBuf,
-    args: Vec<OsString>,
-    cwd: PathBuf,
-    env: Vec<(OsString, OsString)>,
-    rows: u16,
-    cols: u16,
-}
-```
-
-Rules:
-
-- never silently fall back to Bash;
-- never infer a provider from a display name;
-- log the resolved executable path;
-- show searched PATH directories on failure;
-- validate executable existence before opening the PTY;
-- keep aliases in one registry;
-- remove generic startup sleeps;
-- allow only explicit, tested provider startup policies;
-- keep terminal environment setup provider-neutral.
-
-## Input architecture
-
-All input passes through one serialized arbiter:
+Orbit does not force all CLIs to consume skills through a synthetic chat preamble. Instead, Orbit maintains a **Single Source of Truth** for skills and projects them into each tool's native configuration format:
 
 ```text
-local keyboard input ─┐
-capability responses ──┼──> InputArbiter ──> PTY writer
-remote control input ─┘
+                        ORBIT SKILL REGISTRY
+                (~/.config/orbit/skills/ or .orbit/skills/)
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         ▼                        ▼                        ▼
+    Claude Code                 Codex                 OpenCode / Agy
+         │                        │                        │
+   `CLAUDE.md` /             `AGENTS.md` /            `skills/rules/` /
+   `.claude/rules`        `AGENTS-INDEX.md`          `.gemini/rules/`
 ```
 
-This preserves plain text, multiline input, control characters, Ctrl-C, paste data, remote input during startup, and simultaneous local/remote input.
+* **Projection Engine**:
+  * **Claude Code**: Generates/updates `CLAUDE.md` and `.claude/rules/`.
+  * **Codex CLI**: Generates/updates `AGENTS.md` and agent index files.
+  * **OpenCode / Antigravity**: Populates native skill rules directories.
+  * **Generic CLI Fallback**: Injects initialization preamble on session spawn if no native config file is supported.
 
-## Remote-control protection
+---
 
-These boundaries must remain stable:
+## 4. Cross-Agent Handoff Engine (`/handoff`)
 
-- `src/services/remoteControl/UniversalRemoteController.ts`
-- `src/services/remoteControl/ptyDelivery.ts`
-- `src/services/remoteControl/ptySpawnTracker.ts`
-- `tauriService.sendAgentInput`
-- existing remote session IDs
-- existing remote message formats
-
-Remote control must never depend on xterm DOM, React terminal state, canvas internals, renderer subscriptions, or screen-patch timing.
-
-The eventual adapter should expose:
-
-```ts
-sessionHandle.write(bytes)
-sessionHandle.resize(rows, cols)
-sessionHandle.interrupt()
-```
-
-Remote-control migration happens only after parity tests pass.
-
-## Frontend modules
-
-Create:
+Leveraging the existing `src-tauri/src/context.rs` engine:
 
 ```text
-src/services/terminal/
-  terminalTypes.ts
-  terminalSessionStore.ts
-  terminalProtocol.ts
-  terminalInput.ts
-
-src/components/terminal/
-  TerminalGridView.tsx
-  TerminalCanvasRenderer.ts
-  TerminalSelection.ts
-  TerminalCursor.ts
+  orbit> /handoff Claude Codex
 ```
 
-`AgentTerminal` becomes a small session host that creates/attaches a session, passes screen patches to the store, renders `TerminalGridView`, forwards input, sends resize events, and detaches without killing the process. It must not own PTY lifecycle, ANSI parsing, replay logic, capability responses, or provider logic.
+```text
+┌─────────────────────────────────────────────────────────┐
+│ Handoff: Claude (frontend-auth) ──> Codex (backend)     │
+│                                                         │
+│ Context Package:                                        │
+│   ☑ Active Task & Architecture Decisions                │
+│   ☑ Uncommitted Git Diffs (src/auth/, src-tauri/)       │
+│   ☑ Modified Files List                                 │
+│   ☑ Known Issues & Blocker Summary                      │
+│   Token Estimate: ~1,420 tokens                         │
+│                                                         │
+│ [Enter to Execute Handoff]                              │
+└─────────────────────────────────────────────────────────┘
+```
 
-## Migration phases
+1. **Deterministic Extraction**: Generates `ContextPackage` via Rust `context.rs`.
+2. **Injection**: Injects the formatted brief directly into Codex's PTY input buffer via `InputArbiter`.
+3. **Audit**: Records the transition in `HandoffRecord` within `orbit_state.json`.
 
-### Phase 0 — Freeze and measure
+---
 
-- Do not add more patches to the current renderer.
-- Keep the current release as baseline.
-- Capture normal-terminal output for every affected CLI.
-- Create a deterministic fake TUI/echo process.
-- Record PTY launch, read, parse, screen-update, attach, and render timings.
+## 5. Non-Destructive Implementation Roadmap
 
-### Phase 1 — Native emulator prototype
+```mermaid
+flowchart TD
+    E["Existing Rust Core & Desktop GUI (Untouched)"] --> P1["Phase 1: Standalone Orbit CLI Entrypoint"]
+    P1 --> P2["Phase 2: Universal Skill Projection Engine"]
+    P2 --> P3["Phase 3: CLI /handoff & Context Command Binding"]
+    P3 --> P4["Phase 4: Unified Mobile Companion Stream & Status View"]
+    P4 --> P5["Phase 5: Release Matrix & End-to-End Validation"]
+```
 
-Implement one isolated Rust session using `portable-pty`, `alacritty_terminal`, a fake TUI process, screen snapshots, resize, and an input arbiter. Do not route production UI yet.
+### Phase 1: Standalone Orbit CLI Entrypoint & Multiplexer
+- [ ] Connect CLI entrypoint (`packages/orbit` / `src-tauri/src/bin/orbit.rs` or Bun CLI) directly to Rust `TerminalService`.
+- [ ] Implement interactive session picker (`/sessions`, `/switch`, `/new`, `/detach`).
+- [ ] Implement raw PTY passthrough with ANSI-clean escape sequence handling.
 
-### Phase 2 — Grid renderer
+### Phase 2: Universal Skill Projection Engine
+- [ ] Implement skill registry reader (`~/.config/orbit/skills/` and `.orbit/skills/`).
+- [ ] Build native file projection modules for `CLAUDE.md`, `AGENTS.md`, and `.gemini/rules/`.
+- [ ] Wire `/skills` and `/skills enable <name>` CLI commands.
 
-Build `TerminalGridView` for the fake TUI. Prove colors, cursor movement, alternate screen, Unicode, wide characters, resize, scrolling, hidden cursor, selection, and mouse reporting.
+### Phase 3: CLI /handoff & Context Command Binding
+- [ ] Bind `orbit> /handoff` and `orbit> /context` directly to existing Rust `src-tauri/src/context.rs` methods.
+- [ ] Implement serialized PTY injection into target agent without restarting the process.
+- [ ] Ensure `HandoffRecord` is persisted to `orbit_state.json`.
 
-### Phase 3 — One real provider
+### Phase 4: Unified Mobile & Relay Integration
+- [ ] Expose real-time session status and lightweight event streams to mobile client via existing `UniversalRemoteController`.
+- [ ] Keep full terminal rendering local on desktop / CLI; provide on-demand live stream for mobile.
 
-Route only Antigravity through the new runtime and compare it with a normal terminal for banner, prompt, input, terminal queries, resize, Ctrl-C, exit, and reattach.
-
-### Phase 4 — Provider matrix
-
-Add Codex, OpenCode, KiloCode, Freebuff, Cline, GitHub Copilot, Kiro, Claude, and shell one at a time. All providers use the same PTY, emulator, input, snapshot, and renderer architecture.
-
-### Phase 5 — Remote-control parity
-
-Test plain text, multiline input, Ctrl-C, startup input, detach/reattach, concurrent local/remote writes, stale-process replacement, exit, and restart before changing remote-control internals.
-
-### Phase 6 — Default and removal
-
-Make the native runtime the default, remove the V1 renderer/stream and
-frontend ANSI responsibilities, and retain only the legacy `PtyManager` as an
-explicitly non-rendering PTY fallback for remote-control compatibility until a
-real desktop parity run authorizes its removal. The native path no longer
-depends on `agent-output`, the raw stream broker, xterm.js, or the legacy
-renderer query bridge.
-
-## Required tests
-
-### Rust
-
-- exact byte preservation, including invalid UTF-8;
-- monotonic screen sequences;
-- snapshot/patch ordering;
-- duplicate suppression;
-- sequence-gap resync;
-- scrollback limits;
-- attach before and after process output;
-- detach without process termination;
-- reattach without duplicate state;
-- PTY resize;
-- normal Linux PTY `EIO` exit;
-- real reader failure;
-- serialized concurrent writes;
-- terminal capability responses;
-- process-group interrupt and termination.
-
-### Frontend
-
-- full snapshot rendering;
-- dirty-row patch rendering;
-- duplicate patch suppression;
-- gap detection/resync;
-- cursor position;
-- alternate screen;
-- Unicode/wide characters;
-- selection;
-- resize;
-- detach without killing the process;
-- input delivered exactly once.
-
-### Packaged Linux smoke matrix
-
-For every provider:
-
-1. Fresh desktop-menu launch.
-2. Launch from a project workspace.
-3. First visible banner/prompt.
-4. Keyboard input.
-5. Resize.
-6. Ctrl-C and exit.
-7. Close/reopen and reattach.
-8. Remote-control input.
-9. Missing executable diagnostics.
-10. Release-build behavior compared with a normal terminal.
-
-## Acceptance criteria
-
-The rewrite is complete only when every supported CLI launches in the packaged desktop app, displays its prompt/banner, accepts input, renders full-screen TUI updates, survives resize, supports Ctrl-C, reattaches without losing state, works through remote control, reports launch failures visibly, and behaves the same in development and packaged Linux builds.
-
-## Explicit non-goals
-
-- Do not wrap every CLI in `script` permanently.
-- Do not parse or strip ANSI in the transport layer.
-- Do not silently fall back to a shell for a configured provider.
-- Do not make remote control depend on the renderer or browser DOM.
-- Do not maintain two independent terminal emulators without a synchronization contract.
-- Do not claim success from Rust unit tests alone.
-- Do not release until the packaged Linux matrix passes.
-
-## Implementation record (2026-09-12)
-
-Implemented in the repository:
-
-- `src-tauri/src/terminal/` contains a native `TerminalService`, session
-  registry, per-session PTY worker, strict provider launcher, serialized input
-  arbiter, `alacritty_terminal` emulator, screen snapshot/dirty-row patch
-  protocol, diagnostics counters, resize/interrupt/stop, and attach/detach.
-- The Rust emulator parses ANSI/VT bytes, owns cursor/mode/color state, emits
-  capability replies through the same session writer, and never requires the
-  frontend to parse ANSI.
-- `terminal_v2_*` Tauri commands provide start, attach, snapshot, input, resize,
-  interrupt, stop, and detach. A synchronous snapshot command is included as a
-  packaged-WebView recovery path in addition to the live Channel.
-- `AgentTerminal` now uses the native screen protocol and Canvas grid renderer;
-  xterm.js and its frontend capability bridge are no longer dependencies.
-  It performs full-snapshot polling as a transport recovery path and resyncs on
-  patch sequence gaps.
-- Existing remote-control files were not edited. Existing Tauri input, resize,
-  interrupt, process, and stop commands route to the native session when that
-  session owns the agent and otherwise preserve the V1 behavior.
-- Strict launch resolution produces an actionable missing-provider error with
-  the augmented PATH and never silently becomes Bash.
-- 26 Rust unit tests, including native remote-input-to-screen parity, the optimized Rust release binary, Debian/RPM bundle stages,
-  TypeScript, Vite production build, and `git diff --check` pass.
-- `npm run test:terminal-frontend` validates full snapshot/dirty-row patching,
-  duplicate suppression, sequence-gap resync, input encoding, and scrollback
-  selection behavior without requiring a browser or display server.
-
-Remaining acceptance work:
-
-- The current AppImage was packaged with the repository fallback using the
-  extracted linuxdeploy/appimagetool runtime and passed the packaged native
-  smoke/provider matrix through `--appimage-extract-and-run`. The full
-  interactive provider/remote-control matrix still belongs on the real Linux
-  desktop or CI runner.
-- The V1 raw renderer/stream compatibility layer has now been removed. The
-  legacy PTY manager remains only for non-rendering command fallback and is not
-  used by `AgentTerminal`; removing that final fallback requires interactive
-  remote-control parity on a real desktop.
-
-## Implementation record (2026-09-13)
-
-- Added bounded scrollback rows to full snapshots so a renderer reattach can
-  recover terminal state without replaying raw PTY bytes.
-- Classified PTY reader termination: Linux `EIO`/Windows broken-pipe is normal
-  PTY EOF; all other reader errors terminate the session as `failed` and are
-  counted separately.
-- Added `terminal_v2_diagnostics` for packaged troubleshooting of launches,
-  output bytes, screen updates, attaches, launch failures, and reader failures.
-- Migrated the normal `start_agent_session` path and fresh handoff launches to
-  `TerminalService`, so the UI and compatibility input/status paths share one
-  native PTY session instead of spawning competing V1/native children.
-- Preserved compatibility `agent-output`/`agent-status` emissions from the
-  native session for existing conversation and relay consumers, while keeping
-  the terminal renderer snapshot-driven and independent of raw output events.
-- Restored per-profile `HOME`, XDG, Antigravity/Jetski, keyring, and
-  `ORBIT_PROFILE_ID` isolation in the native launcher.
-- Added a display-independent release smoke mode that starts a real native PTY,
-  types into it, verifies rendered screen state, and verifies strict missing
-  provider failure before GTK initialization.
-- Added retained final snapshots/history so an exited session can still be
-  reattached and inspected without depending on a live reader.
-- Added an opt-in release provider matrix (`ORBIT_TERMINAL_PROVIDER_MATRIX=1`)
-  that launches each configured provider through the real release binary,
-  verifies rendered screen output, and stops the PTY cleanly. On this Linux
-  host it passed Antigravity, OpenCode, Kilo, Freebuff, Cline, Copilot, Kiro,
-  Claude, Codex, and shell.
-- Removed the unused xterm.js packages and frontend capability bridge; the
-  native Rust emulator is now the only terminal parser used by the renderer.
-- Removed the unused raw-byte `terminal_stream` broker, attach/detach commands,
-  and old frontend `TerminalSessionTransport`; the legacy PTY manager remains
-  only as a remote/command fallback and no longer feeds a local renderer.
-- The Canvas grid now paints retained scrollback above the live grid, keeps the
-  viewport pinned to the newest output unless the user scrolls away, and maps
-  selection/cursor coordinates across the combined display.
-- Rebuilt the production target from the current tree. The optimized binary,
-  Debian, RPM, and AppImage artifacts were produced/tested through the
-  FUSE-independent packaging path.
-- Stabilized `AgentTerminal` lifecycle dependencies so ordinary agent
-  status/output refreshes cannot tear down and respawn a live native PTY.
-- Rebuilt and revalidated the final release binary after that fix: the native
-  provider matrix passed Antigravity, OpenCode, Kilo, Freebuff, Cline, Copilot,
-  Kiro, Claude, Codex, and shell, and the release validator passed.
-- The broader default provider matrix then exercised 15 installed providers,
-  including Qwen, Mimo, Continue, Vibe, and Qoder; only uninstalled Goose,
-  Muse, and Aider were reported as explicit skips.
-- Added a CI-only packaged GUI smoke gate using `xvfb-run`; it checks that the
-  release desktop binary initializes without GTK/WebView startup panic before
-  the bounded probe exits. The full interactive installed-desktop matrix still
-  belongs on a real Linux desktop.
-- Added AppImage-native smoke validation using
-  `--appimage-extract-and-run`; an earlier locally generated
-  `Orbit_0.1.41_amd64.AppImage` passed the affected-provider matrix as its own
-  packaged runtime and rendered its launcher surface on the real X11 session.
-- The release workflow sets
-  `APPIMAGE_EXTRACT_AND_RUN=1` and, if Tauri's AppImage bundle step still
-  fails, runs `scripts/package-appimage.mjs`. That repository-owned fallback
-  extracts the cached linuxdeploy AppImage and invokes the extracted binary,
-  with an explicit AppImage runtime, so AppImage creation does not depend on
-  FUSE on the runner.
-- Added a native remote-control parity test that resolves a remote request by
-  agent identity, writes through the same serialized PTY arbiter used by local
-  input, and verifies the resulting text in the canonical rendered snapshot.
-
-## Industry references
-
-- [portable-pty](https://docs.rs/portable-pty/latest/portable_pty/)
-- [portable-pty MasterPty API](https://docs.rs/portable-pty/latest/portable_pty/trait.MasterPty.html)
-- [alacritty_terminal](https://docs.rs/alacritty_terminal/latest/alacritty_terminal/)
-- [xterm.js parser hooks](https://xtermjs.org/docs/guides/hooks/)
-- [xterm.js supported sequences](https://xtermjs.org/docs/api/vtfeatures/)
-- [Tauri frontend communication](https://v2.tauri.app/develop/calling-frontend/)
-- [Tauri Channel API](https://docs.rs/tauri/latest/tauri/ipc/struct.Channel.html)
-- [Ghostty and libghostty-vt](https://github.com/ghostty-org/ghostty)
-- [WezTerm PTY/multiplexer flow](https://github.com/wezterm/wezterm/blob/main/mux/src/lib.rs)
+### Phase 5: Verification & Matrix Testing
+- [ ] Verify concurrent sessions for Claude, Codex, OpenCode, and Agy with zero PTY interference.
+- [ ] Verify zero regressions across the existing Desktop GUI, Canvas grid renderer, and remote control tests.
+- [ ] Run full release provider matrix validation (`TERMINAL_RELEASE_VALIDATION.md`).

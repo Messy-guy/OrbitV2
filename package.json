@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:desktop": "flatpak-spawn --host bash -l -c 'source ~/.nvm/nvm.sh 2>/dev/null || true; cd \"'$PWD'\" && npx tauri dev'",
     "dev:mobile": "cd apps/mobile && npm start",
+    "cli": "node apps/cli/bin/orbit.js",
+    "build:cli": "tsc -p apps/cli/tsconfig.json",
     "build": "tsc && vite build",
     "test:terminal-frontend": "node scripts/test-terminal-frontend.mjs",
     "package:appimage": "node scripts/package-appimage.mjs",
