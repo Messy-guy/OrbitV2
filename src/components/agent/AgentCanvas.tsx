@@ -269,7 +269,7 @@ export const AgentCanvas: React.FC = () => {
 
   // Smooth Zoom with Mouse Wheel
   const handleCanvasWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.xterm, .xterm-screen, textarea, select')) {
+    if ((e.target as HTMLElement).closest('[role="textbox"], textarea, select')) {
       return; // allow normal terminal scroll
     }
 

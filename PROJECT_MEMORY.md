@@ -1,6 +1,6 @@
 # OrbitV2 Project Memory
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-13
 
 ## What this project is
 
@@ -14,7 +14,10 @@ The product is designed to remove repeated re-explanation when switching between
 - State: Zustand stores under `src/stores/`.
 - Desktop shell/backend: Tauri 2.
 - Native runtime: Rust under `src-tauri/src/`.
-- Terminal UI: `@xterm/xterm` with `@xterm/addon-fit`.
+- Terminal UI: the native terminal path uses Rust `alacritty_terminal`, bounded
+  scrollback/screen snapshots, and a frontend Canvas grid renderer. The old raw
+  stream and xterm renderer are removed; the legacy PTY manager remains only as
+  a non-rendering remote/command fallback.
 - Spatial agent layout: `react-grid-layout`; resizable windows also use `react-rnd`.
 - Persistence: local JSON at `~/.config/orbit/orbit_state.json` (with a local fallback if `HOME` is unavailable).
 - Mobile companion: Expo/React Native app under `apps/mobile/`; it is a separate client surface, not the desktop runtime.
@@ -26,21 +29,28 @@ The product is designed to remove repeated re-explanation when switching between
 2. `Home` selects or creates a workspace; `WorkspaceView` hosts the project workspace and agent canvas.
 3. `useWorkspaceStore` manages workspaces, spaces, active selection, launcher view mode, and pinned projects.
 4. `useAgentStore` loads agents/sessions, initializes Tauri event listeners, batches PTY output into terminal logs, and coordinates agent actions.
-5. `AgentTerminal.tsx` renders the live xterm canvas through the session-scoped V2 raw-byte transport, forwards keystrokes to the backend, reattaches with sequence replay, and resizes the PTY when its container changes. It also treats backend PTY failure phases as terminal errors.
+5. `AgentTerminal.tsx` starts/attaches the native terminal session, consumes
+   Rust screen snapshots/dirty-row patches, polls full snapshots as a packaged
+   WebView recovery path, forwards keyboard/paste bytes through the native
+   input arbiter, and resizes the PTY when its container changes.
 6. `src/services/tauri.service.ts` is the frontend IPC boundary. It safely falls back for browser preview paths when Tauri is unavailable.
-7. Rust `PtyManager` allocates a native PTY, resolves the provider executable, starts the child process in the workspace directory, publishes raw PTY bytes into the session-scoped V2 stream, continues the legacy `agent-output` stream for stores/remote consumers, tracks scrollback, and handles input, resize, interrupt, stop, and reattach.
+7. Rust `PtyManager` remains the V1/remote-compatible PTY runtime. The new
+   `src-tauri/src/terminal/` subsystem owns migrated AgentTerminal sessions:
+   one worker owns PTY reads, the child, the emulator, serialized writes, and
+   screen-state publication.
 8. `runtime/provider_specs.rs` owns provider-neutral terminal behavior (direct TUI mode and startup delay); executable resolution remains in `PtyManager`.
 9. `runtime/session_supervisor.rs` records lifecycle phase, first/last output, byte counts, terminal-query responses, and reader failures without becoming part of remote input control.
-10. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, PTY operations, and terminal stream attach/detach through Tauri IPC.
+10. Rust commands in `src-tauri/src/commands.rs` expose discovery, storage, Git, context, handoff, native terminal snapshots, and PTY operations through Tauri IPC.
 
 ## Terminal reconstruction status
 
 The production blank-panel issue was traced to a renderer attach/transport race,
 not to the affected CLIs failing to spawn: installed-build logs showed child
 spawn, PTY reads, and `agent-output` emission for Antigravity and the other
-affected providers. The local renderer now uses `terminal_stream` and Tauri
-Channels with raw bytes and replay/live sequencing. Remote-control files and
-the `send_agent_input` writer boundary were intentionally not changed.
+affected providers. The new AgentTerminal renderer now consumes canonical Rust
+screen snapshots and dirty-row patches through Tauri Channels, with synchronous
+full-snapshot polling as a packaged WebView recovery path. Remote-control files
+and the `send_agent_input` writer boundary were intentionally not changed.
 
 Known provider launch failures now surface as errors instead of silently
 starting Bash. This makes packaged PATH problems diagnosable, but packaged
@@ -111,16 +121,78 @@ The observed Linux production failure was a blank xterm for some full-screen CLI
 - packaged GUI environment and augmented `PATH`;
 - PTY dimensions and `TERM`/`COLORTERM` capability negotiation;
 - output listener attachment and startup scrollback replay;
-- xterm rendering and raw-byte event delivery.
+- native screen-state publication and Canvas grid rendering.
 
 The runtime now uses a stateful bounded terminal-query responder so escape queries split across PTY reads are handled, and emits `ready` only after first output. Reader failures emit `agent-status` with `phase: failed`. These diagnostics are intentionally additive and do not alter remote-control input delivery.
+
+## Native terminal reconstruction status (2026-09-12)
+
+The new runtime is implemented in `src-tauri/src/terminal/`:
+
+- `TerminalService` and `TerminalRegistry` manage session ownership.
+- `TerminalSession` owns the PTY child, reader, serialized writer, emulator,
+  lifecycle, screen sequence, and renderer subscribers on one worker.
+- `alacritty_terminal` is the canonical ANSI/VT state machine. Capability
+  replies are generated by the emulator and written through `InputArbiter`.
+- `protocol.rs` publishes serializable snapshots, dirty-row patches, cursor
+  state, and lifecycle events. `terminal_v2_snapshot` provides synchronous full
+  snapshot recovery in addition to the live Tauri Channel.
+- `launcher.rs` resolves all supported providers through the augmented GUI PATH
+  and fails visibly when a configured CLI is missing; it never silently starts a
+  shell for an AI provider.
+- `AgentTerminal.tsx` now renders `TerminalGridView`/`TerminalCanvasRenderer`
+  including retained scrollback, and no longer gives the browser responsibility
+  for ANSI parsing.
+- Remote-control source files remain unchanged. Shared Tauri input, resize,
+  interrupt, process, and stop commands bridge to a native session when one
+  owns the agent and retain the old PTY fallback otherwise.
+
+Validation completed: 26 Rust tests pass, including native remote-input-to-screen
+parity; `npm run test:terminal-frontend` validates snapshot/patch ordering,
+gap recovery, input encoding, and selection; `npm run build` passes,
+`npm run validate:terminal-release` passes, and `git diff --check` passes. A
+fresh optimized release binary, Debian/RPM bundles, and an AppImage produced
+through the FUSE-independent fallback passed native smoke. The opt-in release
+provider matrix passed 15 installed providers, including Antigravity,
+OpenCode, KiloCode, Freebuff, Cline, Copilot, Kiro, Claude, Codex, Qwen, Mimo,
+Continue, Vibe, Qoder, and shell; Goose, Muse, and Aider were reported as
+missing rather than silently mapped to a shell. Normal starts and fresh
+handoffs now use the native runtime, while the old runtime remains only as a
+non-rendering compatibility fallback. The local environment cannot run the GTK desktop
+binary because it has no usable display session; the real installed Linux GUI
+interaction matrix remains required before declaring the issue fixed.
 
 ## Current repository caveat
 
 The worktree contains the production PTY hardening described above. `AgentTerminal.tsx` also contains a user-owned theme change; preserve it when making further terminal edits. Do not publish a release automatically from a dirty worktree: the release script commits and pushes changes.
 
+The final release rebuild also hardens `AgentTerminal` lifecycle dependencies:
+status/output object refreshes no longer cause a live native PTY to be detached
+and respawned. The rebuilt binary and Debian/RPM bundles passed the native
+provider matrix after this change. CI now also installs Xvfb and runs an
+optional bounded packaged-GUI startup smoke, while the real installed desktop
+interaction matrix remains a required Linux-desktop acceptance step. The
+broader default native matrix currently passes 15 installed providers and
+reports Goose, Muse, and Aider as missing rather than silently falling back.
+The obsolete raw-byte terminal stream and frontend transport were removed;
+only the native screen protocol feeds the local renderer.
+The generated `Orbit_0.1.41_amd64.AppImage` passed the affected-provider native
+smoke through `--appimage-extract-and-run`; it was also launched on the real
+X11 display, where the `Orbit` window and launcher surface rendered without
+GTK/WebView startup errors. The latest session/profile/history hardening is
+included in the rebuilt ELF and Debian/RPM artifacts, and the AppImage
+packaging fallback uses an explicit runtime. The release workflow sets
+`APPIMAGE_EXTRACT_AND_RUN=1` for
+FUSE-independent AppImage creation and validation. If Tauri's AppImage step
+still fails, the workflow invokes `scripts/package-appimage.mjs`; that
+repository-owned fallback extracts cached linuxdeploy and creates the image
+from `Orbit.AppDir` without requiring FUSE. Full interactive provider and
+remote-control GUI coverage remains the final acceptance step.
+
 ## Useful starting points
 
+- Release validation and the remaining desktop interaction matrix:
+  `TERMINAL_RELEASE_VALIDATION.md`.
 - Product/architecture notes: `context/project-overview.md`, `context/architecture.md`, `agents.md`.
 - Historical phase/build notes: `context/build-plan.md`, `context/session_summary.md`.
 - Core types: `src/types/orbit.ts`.

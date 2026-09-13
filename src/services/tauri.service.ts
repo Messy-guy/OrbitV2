@@ -1,6 +1,14 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { markPtySpawn } from './remoteControl/ptySpawnTracker';
+import type {
+  TerminalCell,
+  TerminalColor,
+  TerminalEvent,
+  TerminalPatch,
+  TerminalRow,
+  TerminalSnapshot,
+} from './terminal/terminalTypes';
 import {
   Agent,
   AgentUsageStats,
@@ -44,17 +52,22 @@ export interface AgentStatusPayload {
   message?: string;
 }
 
-export interface TerminalStreamFrame {
-  sessionId: string;
-  sequence: number;
-  kind: 'replay' | 'live' | 'exit' | 'error' | string;
-  bytes: number[] | Uint8Array;
-}
+export type NativeTerminalColor = TerminalColor;
+export type NativeTerminalCell = TerminalCell;
+export type NativeTerminalRow = TerminalRow;
+export type NativeTerminalSnapshot = TerminalSnapshot;
+export type NativeTerminalPatch = TerminalPatch;
+export type NativeTerminalEvent = TerminalEvent;
+export interface NativeTerminalDiagnostics { sessionsStarted: number; outputBytes: number; screenUpdates: number; attachCount: number; launchFailures: number; readerFailures: number; }
 
-export interface TerminalStreamAttach {
-  subscriptionId: number;
-  currentSequence: number;
-  replayedFrom: number;
+export interface NativeTerminalSessionInfo {
+  sessionId: string;
+  agentId: string;
+  provider: string;
+  pid: number;
+  rows: number;
+  columns: number;
+  profileId?: string;
 }
 
 export const isTauriAvailable = (): boolean => {
@@ -174,25 +187,76 @@ export const tauriService = {
     return pid;
   },
 
-  async attachTerminalStream(
+  async startNativeTerminal(
     sessionId: string,
-    fromSequence: number,
-    onFrame: (frame: TerminalStreamFrame) => void,
-  ): Promise<TerminalStreamAttach & { detach: () => Promise<void> }> {
+    agentId: string,
+    provider: string,
+    cwd: string,
+    rows: number,
+    columns: number,
+    role?: string,
+    prompt?: string,
+    profileId?: string,
+  ): Promise<NativeTerminalSessionInfo> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
-    const channel = new Channel<TerminalStreamFrame>(onFrame);
-    const attach = await invoke<TerminalStreamAttach>('attach_terminal_stream', {
+    const info = await invoke<NativeTerminalSessionInfo>('terminal_v2_start', {
       sessionId,
-      fromSequence,
-      channel,
+      agentId,
+      provider,
+      cwd,
+      rows,
+      columns,
+      role,
+      prompt,
+      profileId,
     });
+    // Keep remote-control delivery's startup/ready bookkeeping coherent for
+    // sessions started through the native terminal path.
+    markPtySpawn(agentId);
+    return info;
+  },
+
+  async attachNativeTerminal(
+    sessionId: string,
+    onEvent: (event: NativeTerminalEvent) => void,
+  ): Promise<{ subscriptionId: number; detach: () => Promise<void> }> {
+    if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
+    const channel = new Channel<NativeTerminalEvent>(onEvent);
+    const subscriptionId = await invoke<number>('terminal_v2_attach', { sessionId, channel });
     return {
-      ...attach,
-      detach: () => invoke<void>('detach_terminal_stream', {
-        sessionId,
-        subscriptionId: attach.subscriptionId,
-      }),
+      subscriptionId,
+      detach: () => invoke<void>('terminal_v2_detach', { sessionId, subscriptionId }),
     };
+  },
+
+  async getNativeTerminalSnapshot(sessionId: string): Promise<NativeTerminalSnapshot> {
+    if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
+    return invoke<NativeTerminalSnapshot>('terminal_v2_snapshot', { sessionId });
+  },
+
+  async sendNativeTerminalInput(sessionId: string, bytes: Uint8Array | number[]): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('terminal_v2_input', { sessionId, bytes: Array.from(bytes) });
+  },
+
+  async resizeNativeTerminal(sessionId: string, rows: number, columns: number): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('terminal_v2_resize', { sessionId, rows, columns });
+  },
+
+  async interruptNativeTerminal(sessionId: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('terminal_v2_interrupt', { sessionId });
+  },
+
+  async stopNativeTerminal(sessionId: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('terminal_v2_stop', { sessionId });
+  },
+
+  async getNativeTerminalDiagnostics(): Promise<NativeTerminalDiagnostics> {
+    if (!isTauriAvailable()) return { sessionsStarted: 0, outputBytes: 0, screenUpdates: 0, attachCount: 0, launchFailures: 0, readerFailures: 0 };
+    return invoke<NativeTerminalDiagnostics>('terminal_v2_diagnostics');
   },
 
   async sendAgentInput(agentId: string, sessionId: string, input: string): Promise<void> {

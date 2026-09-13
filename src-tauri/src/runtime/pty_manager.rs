@@ -25,21 +25,16 @@ use crate::runtime::provider_specs::runtime_spec;
 use crate::runtime::session::PtySession;
 use crate::runtime::session_events::{SessionEvent, SessionEventType};
 use crate::runtime::session_supervisor::SessionPhase;
-use crate::runtime::terminal_stream::TerminalStreamBroker;
 
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>, // agent_id -> PtySession
     roles: Arc<Mutex<HashMap<String, String>>>, // agent_id -> role (e.g. "architect", "reviewer", "implementer")
     spawning_mutex: Arc<Mutex<()>>, // serialization mutex for atomic PTY session creation
     pub activity_detector: Arc<ActivityDetector>,
-    terminal_stream: TerminalStreamBroker,
 }
 
 impl PtyManager {
-    pub fn new(
-        activity_detector: Arc<ActivityDetector>,
-        terminal_stream: TerminalStreamBroker,
-    ) -> Self {
+    pub fn new(activity_detector: Arc<ActivityDetector>) -> Self {
         let sessions: Arc<Mutex<HashMap<String, PtySession>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let roles: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -79,7 +74,6 @@ impl PtyManager {
             roles,
             spawning_mutex,
             activity_detector,
-            terminal_stream,
         }
     }
 
@@ -1190,7 +1184,6 @@ impl PtyManager {
         let workspace_path_reader = workspace_path.clone();
         let detector_reader = self.activity_detector.clone();
         let lifecycle_reader = lifecycle.clone();
-        let terminal_stream_reader = self.terminal_stream.clone();
         let mut reader = initial_reader;
         dbg_log!("[ORBIT DEBUG] Spawning reader thread...");
         thread::spawn(move || {
@@ -1302,11 +1295,6 @@ impl PtyManager {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let chunk_bytes = &buf[..n];
-                        // Publish the raw PTY bytes before any UTF-8 conversion or
-                        // legacy event coalescing. The local terminal renderer
-                        // attaches to this session-scoped stream, so control
-                        // sequences and split multibyte data remain lossless.
-                        terminal_stream_reader.publish(&session_id_reader, chunk_bytes);
                         read_chunks = read_chunks.saturating_add(1);
                         if read_chunks <= 8 {
                             let escape_count =
@@ -1349,21 +1337,19 @@ impl PtyManager {
 
                         // Emulate terminal query auto-responses (DSR, Kitty keyboard/graphics, OSC 10/11 color queries, DECRQM modes, XTGETTCAP)
                         // so modern interactive TUI CLIs (Jetski/Bubbletea, OpenTUI, Ink, Textual) never freeze waiting for terminal capabilities.
-                        if !terminal_stream_reader.has_subscribers(&session_id_reader) {
-                            if let Some(resp) = terminal_query_responder.feed(chunk_bytes) {
-                                if let Ok(mut state) = lifecycle_reader.lock() {
-                                    state.record_terminal_query_response();
-                                }
-                                dbg_log!(
+                        if let Some(resp) = terminal_query_responder.feed(chunk_bytes) {
+                            if let Ok(mut state) = lifecycle_reader.lock() {
+                                state.record_terminal_query_response();
+                            }
+                            dbg_log!(
                                 "[ORBIT PTY] Responding to terminal capability query agent_id={} session_id={} response_bytes={}",
                                 agent_id_reader,
                                 session_id_reader,
                                 resp.len()
                             );
-                                if let Ok(mut w) = writer_for_terminal_queries.lock() {
-                                    let _ = w.write_all(&resp);
-                                    let _ = w.flush();
-                                }
+                            if let Ok(mut w) = writer_for_terminal_queries.lock() {
+                                let _ = w.write_all(&resp);
+                                let _ = w.flush();
                             }
                         }
 
@@ -1449,7 +1435,6 @@ impl PtyManager {
         let detector_watcher = self.activity_detector.clone();
         let lifecycle_watcher = lifecycle.clone();
         let sessions_for_watcher = self.sessions.clone();
-        let terminal_stream_watcher = self.terminal_stream.clone();
         thread::spawn(move || {
             loop {
                 thread::sleep(std::time::Duration::from_millis(500));
@@ -1485,8 +1470,6 @@ impl PtyManager {
                             );
                             break;
                         }
-
-                        terminal_stream_watcher.publish_exit(&session_id_watcher);
 
                         let exit_evt = SessionEvent::new(
                             &session_id_watcher,

@@ -290,7 +290,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     // 1. Check custom extra paths first
     for path_str in extra_paths {
         let path = Path::new(path_str);
-        if path.is_file() {
+        if is_executable_file(path) {
             return Some(path.to_path_buf());
         }
     }
@@ -402,7 +402,7 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     for dir in get_host_search_dirs() {
         for name in &expanded_names {
             let candidate = Path::new(&dir).join(name);
-            if candidate.is_file() {
+            if is_executable_file(&candidate) {
                 return Some(candidate);
             }
         }
@@ -413,17 +413,17 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
         for dir in std::env::split_paths(&path_var) {
             for name in &expanded_names {
                 let candidate = dir.join(name);
-                if candidate.is_file() {
+                if is_executable_file(&candidate) {
                     return Some(candidate);
                 }
                 #[cfg(target_os = "windows")]
                 {
                     let exe_candidate = dir.join(format!("{}.exe", name));
-                    if exe_candidate.is_file() {
+                    if is_executable_file(&exe_candidate) {
                         return Some(exe_candidate);
                     }
                     let cmd_candidate = dir.join(format!("{}.cmd", name));
-                    if cmd_candidate.is_file() {
+                    if is_executable_file(&cmd_candidate) {
                         return Some(cmd_candidate);
                     }
                 }
@@ -432,6 +432,24 @@ pub fn find_executable(names: &[&str], extra_paths: &[&str]) -> Option<PathBuf> 
     }
 
     None
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return path
+            .metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 pub fn get_cli_version(path: &Path, _version_flag: &str) -> Option<String> {

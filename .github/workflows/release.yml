@@ -61,7 +61,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb xauth
 
       - name: Install dependencies
         run: npm ci || npm install
@@ -69,11 +69,49 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Build Tauri Desktop App
+      - name: Test terminal frontend protocol
+        run: npm run test:terminal-frontend
+
+      - name: Test native terminal runtime
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Download AppImage runtime for fallback packaging
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          curl --fail --location --retry 3 --connect-timeout 15 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            --output "${RUNNER_TEMP}/orbit-runtime-x86_64"
+          chmod +x "${RUNNER_TEMP}/orbit-runtime-x86_64"
+
+      - name: Build Tauri Desktop App (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           RUSTFLAGS: "-C link-arg=-s"
-        run: npx tauri build
+          # Tauri's downloaded linuxdeploy/AppImage helpers can run without
+          # FUSE on hosted runners and minimal Linux build environments.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          APPIMAGE_RUNTIME_FILE: ${{ runner.temp }}/orbit-runtime-x86_64
+        run: |
+          npx tauri build --bundles deb,rpm
+          npx tauri build --bundles appimage || ORBIT_REPACKAGE_APPIMAGE=1 npm run package:appimage
+
+      - name: Build Tauri Desktop App (Windows)
+        if: matrix.platform == 'windows-latest'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: npx tauri build --bundles nsis,msi
+
+      - name: Validate packaged terminal runtime outputs
+        if: matrix.os_name == 'linux'
+        env:
+          ORBIT_REQUIRE_APPIMAGE: '1'
+          ORBIT_VALIDATE_NATIVE_SMOKE: '1'
+          ORBIT_VALIDATE_APPIMAGE_SMOKE: '1'
+          ORBIT_VALIDATE_PROVIDER_MATRIX: '1'
+          ORBIT_VALIDATE_GUI_SMOKE: '1'
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npm run validate:terminal-release
 
       - name: Upload Linux Artifacts
         if: matrix.os_name == 'linux'

@@ -74,7 +74,7 @@ export const ShareContextModal: React.FC = () => {
     decisions: [],
     issues: [],
     notes: [],
-    architecture: 'Tauri v2 + React 18 + xterm.js',
+    architecture: 'Tauri v2 + React 18 + native Rust terminal emulator + Canvas grid renderer',
     relevantFiles: gitState?.modifiedFiles.map(f => f.path) || [],
     updatedAt: Date.now(),
   };

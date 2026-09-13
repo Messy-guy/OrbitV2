@@ -1,4 +1,9 @@
-# Orbit CLI Rendering Investigation Handoff
+# Orbit CLI Rendering Investigation Handoff (Historical)
+
+> Current source of truth: [`plan.md`](./plan.md) and
+> [`PROJECT_MEMORY.md`](./PROJECT_MEMORY.md). This handoff records the
+> original production investigation and earlier xterm/V2 transport attempts;
+> the current renderer is the Rust `alacritty_terminal` snapshot/patch path.
 
 Last updated: 2026-09-11
 

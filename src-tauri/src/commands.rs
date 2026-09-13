@@ -5,19 +5,19 @@ use crate::models::{
     Agent, ChangedFileItem, Checkpoint, ContextPackage, DetectedAgent, GitState, HandoffRecord,
     ProjectContext, Session, Workspace,
 };
-use crate::runtime::terminal_stream::{
-    TerminalStreamAttach, TerminalStreamBroker, TerminalStreamFrame,
-};
 use crate::runtime::PtyManager;
 use crate::storage::StorageManager;
+use crate::terminal::diagnostics::TerminalDiagnosticsSnapshot;
+use crate::terminal::protocol::ScreenSnapshot;
+use crate::terminal::{TerminalEvent, TerminalService, TerminalSessionInfo};
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 pub struct AppState {
     pub pty_manager: Arc<PtyManager>,
     pub storage: Arc<StorageManager>,
-    pub terminal_stream: TerminalStreamBroker,
+    pub terminal_service: Arc<TerminalService>,
 }
 
 #[tauri::command]
@@ -158,8 +158,19 @@ pub fn save_agent(state: State<'_, AppState>, agent: Agent) -> Result<(), String
 }
 
 #[tauri::command]
-pub fn delete_agent(state: State<'_, AppState>, agent_id: String) -> Result<(), String> {
-    state.pty_manager.terminate(&agent_id);
+pub async fn delete_agent(state: State<'_, AppState>, agent_id: String) -> Result<(), String> {
+    let terminal_service = state.terminal_service.clone();
+    let pty_manager = state.pty_manager.clone();
+    let agent_id_for_stop = agent_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        terminal_service
+            .stop_agent(&agent_id_for_stop)
+            .map_err(|error| format!("Failed to stop native agent before deletion: {error}"))?;
+        pty_manager.terminate(&agent_id_for_stop);
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| format!("Failed to stop agent before deletion: {error}"))??;
     state.storage.delete_agent(&agent_id);
     Ok(())
 }
@@ -196,33 +207,51 @@ pub async fn start_agent_session(
     cols: Option<u16>,
     role: Option<String>,
 ) -> Result<u32, String> {
-    // Cheap state mutations (role file writes) stay on the calling thread.
+    // Keep role state available to the existing MCP/operational-mode paths;
+    // the native launcher also applies provider-specific role flags.
     if let Some(r) = role.as_deref() {
         state.pty_manager.set_role(&agent_id, r);
     }
 
-    let pty_manager = state.pty_manager.clone();
-    let ws_id = workspace_id.unwrap_or_else(|| "default-ws".to_string());
+    let terminal_service = state.terminal_service.clone();
     let rows_val = rows.unwrap_or(30);
     let cols_val = cols.unwrap_or(100);
+    let _ = workspace_id;
 
-    // Open + spawn the PTY on a blocking worker thread so the UI stays responsive.
+    let _ = app.emit(
+        "agent-status",
+        crate::models::AgentStatusEvent {
+            agent_id: agent_id.clone(),
+            session_id: Some(session_id.clone()),
+            status: "working".to_string(),
+            phase: Some("booting".to_string()),
+            pid: None,
+            exit_code: None,
+            message: None,
+        },
+    );
+
+    // All normal starts now use the same native session that AgentTerminal
+    // renders. This prevents duplicate V1/native child processes while keeping
+    // the legacy command contract and remote-control writer boundary intact.
     tauri::async_runtime::spawn_blocking(move || {
-        pty_manager.create_session(
-            app,
-            ws_id,
-            workspace_path,
-            agent_id,
-            session_id,
-            provider,
-            profile_id,
-            prompt,
-            rows_val,
-            cols_val,
-        )
+        terminal_service
+            .start(
+                Some(app),
+                session_id,
+                agent_id,
+                provider,
+                workspace_path,
+                rows_val,
+                cols_val,
+                role,
+                profile_id,
+                prompt,
+            )
+            .map(|info| info.pid)
     })
     .await
-    .map_err(|e| format!("Failed to spawn PTY session: {}", e))?
+    .map_err(|e| format!("Failed to spawn native terminal session: {}", e))?
 }
 
 #[tauri::command]
@@ -232,6 +261,14 @@ pub async fn send_agent_input(
     session_id: String,
     input: String,
 ) -> Result<(), String> {
+    if let Some(session) = state
+        .terminal_service
+        .session_for_input(&agent_id, &session_id)
+    {
+        return tauri::async_runtime::spawn_blocking(move || session.input(input.into_bytes()))
+            .await
+            .map_err(|e| format!("Failed to write native terminal input: {e}"))?;
+    }
     let pty_manager = state.pty_manager.clone();
     // Send raw PTY byte stream directly as typed, supporting both agent_id and session_id lookup
     tauri::async_runtime::spawn_blocking(move || {
@@ -268,6 +305,14 @@ pub async fn resize_agent_terminal(
     rows: u16,
     cols: u16,
 ) -> Result<(), String> {
+    if let Some(session) = state
+        .terminal_service
+        .session_for_input(&agent_id, &agent_id)
+    {
+        return tauri::async_runtime::spawn_blocking(move || session.resize(rows, cols))
+            .await
+            .map_err(|e| format!("Failed to resize native terminal: {e}"))?;
+    }
     let pty_manager = state.pty_manager.clone();
     tauri::async_runtime::spawn_blocking(move || pty_manager.resize(&agent_id, rows, cols))
         .await
@@ -279,6 +324,15 @@ pub async fn interrupt_agent_session(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<(), String> {
+    if let Some(session) = state
+        .terminal_service
+        .session_for_agent(&agent_id)
+        .filter(|session| session.is_running())
+    {
+        return tauri::async_runtime::spawn_blocking(move || session.interrupt())
+            .await
+            .map_err(|e| format!("Failed to interrupt native terminal: {e}"))?;
+    }
     let pty_manager = state.pty_manager.clone();
     tauri::async_runtime::spawn_blocking(move || pty_manager.interrupt(&agent_id))
         .await
@@ -290,6 +344,11 @@ pub async fn get_agent_terminal_history(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<String, String> {
+    if let Some(session) = state.terminal_service.session_for_agent(&agent_id) {
+        return tauri::async_runtime::spawn_blocking(move || session.history())
+            .await
+            .map_err(|e| format!("Failed to read native terminal history: {e}"))?;
+    }
     let pty_manager = state.pty_manager.clone();
     tauri::async_runtime::spawn_blocking(move || Ok(pty_manager.get_history(&agent_id)))
         .await
@@ -301,6 +360,11 @@ pub async fn is_agent_process_running(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<bool, String> {
+    if let Some(session) = state.terminal_service.session_for_agent(&agent_id) {
+        if session.is_running() {
+            return Ok(true);
+        }
+    }
     let pty_manager = state.pty_manager.clone();
     tauri::async_runtime::spawn_blocking(move || Ok(pty_manager.is_running(&agent_id)))
         .await
@@ -312,6 +376,16 @@ pub async fn stop_agent_session(
     state: State<'_, AppState>,
     agent_id: String,
 ) -> Result<(), String> {
+    if state
+        .terminal_service
+        .session_for_agent(&agent_id)
+        .is_some()
+    {
+        let service = state.terminal_service.clone();
+        return tauri::async_runtime::spawn_blocking(move || service.stop_agent(&agent_id))
+            .await
+            .map_err(|e| format!("Failed to stop native terminal: {e}"))?;
+    }
     let pty_manager = state.pty_manager.clone();
     tauri::async_runtime::spawn_blocking(move || {
         pty_manager.terminate(&agent_id);
@@ -321,28 +395,132 @@ pub async fn stop_agent_session(
     .map_err(|e| format!("Failed to stop PTY session: {}", e))?
 }
 
-/// Attach a local terminal renderer to one concrete PTY session. The broker
-/// replays bounded raw-byte history before switching the channel to live
-/// frames, preventing a startup race between spawn and renderer mount.
+// Native terminal commands. The established `send_agent_input` boundary is
+// retained for remote control; the local renderer uses only the native
+// snapshot protocol below.
 #[tauri::command]
-pub fn attach_terminal_stream(
+pub async fn terminal_v2_start(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
-    from_sequence: Option<u64>,
-    channel: Channel<TerminalStreamFrame>,
-) -> Result<TerminalStreamAttach, String> {
-    state
-        .terminal_stream
-        .attach(&session_id, from_sequence.unwrap_or(0), channel)
+    agent_id: String,
+    provider: String,
+    cwd: String,
+    rows: Option<u16>,
+    columns: Option<u16>,
+    role: Option<String>,
+    profile_id: Option<String>,
+    prompt: Option<String>,
+) -> Result<TerminalSessionInfo, String> {
+    let service = state.terminal_service.clone();
+    let app_for_worker = app.clone();
+    let _ = app.emit(
+        "agent-status",
+        crate::models::AgentStatusEvent {
+            agent_id: agent_id.clone(),
+            session_id: Some(session_id.clone()),
+            status: "working".to_string(),
+            phase: Some("booting".to_string()),
+            pid: None,
+            exit_code: None,
+            message: None,
+        },
+    );
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        service.start(
+            Some(app_for_worker),
+            session_id,
+            agent_id,
+            provider,
+            cwd,
+            rows.unwrap_or(30),
+            columns.unwrap_or(100),
+            role,
+            profile_id,
+            prompt,
+        )
+    })
+    .await
+    .map_err(|error| format!("failed to start native terminal: {error}"))?;
+    result
 }
 
 #[tauri::command]
-pub fn detach_terminal_stream(
+pub fn terminal_v2_attach(
+    state: State<'_, AppState>,
+    session_id: String,
+    channel: Channel<TerminalEvent>,
+) -> Result<u64, String> {
+    state.terminal_service.attach(&session_id, channel)
+}
+
+#[tauri::command]
+pub fn terminal_v2_detach(
     state: State<'_, AppState>,
     session_id: String,
     subscription_id: u64,
-) {
-    state.terminal_stream.detach(&session_id, subscription_id);
+) -> Result<(), String> {
+    state.terminal_service.detach(&session_id, subscription_id)
+}
+
+#[tauri::command]
+pub fn terminal_v2_snapshot(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<ScreenSnapshot, String> {
+    state.terminal_service.snapshot(&session_id)
+}
+
+#[tauri::command]
+pub async fn terminal_v2_input(
+    state: State<'_, AppState>,
+    session_id: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let service = state.terminal_service.clone();
+    tauri::async_runtime::spawn_blocking(move || service.input(&session_id, bytes))
+        .await
+        .map_err(|error| format!("failed to send native terminal input: {error}"))?
+}
+
+#[tauri::command]
+pub async fn terminal_v2_resize(
+    state: State<'_, AppState>,
+    session_id: String,
+    rows: u16,
+    columns: u16,
+) -> Result<(), String> {
+    let service = state.terminal_service.clone();
+    tauri::async_runtime::spawn_blocking(move || service.resize(&session_id, rows, columns))
+        .await
+        .map_err(|error| format!("failed to resize native terminal: {error}"))?
+}
+
+#[tauri::command]
+pub async fn terminal_v2_interrupt(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let service = state.terminal_service.clone();
+    tauri::async_runtime::spawn_blocking(move || service.interrupt(&session_id))
+        .await
+        .map_err(|error| format!("failed to interrupt native terminal: {error}"))?
+}
+
+#[tauri::command]
+pub async fn terminal_v2_stop(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let service = state.terminal_service.clone();
+    tauri::async_runtime::spawn_blocking(move || service.stop(&session_id))
+        .await
+        .map_err(|error| format!("failed to stop native terminal: {error}"))?
+}
+
+#[tauri::command]
+pub fn terminal_v2_diagnostics(state: State<'_, AppState>) -> TerminalDiagnosticsSnapshot {
+    state.terminal_service.diagnostics_snapshot()
 }
 
 // Phase 3: Git State
@@ -515,6 +693,14 @@ pub fn execute_agent_handoff(
 
     // 4. If the target agent session is ALREADY running — write directly to its stdin.
     //    Never kill a live session during a handoff.
+    if let Some(session) = state
+        .terminal_service
+        .session_for_agent(&handoff.target_agent_id)
+        .filter(|session| session.is_running())
+    {
+        let _ = session.input(format!("{}\r", concise_prompt).into_bytes());
+        return Ok(session.info.pid);
+    }
     if state.pty_manager.is_running(&handoff.target_agent_id) {
         // Append \r so TUI agents (Ink, readline) submit the input immediately
         let _ = state
@@ -535,37 +721,22 @@ pub fn execute_agent_handoff(
         )
     });
 
-    // Spawn without prompt so the TUI initializes cleanly
-    let pid = state.pty_manager.create_session(
-        app,
-        handoff.workspace_id.clone(),
-        handoff.context_package.project_path.clone(),
-        handoff.target_agent_id.clone(),
+    // The native session owns the startup delay and prompt write. This keeps
+    // handoff launches on the same PTY/emulator/input path as AgentTerminal.
+    let info = state.terminal_service.start(
+        Some(app),
         target_session_id,
-        target_provider.clone(),
-        None, // profile_id (use default)
-        None, // No prompt — we deliver separately after TUI mounts
+        handoff.target_agent_id.clone(),
+        target_provider,
+        handoff.context_package.project_path.clone(),
         30,
         100,
+        None,
+        None,
+        Some(concise_prompt),
     )?;
 
-    // 6. Deliver the handoff prompt after a startup delay.
-    //    Use a longer delay for TUI-heavy CLIs (opencode uses Ink which needs ~2s to mount).
-    let pty_manager = state.pty_manager.clone();
-    let agent_id_clone = handoff.target_agent_id.clone();
-    let prov_lower = target_provider.to_lowercase();
-    std::thread::spawn(move || {
-        // Delay: 2500ms for opencode (Ink TUI), 1000ms for all others
-        let delay_ms = if prov_lower.contains("opencode") {
-            2500
-        } else {
-            1000
-        };
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-        let _ = pty_manager.write(&agent_id_clone, &format!("{}\r", concise_prompt));
-    });
-
-    Ok(pid)
+    Ok(info.pid)
 }
 
 // Phase 4 Intelligent Context Commands
@@ -931,6 +1102,10 @@ pub async fn uninstall_agent_cli(
     };
 
     // 1. Terminate any active sessions for this provider
+    state
+        .terminal_service
+        .stop_provider(&prov)
+        .map_err(|error| format!("Failed to stop native provider sessions: {error}"))?;
     state.pty_manager.terminate_by_provider(&prov);
 
     // 2. Run the verified safe uninstaller command

@@ -1,556 +1,141 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Play, RotateCcw, Terminal as TerminalIcon } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
-import { useSettingsStore } from '../../stores/settings.store';
-import { useUIStore } from '../../stores/ui.store';
 import { isTauriAvailable, tauriService } from '../../services/tauri.service';
-import { installTerminalCapabilityBridge } from '../../services/terminalV2/terminalCapabilities';
-import { TerminalSessionTransport } from '../../services/terminalV2/terminalTransport';
-import { useContextStore } from '../../stores/context.store';
-import { Play, RotateCcw, Terminal as TerminalIcon } from 'lucide-react';
-import { clsx } from 'clsx';
+import { TerminalGridView } from '../terminal/TerminalGridView';
+import { TerminalSessionStore, createBlankSnapshot, useTerminalSnapshot } from '../../services/terminal/terminalSessionStore';
 
-interface AgentTerminalProps {
-  agent: Agent;
-}
-
+interface AgentTerminalProps { agent: Agent; }
 type Phase = 'booting' | 'active' | 'exited' | 'error' | 'idle';
 
 export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const hostRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const unlistenRef = useRef<(() => void) | null>(null);
-  const isBootedRef = useRef(false);
-  const startupReplayTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const { resizeTerminal } = useAgentStore();
-  const { getActiveWorkspace } = useWorkspaceStore();
-  const theme = useSettingsStore(s => s.theme);
-
-  const agentRef = useRef(agent);
-  agentRef.current = agent;
-  const workspaceRef = useRef(getActiveWorkspace());
-  workspaceRef.current = getActiveWorkspace();
-
+  const sessionRef = useRef(agent.currentSessionId || `sess-${agent.id}`);
+  const subscriptionRef = useRef<{ detach: () => Promise<void> } | null>(null);
+  const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const storeRef = useRef<TerminalSessionStore | null>(null);
   const [phase, setPhase] = useState<Phase>('booting');
-  const [errorMsg, setErrorMsg] = useState<string>('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [fallbackSnapshot, setFallbackSnapshot] = useState(() => createBlankSnapshot(sessionRef.current, 30, 100));
+  const { resizeTerminal } = useAgentStore();
+  const activeWorkspace = useWorkspaceStore(s => s.getActiveWorkspace());
+  const activeWorkspaceRef = useRef(activeWorkspace);
+  activeWorkspaceRef.current = activeWorkspace;
 
-  const cleanupTerminal = useCallback(() => {
-    if (unlistenRef.current) {
-      unlistenRef.current();
-      unlistenRef.current = null;
+  // Agent objects are refreshed by status/output updates. Keep the terminal
+  // lifecycle keyed to launch-relevant values so those refreshes cannot tear
+  // down and respawn an otherwise healthy PTY.
+  const agentId = agent.id;
+  const agentSessionId = agent.currentSessionId;
+  const agentProvider = agent.provider;
+  const agentCommand = agent.currentCommand;
+  const agentName = agent.name;
+  const agentRole = agent.role;
+  const agentDirective = agent.taskDirective?.trim() || undefined;
+  const agentProfileId = agent.profileId;
+
+  if (!storeRef.current) {
+    storeRef.current = new TerminalSessionStore(() => { void reattach(); });
+  }
+
+  async function reattach() {
+    if (!isTauriAvailable()) return;
+    const current = subscriptionRef.current;
+    subscriptionRef.current = null;
+    await current?.detach().catch(() => {});
+    storeRef.current?.reset();
+    try {
+      subscriptionRef.current = await tauriService.attachNativeTerminal(sessionRef.current, (event) => {
+        storeRef.current?.apply(event);
+        if (event.type === 'Lifecycle') {
+          if (event.state === 'exited' || event.state === 'stopped') setPhase('exited');
+          if (event.state === 'failed') { setPhase('error'); setErrorMsg(event.message || 'Native terminal session failed'); }
+        }
+      });
+    } catch (error) {
+      setPhase('error');
+      setErrorMsg(error instanceof Error ? error.message : String(error));
     }
-    for (const timer of startupReplayTimersRef.current) {
-      clearTimeout(timer);
-    }
-    startupReplayTimersRef.current = [];
-    if (termRef.current) {
-      try {
-        termRef.current.dispose();
-      } catch {}
-      termRef.current = null;
-    }
-    fitRef.current = null;
-    isBootedRef.current = false;
-  }, []);
+  }
 
   const startSession = useCallback(async () => {
-    if (!hostRef.current || isBootedRef.current) return;
-    isBootedRef.current = true;
-    setPhase('booting');
-    setErrorMsg('');
-
-    // Clean any prior instance
-    if (unlistenRef.current) {
-      unlistenRef.current();
-      unlistenRef.current = null;
+    if (!hostRef.current || !isTauriAvailable()) {
+      setPhase('error'); setErrorMsg('Tauri runtime not available.'); return;
     }
-    if (termRef.current) {
-      try {
-        termRef.current.dispose();
-      } catch {}
-      termRef.current = null;
-    }
-
+    setPhase('booting'); setErrorMsg('');
     const host = hostRef.current;
-    const settings = useSettingsStore.getState();
-    const isLightTheme = settings.theme === 'light';
-
-    if (host) {
-      host.innerHTML = '';
-    }
-
-    // 1. Create standard xterm instance dynamically styled according to active theme
-    const term = new Terminal({
-      cursorBlink: settings.terminalCursorBlink,
-      cursorStyle: settings.terminalCursorStyle || 'block',
-      fontSize: settings.terminalFontSize || 12.5,
-      fontFamily: settings.terminalFontFamily || 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
-      lineHeight: settings.terminalLineHeight || 1.25,
-      letterSpacing: 0,
-      convertEol: true,
-      scrollback: settings.terminalScrollback || 2000,
-      allowTransparency: false,
-      theme: isLightTheme ? {
-        background: '#ffffff',
-        foreground: '#0f172a',
-        cursor: '#0f172a',
-        cursorAccent: '#ffffff',
-        selectionBackground: 'rgba(15, 23, 42, 0.18)',
-        black: '#0f172a',
-        red: '#dc2626',
-        green: '#16a34a',
-        yellow: '#ca8a04',
-        blue: '#2563eb',
-        magenta: '#9333ea',
-        cyan: '#0891b2',
-        white: '#64748b',
-        brightBlack: '#475569',
-        brightRed: '#ef4444',
-        brightGreen: '#22c55e',
-        brightYellow: '#eab308',
-        brightBlue: '#3b82f6',
-        brightMagenta: '#a855f7',
-        brightCyan: '#06b6d4',
-        brightWhite: '#0f172a',
-      } : {
-        background: '#090a0f',
-        foreground: '#e4e4e7',
-        cursor: '#ffffff',
-        cursorAccent: '#090a0f',
-        selectionBackground: 'rgba(255, 255, 255, 0.25)',
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#f4f4f5',
-        brightBlack: '#71717a',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#fde047',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      },
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-
-    term.open(host);
-    termRef.current = term;
-    fitRef.current = fitAddon;
-
-    // Initial fit
+    const rows = Math.max(8, Math.floor((host.clientHeight || 420) / 17));
+    const columns = Math.max(40, Math.floor((host.clientWidth || 760) / 8));
+    const workspace = activeWorkspaceRef.current;
+    const provider = agentProvider === 'custom' ? (agentCommand?.trim() || agentName?.trim() || 'terminal') : agentProvider;
+    sessionRef.current = agentSessionId || `sess-${agentId}`;
     try {
-      fitAddon.fit();
-    } catch {}
-
-    const containerHeight = host.clientHeight || 400;
-    const containerWidth = host.clientWidth || 600;
-    const estimatedRows = Math.floor(containerHeight / 14);
-    const estimatedCols = Math.floor(containerWidth / 7.5);
-
-    const rows = Math.max(term.rows || 0, estimatedRows, 24);
-    const cols = Math.max(term.cols || 0, estimatedCols, 80);
-    const sessionId = agentRef.current.currentSessionId || `sess-${agentRef.current.id}`;
-    let terminalTransport: TerminalSessionTransport | null = null;
-    let disposeCapabilities: (() => void) | null = null;
-    let unlistenLegacyOutput: (() => void) | null = null;
-    let streamFrameReceived = false;
-    let legacyFallbackActive = false;
-    const legacyOutputBuffer: string[] = [];
-
-    try {
-      if (!isTauriAvailable()) {
-        throw new Error('Tauri runtime not available.');
-      }
-
-      // Keep a session-exact compatibility listener during the attach window.
-      // This is not the primary renderer path: it is a safety net for older
-      // packaged WebViews where Tauri Channel delivery can fail independently
-      // of the PTY. Once a raw stream frame arrives, buffered legacy text is
-      // discarded and this listener becomes inert.
-      unlistenLegacyOutput = await tauriService.onAgentOutput((payload) => {
-        if (payload.sessionId !== sessionId || streamFrameReceived) return;
-        if (legacyFallbackActive && termRef.current) {
-          termRef.current.write(payload.text);
-          termRef.current.scrollToBottom();
-          return;
-        }
-        legacyOutputBuffer.push(payload.text);
-      });
-
-      // 2. Attach before spawning. The backend stream is session-scoped,
-      // replays bounded raw PTY history, and then delivers live bytes through
-      // the same channel. This removes the startup race inherent in global
-      // agent-output events while leaving the PTY writer untouched.
-      terminalTransport = new TerminalSessionTransport(sessionId, (frame) => {
-        if (frame.kind === 'exit' || !termRef.current) return;
-        if (frame.bytes.length > 0) {
-          streamFrameReceived = true;
-          legacyOutputBuffer.length = 0;
-        }
-        const bytes = frame.bytes instanceof Uint8Array
-          ? frame.bytes
-          : Uint8Array.from(frame.bytes);
-        termRef.current.write(bytes, () => {
-          if (termRef.current) {
-            termRef.current.scrollToBottom();
-            termRef.current.refresh(0, Math.max(0, termRef.current.rows - 1));
-          }
-        });
-      }, (message) => {
-        setErrorMsg(message);
-        setPhase('error');
-      });
-      await terminalTransport.attach(0);
-      disposeCapabilities = installTerminalCapabilityBridge(term, agentRef.current.id, sessionId);
-
-      // If the new Channel has not delivered a byte shortly after the PTY
-      // starts, switch this view to the exact-session legacy event stream. It
-      // keeps affected packaged WebViews usable without changing PTY input,
-      // remote control, or the backend's authoritative raw transport.
-      const fallbackTimer = setTimeout(() => {
-        if (streamFrameReceived || !termRef.current) return;
-        legacyFallbackActive = true;
-        const buffered = legacyOutputBuffer.splice(0).join('');
-        if (buffered && termRef.current) {
-          termRef.current.write(buffered);
-          termRef.current.scrollToBottom();
-        }
-        if (terminalTransport) {
-          const transport = terminalTransport;
-          terminalTransport = null;
-          void transport.detach().catch(() => {});
-        }
-      }, 1500);
-      startupReplayTimersRef.current.push(fallbackTimer);
-
-      // 3. Forward user input to PTY directly
-      term.onData((data) => {
-        const liveActiveSess = useAgentStore.getState().activeSessionIdByAgent[agentRef.current.id];
-        const activeSessId =
-          liveActiveSess ||
-          agentRef.current.currentSessionId ||
-          'default';
-
-        tauriService.sendAgentInput(agentRef.current.id, activeSessId, data).catch((e) => {
-          console.warn('Failed to send terminal input:', e);
-        });
-      });
-
-      // 4. Track status changes
-      const unlistenStatus = await tauriService.onAgentStatus((payload) => {
-        const curAgent = agentRef.current;
-        const isMatch = payload.agentId === curAgent.id ||
-                        payload.sessionId === curAgent.id ||
-                        payload.agentId === curAgent.currentSessionId ||
-                        payload.sessionId === curAgent.currentSessionId;
-        if (isMatch) {
-          if (payload.status === 'error' || payload.phase === 'failed') {
-            setErrorMsg(payload.message || 'Process error');
-            setPhase('error');
-          } else if (payload.status === 'exited' || payload.status === 'stopped') {
-            setPhase('exited');
-          } else if (payload.status === 'active' || payload.status === 'running' || payload.status === 'working' || payload.status === 'ready') {
-            setPhase('active');
-          }
-        }
-      });
-
-      unlistenRef.current = () => {
-        unlistenStatus();
-        if (unlistenLegacyOutput) {
-          unlistenLegacyOutput();
-          unlistenLegacyOutput = null;
-        }
-        if (disposeCapabilities) {
-          disposeCapabilities();
-          disposeCapabilities = null;
-        }
-        if (terminalTransport) {
-          const transport = terminalTransport;
-          terminalTransport = null;
-          void transport.detach().catch(() => {});
-        }
-      };
-
-      // 5. Spawn or Reattach PTY session (backend create_session handles atomic liveness check & reattach)
-      const ws = workspaceRef.current;
-      const projPath = ws?.projectPath || '';
-
-      if (agentRef.current.role) {
-        await tauriService.setAgentRole(agentRef.current.id, agentRef.current.role).catch(() => {});
-      }
-
-      const effectiveProvider = agentRef.current.provider === 'custom'
-        ? (agentRef.current.currentCommand?.trim() || agentRef.current.name?.trim() || 'terminal')
-        : agentRef.current.provider;
-
-      await tauriService.startAgentSession(
-        projPath,
-        agentRef.current.id,
-        sessionId,
-        effectiveProvider,
-        agentRef.current.taskDirective?.trim() || undefined,
-        ws?.id || 'ws-orbit',
-        rows,
-        cols,
-        agentRef.current.profileId,
-        agentRef.current.role
-      );
-
+      await tauriService.startNativeTerminal(sessionRef.current, agentId, provider, workspace?.projectPath || '', rows, columns, agentRole, agentDirective, agentProfileId);
+      await reattach();
+      if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
+      snapshotPollRef.current = setInterval(() => {
+        void tauriService.getNativeTerminalSnapshot(sessionRef.current)
+          .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
+          .catch(() => {});
+      }, 120);
       setPhase('active');
-      resizeTerminal(agentRef.current.id, rows, cols);
-      term.focus();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (unlistenLegacyOutput) {
-        unlistenLegacyOutput();
-        unlistenLegacyOutput = null;
-      }
-      if (terminalTransport) {
-        const transport = terminalTransport;
-        terminalTransport = null;
-        void transport.detach().catch(() => {});
-      }
-      setErrorMsg(msg);
-      setPhase('error');
-      if (termRef.current) {
-        termRef.current.write(`\r\n\x1b[31m[Orbit PTY Error] ${msg}\x1b[0m\r\n`);
-      }
+      resizeTerminal(agentId, rows, columns);
+    } catch (error) {
+      setPhase('error'); setErrorMsg(error instanceof Error ? error.message : String(error));
     }
-
-    // 7. Responsive auto-resize observer & PTY SIGWINCH synchronization
-    let resizeTimer: NodeJS.Timeout | null = null;
-    let lastAppliedRows = 0;
-    let lastAppliedCols = 0;
-
-    const triggerRefit = () => {
-      try {
-        fitAddon.fit();
-        if (termRef.current) {
-          termRef.current.refresh(0, Math.max(0, termRef.current.rows - 1));
-        }
-        if (
-          term.rows &&
-          term.cols &&
-          term.rows >= 4 &&
-          term.cols >= 20 &&
-          (term.rows !== lastAppliedRows || term.cols !== lastAppliedCols)
-        ) {
-          lastAppliedRows = term.rows;
-          lastAppliedCols = term.cols;
-          if (isTauriAvailable()) {
-            tauriService.resizeAgentTerminal(agentRef.current.id, term.rows, term.cols).catch(() => {});
-          }
-        }
-      } catch {}
-    };
-
-    const handleResize = () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(triggerRefit, 60);
-    };
-
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(host);
-
-    // Initial refit sequence
-    requestAnimationFrame(triggerRefit);
-    setTimeout(triggerRefit, 150);
-
-    const prevUnlisten = unlistenRef.current;
-    unlistenRef.current = () => {
-      if (prevUnlisten) prevUnlisten();
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeObserver.disconnect();
-    };
-  }, [resizeTerminal]);
-
-  // Live theme change handler for xterm instance
-  useEffect(() => {
-    if (termRef.current) {
-      const isLight = theme === 'light';
-      termRef.current.options.theme = isLight ? {
-        background: '#ffffff',
-        foreground: '#0f172a',
-        cursor: '#0f172a',
-        cursorAccent: '#ffffff',
-        selectionBackground: 'rgba(15, 23, 42, 0.18)',
-        black: '#0f172a',
-        red: '#dc2626',
-        green: '#16a34a',
-        yellow: '#ca8a04',
-        blue: '#2563eb',
-        magenta: '#9333ea',
-        cyan: '#0891b2',
-        white: '#64748b',
-        brightBlack: '#475569',
-        brightRed: '#ef4444',
-        brightGreen: '#22c55e',
-        brightYellow: '#eab308',
-        brightBlue: '#3b82f6',
-        brightMagenta: '#a855f7',
-        brightCyan: '#06b6d4',
-        brightWhite: '#0f172a',
-      } : {
-        background: '#090a0f',
-        foreground: '#e4e4e7',
-        cursor: '#ffffff',
-        cursorAccent: '#090a0f',
-        selectionBackground: 'rgba(255, 255, 255, 0.25)',
-        black: '#18181b',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#f4f4f5',
-        brightBlack: '#71717a',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#fde047',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      };
-    }
-  }, [theme]);
+  }, [agentCommand, agentDirective, agentId, agentName, agentProfileId, agentProvider, agentRole, agentSessionId, resizeTerminal]);
 
   useEffect(() => {
-    startSession();
+    void startSession();
     return () => {
-      cleanupTerminal();
+      const subscription = subscriptionRef.current;
+      subscriptionRef.current = null;
+      void subscription?.detach().catch(() => {});
+      if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
+      snapshotPollRef.current = null;
     };
-  }, [agent.id, startSession, cleanupTerminal]);
+  }, [agentId, startSession]);
 
+  useEffect(() => {
+    if (!hostRef.current) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const host = hostRef.current; if (!host) return;
+        const rows = Math.max(8, Math.floor((host.clientHeight || 420) / 17));
+        const columns = Math.max(40, Math.floor((host.clientWidth || 760) / 8));
+        void tauriService.resizeNativeTerminal(sessionRef.current, rows, columns).catch(() => {});
+      }, 80);
+    });
+    observer.observe(hostRef.current);
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
+  }, []);
+
+  const snapshot = useTerminalSnapshot(storeRef.current);
+  const renderedSnapshot = snapshot || fallbackSnapshot;
+  const providerLabel = agent.provider.charAt(0).toUpperCase() + agent.provider.slice(1).toLowerCase();
+  const sendInput = (bytes: Uint8Array) => {
+    void tauriService.sendNativeTerminalInput(sessionRef.current, bytes).catch((error) => {
+      setPhase('error'); setErrorMsg(error instanceof Error ? error.message : String(error));
+    });
+  };
   const restart = async () => {
-    isBootedRef.current = false;
-    if (isTauriAvailable()) {
-      await tauriService.stopAgentSession(agent.id).catch(() => {});
-    }
-    if (termRef.current) {
-      termRef.current.reset();
-      termRef.current.clear();
-    }
+    await tauriService.stopNativeTerminal(sessionRef.current).catch(() => {});
+    storeRef.current?.reset();
+    setFallbackSnapshot(createBlankSnapshot(sessionRef.current, 30, 100));
     await startSession();
   };
 
-  const providerLabel = agent.provider.charAt(0).toUpperCase() + agent.provider.slice(1).toLowerCase();
-  const activeWorkspace = getActiveWorkspace();
-
   return (
     <div className="flex-1 flex flex-col min-h-0 w-full h-full relative overflow-hidden bg-panel">
-      {/* Idle Screen */}
-      {phase === 'idle' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-panel z-20">
-          <div className="w-10 h-10 rounded-xl bg-well border border-border flex items-center justify-center shadow-lg">
-            <TerminalIcon size={18} className="text-text-primary" />
-          </div>
-          <div className="text-center">
-            <p className="text-xs font-mono font-bold text-text-primary">{providerLabel} Terminal</p>
-            <p className="text-[10px] font-mono text-text-muted mt-0.5">Process is stopped</p>
-          </div>
-          <button
-            onClick={startSession}
-            className="flex items-center gap-2 px-4 py-2 bg-text-primary text-background rounded-lg text-xs font-mono font-bold hover:opacity-90 transition-all cursor-pointer shadow-md"
-          >
-            <Play size={11} className="fill-current" />
-            <span>Launch {providerLabel}</span>
-          </button>
-        </div>
-      )}
-
-      {/* Booting Loader */}
-      {phase === 'booting' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-panel/80 backdrop-blur-sm z-20">
-          <div className="flex items-center gap-2 text-xs font-mono text-text-primary">
-            <span className="animate-pulse">▋</span>
-            <span>Spawning {providerLabel} CLI...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Spawn Failure Diagnostic Screen */}
-      {phase === 'error' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-panel/95 backdrop-blur-md z-20">
-          <div className="max-w-md w-full p-5 rounded-2xl bg-well border border-rose-500/30 flex flex-col gap-3.5 shadow-xl">
-            <div className="flex items-center gap-2.5 text-rose-400">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <h3 className="font-mono font-bold text-xs">Could not start {providerLabel}</h3>
-            </div>
-            
-            <div className="p-3 rounded-xl bg-black/50 border border-border font-mono text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
-              {errorMsg || 'Failed to spawn process in PTY runtime.'}
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[10px] font-mono text-text-muted">
-                Session: {agent.id}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={restart}
-                  className="px-3.5 py-1.5 rounded-xl bg-text-primary text-background text-xs font-mono font-bold hover:opacity-90 transition-all cursor-pointer shadow-sm"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Exited Notification */}
-      {phase === 'exited' && (
-        <div className="absolute bottom-0 left-0 right-0 px-3.5 py-2 bg-panel-elevated border-t border-border flex items-center justify-between z-20 backdrop-blur-md">
-          <div className="flex items-center gap-2 text-[11px] font-mono text-text-muted">
-            <span className="w-2 h-2 rounded-full bg-text-dim" />
-            <span>Session finished</span>
-            <span>·</span>
-            <span className="text-text-primary font-medium">Save checkpoint?</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={async () => {
-                if (activeWorkspace) {
-                  await useContextStore.getState().generateDraft(activeWorkspace.id, activeWorkspace.projectPath);
-                  useContextStore.getState().setDraftModalOpen(true);
-                }
-              }}
-              className="px-2.5 py-1 bg-well hover:bg-panel text-text-primary border border-border rounded text-[11px] font-mono font-medium transition-all cursor-pointer"
-            >
-              Review Draft
-            </button>
-            <button
-              onClick={restart}
-              className="px-2.5 py-1 bg-well hover:bg-panel text-text-muted hover:text-text-primary border border-border rounded text-[11px] font-mono transition-colors cursor-pointer"
-            >
-              Restart
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Terminal Canvas Container */}
-      <div
-        ref={hostRef}
-        className="w-full h-full p-0 overflow-hidden bg-panel"
-        onClick={() => termRef.current?.focus()}
-      />
+      {phase === 'booting' && <div className="absolute inset-0 flex items-center justify-center bg-panel/80 backdrop-blur-sm z-20"><div className="flex items-center gap-2 text-xs font-mono text-text-primary"><span className="animate-pulse">▋</span><span>Spawning {providerLabel} CLI...</span></div></div>}
+      {phase === 'error' && <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-panel/95 backdrop-blur-md z-20"><div className="max-w-md w-full p-5 rounded-2xl bg-well border border-rose-500/30 flex flex-col gap-3.5 shadow-xl"><div className="flex items-center gap-2.5 text-rose-400"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" /><h3 className="font-mono font-bold text-xs">Could not start {providerLabel}</h3></div><div className="p-3 rounded-xl bg-black/50 border border-border font-mono text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">{errorMsg || 'Native terminal session failed.'}</div><div className="flex items-center justify-end"><button onClick={restart} className="px-3.5 py-1.5 rounded-xl bg-text-primary text-background text-xs font-mono font-bold cursor-pointer">Retry</button></div></div></div>}
+      {phase === 'exited' && <div className="absolute bottom-0 left-0 right-0 px-3.5 py-2 bg-panel-elevated border-t border-border flex items-center justify-between z-20"><div className="flex items-center gap-2 text-[11px] font-mono text-text-muted"><span className="w-2 h-2 rounded-full bg-text-dim" /><span>Session finished</span></div><button onClick={restart} className="px-2.5 py-1 bg-well border border-border rounded text-[11px] font-mono cursor-pointer"><RotateCcw size={11} className="inline mr-1" />Restart</button></div>}
+      <div ref={hostRef} className="w-full h-full p-0 overflow-hidden bg-[#090a0f]"><TerminalGridView snapshot={renderedSnapshot} onInput={sendInput} /></div>
+      {phase === 'idle' && <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-panel z-20"><TerminalIcon size={18} className="text-text-primary" /><button onClick={startSession} className="flex items-center gap-2 px-4 py-2 bg-text-primary text-background rounded-lg text-xs font-mono font-bold cursor-pointer"><Play size={11} />Launch {providerLabel}</button></div>}
     </div>
   );
 };

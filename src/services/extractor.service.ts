@@ -1,6 +1,7 @@
 /**
  * Universal Session Extractor
- * Ingests raw PTY terminal output (xterm) or chat messages across any AI CLI (Antigravity, OpenCode, Claude Code, Codex, Bash)
+ * Ingests retained PTY terminal history or chat messages across any AI CLI
+ * (Antigravity, OpenCode, Claude Code, Codex, Bash).
  * and extracts clean conversation turns, tools executed, errors encountered, user intent, and file changes.
  */
 

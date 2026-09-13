@@ -24,7 +24,7 @@ const TUI_SPEC: ProviderRuntimeSpec = ProviderRuntimeSpec {
     direct_cli: true,
     startup_delay_ms: 2000,
     clear_multiplexer_env: true,
-    term_program: Some("xterm.js"),
+    term_program: Some("orbit"),
 };
 
 pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
@@ -33,13 +33,13 @@ pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 0,
             clear_multiplexer_env: true,
-            term_program: Some("xterm.js"),
+            term_program: Some("orbit"),
         },
         "opencode" | "opencode-ai" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 2200,
             clear_multiplexer_env: true,
-            term_program: Some("xterm.js"),
+            term_program: Some("orbit"),
         },
         "antigravity" | "agy" => ProviderRuntimeSpec {
             direct_cli: true,
@@ -51,19 +51,19 @@ pub fn runtime_spec(provider: &str) -> ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 800,
             clear_multiplexer_env: true,
-            term_program: Some("xterm.js"),
+            term_program: Some("orbit"),
         },
         "mimo" | "mimo-cli" | "mimocode" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 5000,
             clear_multiplexer_env: true,
-            term_program: Some("xterm.js"),
+            term_program: Some("orbit"),
         },
         "vibe" | "mistral-vibe" | "vibe-cli" => ProviderRuntimeSpec {
             direct_cli: true,
             startup_delay_ms: 1800,
             clear_multiplexer_env: true,
-            term_program: Some("xterm.js"),
+            term_program: Some("orbit"),
         },
         "kilocode" | "kilo" | "@kilocode/cli" | "freebuff" | "freebuff-ai" | "freebuff-cli"
         | "cline" | "copilot" | "github-copilot" | "github-copilot-cli" | "gh-copilot"

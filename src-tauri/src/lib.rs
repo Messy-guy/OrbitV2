@@ -7,26 +7,45 @@ mod mcp;
 mod models;
 mod runtime;
 mod storage;
+mod terminal;
 
 use commands::{
-    apply_context_draft, attach_terminal_stream, create_session, create_workspace, delete_agent,
-    delete_checkpoint, delete_workspace, detach_terminal_stream, detect_agents,
-    execute_agent_handoff, generate_context_draft, generate_context_package, get_agent_mcp_tools,
-    get_agent_terminal_history, get_agent_usage_stats, get_checkpoints, get_git_state,
-    get_handoff_history, get_project_activity, get_project_context, get_sessions,
-    get_workspace_agents, get_workspaces, install_agent_cli, interrupt_agent_session,
-    is_agent_process_running, open_external_url, open_file_dialog, open_folder_dialog,
-    record_handoff, record_user_decision, refresh_detected_agents, remove_project_skill_file,
-    resize_agent_terminal, resolve_project_issue, save_agent, save_checkpoint,
-    save_project_context, send_agent_input, set_agent_role, start_agent_session,
-    stop_agent_session, uninstall_agent_cli, write_project_skill_file, AppState,
+    apply_context_draft, create_session, create_workspace, delete_agent, delete_checkpoint,
+    delete_workspace, detect_agents, execute_agent_handoff, generate_context_draft,
+    generate_context_package, get_agent_mcp_tools, get_agent_terminal_history,
+    get_agent_usage_stats, get_checkpoints, get_git_state, get_handoff_history,
+    get_project_activity, get_project_context, get_sessions, get_workspace_agents, get_workspaces,
+    install_agent_cli, interrupt_agent_session, is_agent_process_running, open_external_url,
+    open_file_dialog, open_folder_dialog, record_handoff, record_user_decision,
+    refresh_detected_agents, remove_project_skill_file, resize_agent_terminal,
+    resolve_project_issue, save_agent, save_checkpoint, save_project_context, send_agent_input,
+    set_agent_role, start_agent_session, stop_agent_session, terminal_v2_attach,
+    terminal_v2_detach, terminal_v2_diagnostics, terminal_v2_input, terminal_v2_interrupt,
+    terminal_v2_resize, terminal_v2_snapshot, terminal_v2_start, terminal_v2_stop,
+    uninstall_agent_cli, write_project_skill_file, AppState,
 };
-use runtime::{ActivityDetector, PtyManager, TerminalStreamBroker};
+use runtime::{ActivityDetector, PtyManager};
 use std::sync::Arc;
 use storage::StorageManager;
+use terminal::TerminalService;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if std::env::var_os("ORBIT_TERMINAL_HEADLESS_SMOKE").is_some() {
+        if let Err(error) = terminal::smoke::run() {
+            eprintln!("[ORBIT TERMINAL SMOKE] failed: {error}");
+            std::process::exit(1);
+        }
+        if std::env::var_os("ORBIT_TERMINAL_PROVIDER_MATRIX").is_some() {
+            if let Err(error) = terminal::smoke::run_provider_matrix() {
+                eprintln!("[ORBIT PROVIDER MATRIX] failed: {error}");
+                std::process::exit(1);
+            }
+        }
+        eprintln!("[ORBIT TERMINAL SMOKE] passed");
+        return;
+    }
+
     // Log every panic to the Orbit debug file before it unwinds. Without this,
     // thread panics (e.g. a poisoned Mutex during PTY teardown) surface only as
     // opaque "task N panicked" JoinErrors with no root cause. Capturing the
@@ -61,17 +80,14 @@ pub fn run() {
     }));
 
     let activity_detector = Arc::new(ActivityDetector::new());
-    let terminal_stream = TerminalStreamBroker::new();
-    let pty_manager = Arc::new(PtyManager::new(
-        activity_detector.clone(),
-        terminal_stream.clone(),
-    ));
+    let pty_manager = Arc::new(PtyManager::new(activity_detector.clone()));
     let storage = Arc::new(StorageManager::new());
+    let terminal_service = Arc::new(TerminalService::new());
 
     let state = AppState {
         pty_manager,
         storage,
-        terminal_stream,
+        terminal_service,
     };
 
     // Pre-warm agent detection in background thread so opening modal is instantaneous
@@ -126,8 +142,15 @@ pub fn run() {
             install_agent_cli,
             uninstall_agent_cli,
             open_external_url,
-            attach_terminal_stream,
-            detach_terminal_stream,
+            terminal_v2_start,
+            terminal_v2_attach,
+            terminal_v2_detach,
+            terminal_v2_input,
+            terminal_v2_resize,
+            terminal_v2_snapshot,
+            terminal_v2_interrupt,
+            terminal_v2_stop,
+            terminal_v2_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running orbit application");

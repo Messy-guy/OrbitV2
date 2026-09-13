@@ -1,4 +1,10 @@
-# Orbit Terminal Runtime V2
+# Orbit Terminal Runtime V2 (Historical Plan)
+
+> Superseded by [`plan.md`](./plan.md) as of 2026-09-13. The implemented
+> architecture now uses Rust `alacritty_terminal` plus the native Canvas grid
+> renderer; it does not use xterm.js as the authoritative emulator. Keep this
+> file as historical context only and do not use its xterm-first migration
+> instructions for new work.
 
 Status: implemented V2 local-rendering transport; packaged-release validation pending
 Last updated: 2026-09-11
