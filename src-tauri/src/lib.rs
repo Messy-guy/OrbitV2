@@ -25,7 +25,7 @@ use commands::{
     uninstall_agent_cli, write_project_skill_file, read_workspace_file, write_workspace_file,
     get_workspace_file_diff, open_in_external_editor, git_stage_file, git_unstage_file,
     git_stage_all, git_unstage_all, git_discard_file, git_discard_all, git_commit,
-    get_git_file_diff_data, AppState,
+    get_git_file_diff_data, git_clone_repo, get_gh_cli_repos, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use std::sync::Arc;
@@ -154,6 +154,8 @@ pub fn run() {
             git_discard_all,
             git_commit,
             get_git_file_diff_data,
+            git_clone_repo,
+            get_gh_cli_repos,
             install_agent_cli,
             uninstall_agent_cli,
             open_external_url,

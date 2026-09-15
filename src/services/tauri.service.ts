@@ -528,6 +528,28 @@ export const tauriService = {
     return invoke<string>('git_commit', { projectPath, message });
   },
 
+  async gitCloneRepo(cloneUrl: string, targetPath: string): Promise<string> {
+    if (!isTauriAvailable()) return 'Simulated git clone';
+    return invoke<string>('git_clone_repo', { cloneUrl, targetPath });
+  },
+
+  async getGhCliRepos(): Promise<Array<{
+    name: string;
+    nameWithOwner: string;
+    isPrivate: boolean;
+    url: string;
+    sshUrl?: string;
+    description?: string;
+    updatedAt?: string;
+  }>> {
+    if (!isTauriAvailable()) return [];
+    try {
+      return await invoke('get_gh_cli_repos');
+    } catch {
+      return [];
+    }
+  },
+
   async openInExternalEditor(projectPath: string, relativePath?: string): Promise<void> {
     if (!isTauriAvailable()) return;
     return invoke<void>('open_in_external_editor', { projectPath, relativePath });

@@ -1331,6 +1331,16 @@ pub fn get_git_file_diff_data(
     Ok(crate::git::get_git_file_diff_data(&project_path, &file_path, staged))
 }
 
+#[tauri::command]
+pub fn git_clone_repo(clone_url: String, target_path: String) -> Result<String, String> {
+    crate::git::clone_repository(&clone_url, &target_path)
+}
+
+#[tauri::command]
+pub fn get_gh_cli_repos() -> Result<Vec<crate::git::GitHubCliRepo>, String> {
+    crate::git::get_gh_cli_repositories()
+}
+
 fn chrono_now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

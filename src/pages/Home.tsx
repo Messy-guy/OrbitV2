@@ -331,16 +331,23 @@ export const Home: React.FC = () => {
             </button>
           </div>
         ) : filteredWorkspaces.length === 0 ? (
-          <div className="flex-1 p-10 rounded-2xl bg-panel border border-border flex flex-col items-center justify-center gap-2 text-center font-mono text-xs text-text-muted">
-            <span>No repositories match current filters</span>
-            {searchQuery && (
+          <div className="flex-1 p-10 rounded-2xl bg-panel border border-border flex flex-col items-center justify-center gap-3 text-center font-mono text-xs text-text-muted">
+            <span className="text-text-primary font-bold">No local workspaces match "{searchQuery}"</span>
+            <div className="flex items-center gap-2 mt-1">
               <button
                 onClick={() => setSearchQuery('')}
-                className="mt-2 px-3 py-1.5 rounded-lg bg-well border border-border text-text-primary hover:border-border-hover cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-well border border-border text-text-muted hover:text-text-primary cursor-pointer transition-colors"
               >
                 Clear Search
               </button>
-            )}
+              <button
+                onClick={() => setIsImportGitHubOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-text-primary text-background font-bold flex items-center gap-1.5 hover:opacity-90 cursor-pointer shadow-sm transition-opacity"
+              >
+                <Github size={12} />
+                <span>Search & Import on GitHub…</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex-1 space-y-6">

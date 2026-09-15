@@ -562,3 +562,83 @@ pub fn commit_changes(project_path: &str, message: &str) -> Result<String, Strin
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubCliRepo {
+    pub name: String,
+    pub name_with_owner: String,
+    #[serde(rename = "isPrivate")]
+    pub is_private: bool,
+    pub url: String,
+    #[serde(rename = "sshUrl")]
+    pub ssh_url: Option<String>,
+    pub description: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+pub fn clone_repository(clone_url: &str, target_path: &str) -> Result<String, String> {
+    let target = Path::new(target_path);
+    if target.exists() {
+        if target.is_dir() {
+            if let Ok(mut entries) = std::fs::read_dir(target) {
+                if entries.next().is_some() {
+                    return Err(format!("Target directory '{}' already exists and is not empty.", target_path));
+                }
+            }
+        } else {
+            return Err(format!("Target path '{}' already exists and is a file.", target_path));
+        }
+    }
+
+    if let Some(parent) = target.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let output = Command::new("git")
+        .args(["clone", "--progress", clone_url, target_path])
+        .output()
+        .map_err(|e| format!("Failed to run git clone: {}", e))?;
+
+    if output.status.success() {
+        let msg = String::from_utf8_lossy(&output.stderr);
+        Ok(if msg.trim().is_empty() {
+            "Cloned repository successfully.".to_string()
+        } else {
+            msg.trim().to_string()
+        })
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let out = String::from_utf8_lossy(&output.stdout);
+        let combined = format!("{}\n{}", err.trim(), out.trim()).trim().to_string();
+        Err(if combined.is_empty() {
+            "Git clone failed with unknown error.".to_string()
+        } else {
+            combined
+        })
+    }
+}
+
+pub fn get_gh_cli_repositories() -> Result<Vec<GitHubCliRepo>, String> {
+    let output = Command::new("gh")
+        .args([
+            "repo",
+            "list",
+            "--limit",
+            "100",
+            "--json",
+            "name,nameWithOwner,isPrivate,url,sshUrl,description,updatedAt",
+        ])
+        .output()
+        .map_err(|e| format!("GitHub CLI (gh) not found or not executable: {}", e))?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        let repos: Vec<GitHubCliRepo> = serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse gh output: {}", e))?;
+        Ok(repos)
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(err.trim().to_string())
+    }
+}
+
