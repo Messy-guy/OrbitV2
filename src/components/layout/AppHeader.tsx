@@ -66,9 +66,12 @@ export const AppHeader: React.FC = () => {
         {activeWorkspace && (
           <>
             <span className="text-text-dim font-mono text-xs shrink-0">/</span>
-            <span className="text-xs font-semibold text-text-secondary font-mono tracking-tight shrink-0 max-w-[150px] truncate">
-              {activeWorkspace.name}
-            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-xs font-bold text-text-primary font-mono tracking-tight max-w-[150px] truncate">
+                {activeWorkspace.name}
+              </span>
+            </div>
+
             <span className="text-text-dim font-mono text-xs shrink-0">/</span>
 
             {/* Left-Aligned Flat Space Tabs Strip */}
@@ -84,18 +87,18 @@ export const AppHeader: React.FC = () => {
                     key={space.id}
                     onClick={() => setActiveSpace(activeWorkspace.id, space.id)}
                     className={clsx(
-                      'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition-all group cursor-pointer select-none whitespace-nowrap',
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all group cursor-pointer select-none whitespace-nowrap',
                       isSelected
-                        ? 'bg-panel-elevated text-text-primary font-bold shadow-sm border border-border'
-                        : 'text-text-muted hover:text-text-primary hover:bg-panel'
+                        ? 'bg-panel-elevated text-text-primary font-bold shadow-xs border border-border'
+                        : 'text-text-muted hover:text-text-primary hover:bg-panel border border-transparent'
                     )}
                   >
-                    <LayoutGrid size={12} className={isSelected ? 'text-text-primary' : 'text-text-dim'} />
+                    <LayoutGrid size={11} className={isSelected ? 'text-text-primary' : 'text-text-dim'} />
                     <span className="truncate max-w-[130px] text-xs">{space.name}</span>
                     <span
                       className={clsx(
-                        'text-[9.5px] px-1.5 py-0.2 rounded font-mono',
-                        isSelected ? 'bg-panel text-text-primary' : 'text-text-dim'
+                        'text-[9.5px] px-1.5 py-0.2 rounded font-mono font-bold',
+                        isSelected ? 'bg-panel text-text-primary border border-border/50' : 'text-text-dim bg-well/60'
                       )}
                     >
                       {spaceAgentCount}
@@ -108,7 +111,7 @@ export const AppHeader: React.FC = () => {
                           e.stopPropagation();
                           deleteSpace(activeWorkspace.id, space.id);
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/10 text-text-dim hover:text-red-400 transition-all ml-0.5"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/10 text-text-dim hover:text-red-400 transition-all ml-0.5 cursor-pointer"
                         title="Delete Space"
                       >
                         <X size={10} />

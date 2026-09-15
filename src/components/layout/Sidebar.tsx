@@ -1,9 +1,10 @@
 import React from 'react';
-import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder, Star, Bot, Sparkles } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, FolderGit2, Terminal, Cpu, Code2, PanelLeftClose, PanelLeft, Folder, Star, Bot, Sparkles, GitBranch, FolderTree } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useAgentStore } from '../../stores/agent.store';
 import { useUIStore } from '../../stores/ui.store';
 import { useSkillStore } from '../../stores/skill.store';
+import { useContextStore } from '../../stores/context.store';
 import { tauriService } from '../../services';
 import { clsx } from 'clsx';
 
@@ -277,6 +278,35 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Sidebar Footer: Quick Source Control & Explorer Controls */}
+      {activeWorkspaceId && (
+        <div className="p-2 border-t border-border bg-well/40 flex items-center justify-between gap-1 text-[11px] font-mono">
+          <button
+            onClick={() => useUIStore.getState().toggleBottomPanel('git')}
+            className="flex-1 px-2 py-1 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center justify-between group cursor-pointer"
+            title="Open Source Control"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <GitBranch size={11} className="text-amber-500 shrink-0" />
+              <span className="truncate">Git</span>
+            </div>
+            {useContextStore.getState().gitState?.modifiedFiles && useContextStore.getState().gitState!.modifiedFiles.length > 0 && (
+              <span className="text-[9px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-400 font-bold">
+                {useContextStore.getState().gitState!.modifiedFiles.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => useUIStore.getState().toggleBottomPanel('files')}
+            className="px-2 py-1 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center gap-1 cursor-pointer"
+            title="Open Workspace Files"
+          >
+            <FolderTree size={11} />
+          </button>
+        </div>
+      )}
     </aside>
   );
 };
