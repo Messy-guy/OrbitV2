@@ -461,6 +461,28 @@ export const tauriService = {
     return invoke<string>('uninstall_agent_cli', { provider });
   },
 
+  async readWorkspaceFile(projectPath: string, relativePath: string): Promise<string> {
+    if (!isTauriAvailable()) return `// Web demo preview for ${relativePath}`;
+    return invoke<string>('read_workspace_file', { projectPath, relativePath });
+  },
+
+  async writeWorkspaceFile(projectPath: string, relativePath: string, content: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('write_workspace_file', { projectPath, relativePath, content });
+  },
+
+  async getWorkspaceFileDiff(projectPath: string, filePath: string): Promise<string> {
+    if (!isTauriAvailable()) {
+      return `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,5 +1,6 @@\n// Simulated diff for ${filePath}`;
+    }
+    return invoke<string>('get_workspace_file_diff', { projectPath, filePath });
+  },
+
+  async openInExternalEditor(projectPath: string, relativePath?: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('open_in_external_editor', { projectPath, relativePath });
+  },
+
   // Event Subscriptions
   async onAgentOutput(callback: (payload: AgentOutputPayload) => void): Promise<UnlistenFn> {
     if (!isTauriAvailable()) return () => {};

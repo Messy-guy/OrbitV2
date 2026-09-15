@@ -130,3 +130,67 @@ pub fn get_git_diff_summary(project_path: &str) -> String {
         diff_output
     }
 }
+
+pub fn get_git_file_diff(project_path: &str, file_path: &str) -> String {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        return "No git repository found at workspace path.".to_string();
+    }
+
+    // 1. Try standard working-tree diff against HEAD
+    let diff_output = Command::new("git")
+        .args(["diff", "HEAD", "--", file_path])
+        .current_dir(path)
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() && !out.stdout.is_empty() {
+                Some(String::from_utf8_lossy(&out.stdout).to_string())
+            } else {
+                None
+            }
+        });
+
+    if let Some(diff) = diff_output {
+        if !diff.trim().is_empty() {
+            return diff;
+        }
+    }
+
+    // 2. Try unstaged diff
+    let unstaged_output = Command::new("git")
+        .args(["diff", "--", file_path])
+        .current_dir(path)
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() && !out.stdout.is_empty() {
+                Some(String::from_utf8_lossy(&out.stdout).to_string())
+            } else {
+                None
+            }
+        });
+
+    if let Some(diff) = unstaged_output {
+        if !diff.trim().is_empty() {
+            return diff;
+        }
+    }
+
+    // 3. For newly created untracked files, synthesize unified diff from full content
+    let full_file_path = path.join(file_path);
+    if full_file_path.exists() && full_file_path.is_file() {
+        if let Ok(content) = std::fs::read_to_string(&full_file_path) {
+            let mut synth = format!("--- /dev/null\n+++ b/{}\n@@ -0,0 +1,{} @@\n", file_path, content.lines().count().max(1));
+            for line in content.lines() {
+                synth.push('+');
+                synth.push_str(line);
+                synth.push('\n');
+            }
+            return synth;
+        }
+    }
+
+    "No changes detected for this file.".to_string()
+}
+

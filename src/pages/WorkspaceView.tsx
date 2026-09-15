@@ -18,6 +18,8 @@ import { ShareContextModal } from '../components/handoff/ShareContextModal';
 import { CreateCheckpointModal } from '../components/context/CreateCheckpointModal';
 import { ContextDraftModal } from '../components/context/ContextDraftModal';
 import { HandoffAnimationOverlay } from '../components/handoff/HandoffAnimationOverlay';
+import { FileEditorModal } from '../components/editor/FileEditorModal';
+import { DiffViewerModal } from '../components/git/DiffViewerModal';
 
 export const WorkspaceView: React.FC = () => {
   const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
@@ -64,6 +66,9 @@ export const WorkspaceView: React.FC = () => {
       <CreateCheckpointModal />
       <ContextDraftModal />
       <HandoffAnimationOverlay />
+      <FileEditorModal />
+      <DiffViewerModal />
     </div>
   );
 };
+

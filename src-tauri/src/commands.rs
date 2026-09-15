@@ -1208,6 +1208,86 @@ pub fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn read_workspace_file(project_path: String, relative_path: String) -> Result<String, String> {
+    let base = std::path::Path::new(&project_path);
+    let full_path = if std::path::Path::new(&relative_path).is_absolute() {
+        std::path::PathBuf::from(&relative_path)
+    } else {
+        base.join(&relative_path)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("File not found: {}", full_path.display()));
+    }
+    if full_path.is_dir() {
+        return Err(format!("Path is a directory: {}", full_path.display()));
+    }
+
+    std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read file {}: {}", full_path.display(), e))
+}
+
+#[tauri::command]
+pub fn write_workspace_file(project_path: String, relative_path: String, content: String) -> Result<(), String> {
+    let base = std::path::Path::new(&project_path);
+    let full_path = if std::path::Path::new(&relative_path).is_absolute() {
+        std::path::PathBuf::from(&relative_path)
+    } else {
+        base.join(&relative_path)
+    };
+
+    if let Some(parent) = full_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    std::fs::write(&full_path, content)
+        .map_err(|e| format!("Failed to write file {}: {}", full_path.display(), e))
+}
+
+#[tauri::command]
+pub fn get_workspace_file_diff(project_path: String, file_path: String) -> Result<String, String> {
+    Ok(crate::git::get_git_file_diff(&project_path, &file_path))
+}
+
+#[tauri::command]
+pub fn open_in_external_editor(project_path: String, relative_path: Option<String>) -> Result<(), String> {
+    let base = std::path::Path::new(&project_path);
+    let target = match relative_path {
+        Some(ref rel) if !rel.is_empty() => {
+            if std::path::Path::new(rel).is_absolute() {
+                rel.clone()
+            } else {
+                base.join(rel).to_string_lossy().to_string()
+            }
+        }
+        _ => project_path.clone(),
+    };
+
+    // Try VS Code first
+    if let Ok(mut child) = std::process::Command::new("code").arg(&target).spawn() {
+        let _ = child.wait();
+        return Ok(());
+    }
+
+    // Fallback to system default opener
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd").args(["/C", "start", "", &target]).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(&target).spawn();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+    }
+
+    Ok(())
+}
+
+
 fn chrono_now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

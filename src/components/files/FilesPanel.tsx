@@ -3,14 +3,18 @@ import { Folder, FolderOpen, FileCode, ChevronRight, ChevronDown, X } from 'luci
 import { useActivityStore } from '../../stores/activity.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
+import { useFileEditorStore } from '../../stores/fileEditor.store';
+import { ExternalLink } from 'lucide-react';
 import { FileItem } from '../../types/orbit';
 import { clsx } from 'clsx';
 
 export const FilesPanel: React.FC = () => {
-  const { activeWorkspaceId } = useWorkspaceStore();
+  const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
   const { getFiles } = useActivityStore();
   const { setActiveBottomPanel } = useUIStore();
+  const { openFile, openInExternalEditor } = useFileEditorStore();
 
+  const activeWorkspace = getActiveWorkspace();
   const files = activeWorkspaceId ? getFiles(activeWorkspaceId) : [];
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
     'src': true,
@@ -21,6 +25,10 @@ export const FilesPanel: React.FC = () => {
 
   const toggleFolder = (path: string) => {
     setExpandedFolders(prev => ({ ...prev, [path]: !prev[path] }));
+  };
+
+  const handleFileClick = (path: string) => {
+    openFile(path);
   };
 
   const renderItem = (item: FileItem, depth: number = 0) => {
@@ -50,24 +58,31 @@ export const FilesPanel: React.FC = () => {
     return (
       <div
         key={item.id}
-        className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-panel-hover text-[11px] group cursor-default transition-colors"
+        onClick={() => handleFileClick(item.path)}
+        className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-panel-hover text-[11px] group cursor-pointer transition-colors"
         style={{ paddingLeft: `${depth * 14 + 18}px` }}
+        title="Click to view/edit file in Orbit"
       >
         <div className="flex items-center gap-1.5 truncate">
-          <FileCode size={11} className="text-text-dim group-hover:text-text-secondary shrink-0" />
+          <FileCode size={11} className="text-text-dim group-hover:text-amber-400 shrink-0" />
           <span className={clsx(
-            'text-[11px] font-mono truncate',
+            'text-[11px] font-mono truncate group-hover:text-text-primary transition-colors',
             item.status === 'modified' ? 'text-text-primary font-medium' : 'text-text-secondary'
           )}>
             {item.name}
           </span>
         </div>
 
-        {item.status === 'modified' && (
-          <span className="text-[8.5px] font-mono font-bold px-1 py-0.2 rounded bg-panel text-text-muted border border-border">
-            MOD
+        <div className="flex items-center gap-1.5">
+          {item.status === 'modified' && (
+            <span className="text-[8.5px] font-mono font-bold px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              MOD
+            </span>
+          )}
+          <span className="text-[9.5px] text-text-dim group-hover:text-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
+            Open ➜
           </span>
-        )}
+        </div>
       </div>
     );
   };
@@ -82,12 +97,22 @@ export const FilesPanel: React.FC = () => {
           </span>
         </div>
 
-        <button
-          onClick={() => setActiveBottomPanel(null)}
-          className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel-hover transition-colors"
-        >
-          <X size={13} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => openInExternalEditor()}
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-well hover:bg-panel text-text-muted hover:text-text-primary text-[10px] border border-border transition-colors cursor-pointer"
+            title="Open entire project in VS Code"
+          >
+            <ExternalLink size={11} />
+            <span className="hidden sm:inline">VS Code</span>
+          </button>
+          <button
+            onClick={() => setActiveBottomPanel(null)}
+            className="text-text-muted hover:text-text-primary p-0.5 rounded hover:bg-panel-hover transition-colors cursor-pointer"
+          >
+            <X size={13} />
+          </button>
+        </div>
       </div>
 
       {/* Files Tree */}

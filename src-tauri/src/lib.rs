@@ -22,7 +22,8 @@ use commands::{
     set_agent_role, start_agent_session, stop_agent_session, terminal_v2_attach,
     terminal_v2_detach, terminal_v2_diagnostics, terminal_v2_input, terminal_v2_interrupt,
     terminal_v2_resize, terminal_v2_snapshot, terminal_v2_start, terminal_v2_stop,
-    uninstall_agent_cli, write_project_skill_file, AppState,
+    uninstall_agent_cli, write_project_skill_file, read_workspace_file, write_workspace_file,
+    get_workspace_file_diff, open_in_external_editor, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use std::sync::Arc;
@@ -139,6 +140,10 @@ pub fn run() {
             get_agent_usage_stats,
             write_project_skill_file,
             remove_project_skill_file,
+            read_workspace_file,
+            write_workspace_file,
+            get_workspace_file_diff,
+            open_in_external_editor,
             install_agent_cli,
             uninstall_agent_cli,
             open_external_url,
