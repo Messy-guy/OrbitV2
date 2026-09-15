@@ -122,7 +122,10 @@ export interface Message {
 
 export interface ChangedFileItem {
   path: string;
-  status: 'modified' | 'added' | 'deleted' | 'untracked';
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed' | string;
+  staged?: boolean;
+  unstaged?: boolean;
+  isUntracked?: boolean;
 }
 
 export interface GitBranch {
@@ -135,7 +138,19 @@ export interface GitState {
   currentBranch: string;
   headCommit: string;
   modifiedFiles: ChangedFileItem[];
+  stagedFiles?: ChangedFileItem[];
+  unstagedFiles?: ChangedFileItem[];
+  untrackedFiles?: ChangedFileItem[];
   recentCommits: string[];
+}
+
+export interface GitFileDiffData {
+  filePath: string;
+  originalContent: string;
+  modifiedContent: string;
+  diff: string;
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed' | string;
+  isStaged: boolean;
 }
 
 export interface Checkpoint {

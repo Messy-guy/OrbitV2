@@ -74,7 +74,13 @@ pub struct Session {
 #[serde(rename_all = "camelCase")]
 pub struct ChangedFileItem {
     pub path: String,
-    pub status: String, // "modified", "added", "deleted", "untracked"
+    pub status: String, // "modified", "added", "deleted", "untracked", "renamed"
+    #[serde(default)]
+    pub staged: bool,
+    #[serde(default)]
+    pub unstaged: bool,
+    #[serde(default)]
+    pub is_untracked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +98,21 @@ pub struct GitState {
     pub current_branch: String,
     pub head_commit: String,
     pub modified_files: Vec<ChangedFileItem>,
+    pub staged_files: Vec<ChangedFileItem>,
+    pub unstaged_files: Vec<ChangedFileItem>,
+    pub untracked_files: Vec<ChangedFileItem>,
     pub recent_commits: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileDiffData {
+    pub file_path: String,
+    pub original_content: String,
+    pub modified_content: String,
+    pub diff: String,
+    pub status: String,
+    pub is_staged: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

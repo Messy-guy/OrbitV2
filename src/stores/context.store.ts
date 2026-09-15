@@ -45,6 +45,13 @@ interface ContextState {
   recordDecision: (workspaceId: string, title: string, description?: string, authorAgent?: string) => Promise<void>;
   resolveIssue: (workspaceId: string, issueId: string) => Promise<void>;
   loadGitState: (projectPath: string) => Promise<GitState>;
+  stageFile: (projectPath: string, filePath: string) => Promise<void>;
+  unstageFile: (projectPath: string, filePath: string) => Promise<void>;
+  stageAll: (projectPath: string) => Promise<void>;
+  unstageAll: (projectPath: string) => Promise<void>;
+  discardFile: (projectPath: string, filePath: string) => Promise<void>;
+  discardAll: (projectPath: string) => Promise<void>;
+  commitChanges: (projectPath: string, message: string) => Promise<string>;
   loadHandoffHistory: (workspaceId: string) => Promise<void>;
   updateCurrentTask: (workspaceId: string, currentTask: string) => Promise<void>;
   updateGoal: (workspaceId: string, goal: string) => Promise<void>;
@@ -173,6 +180,49 @@ export const useContextStore = create<ContextState>((set, get) => ({
     const git = await contextService.getGitState(projectPath);
     set({ gitState: git });
     return git;
+  },
+
+  stageFile: async (projectPath: string, filePath: string) => {
+    await tauriService.gitStageFile(projectPath, filePath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  unstageFile: async (projectPath: string, filePath: string) => {
+    await tauriService.gitUnstageFile(projectPath, filePath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  stageAll: async (projectPath: string) => {
+    await tauriService.gitStageAll(projectPath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  unstageAll: async (projectPath: string) => {
+    await tauriService.gitUnstageAll(projectPath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  discardFile: async (projectPath: string, filePath: string) => {
+    await tauriService.gitDiscardFile(projectPath, filePath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  discardAll: async (projectPath: string) => {
+    await tauriService.gitDiscardAll(projectPath);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+  },
+
+  commitChanges: async (projectPath: string, message: string) => {
+    const res = await tauriService.gitCommit(projectPath, message);
+    const git = await contextService.getGitState(projectPath);
+    set({ gitState: git });
+    return res;
   },
 
   loadHandoffHistory: async (workspaceId: string) => {

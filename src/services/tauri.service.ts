@@ -15,6 +15,7 @@ import {
   ChangedFileItem,
   Checkpoint,
   ContextPackage,
+  GitFileDiffData,
   GitState,
   HandoffRecord,
   ProjectContext,
@@ -476,6 +477,55 @@ export const tauriService = {
       return `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,5 +1,6 @@\n// Simulated diff for ${filePath}`;
     }
     return invoke<string>('get_workspace_file_diff', { projectPath, filePath });
+  },
+
+  async getGitFileDiffData(projectPath: string, filePath: string, staged?: boolean): Promise<GitFileDiffData> {
+    if (!isTauriAvailable()) {
+      return {
+        filePath,
+        originalContent: `// Original content of ${filePath}`,
+        modifiedContent: `// Modified content of ${filePath}\n// Orbit live code edit`,
+        diff: `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,5 +1,6 @@\n// Simulated diff for ${filePath}`,
+        status: 'modified',
+        isStaged: !!staged,
+      };
+    }
+    return invoke<GitFileDiffData>('get_git_file_diff_data', { projectPath, filePath, staged });
+  },
+
+  async gitStageFile(projectPath: string, filePath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_stage_file', { projectPath, filePath });
+  },
+
+  async gitUnstageFile(projectPath: string, filePath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_unstage_file', { projectPath, filePath });
+  },
+
+  async gitStageAll(projectPath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_stage_all', { projectPath });
+  },
+
+  async gitUnstageAll(projectPath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_unstage_all', { projectPath });
+  },
+
+  async gitDiscardFile(projectPath: string, filePath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_discard_file', { projectPath, filePath });
+  },
+
+  async gitDiscardAll(projectPath: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('git_discard_all', { projectPath });
+  },
+
+  async gitCommit(projectPath: string, message: string): Promise<string> {
+    if (!isTauriAvailable()) return 'Simulated commit';
+    return invoke<string>('git_commit', { projectPath, message });
   },
 
   async openInExternalEditor(projectPath: string, relativePath?: string): Promise<void> {

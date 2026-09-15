@@ -16,6 +16,8 @@ interface UIState {
   isBroadcastCollapsed: boolean;
   isMinimapVisible: boolean;
   activeDiffFile: string | null;
+  activeDiffStaged: boolean;
+  diffViewMode: 'side-by-side' | 'unified';
   canvasLayoutPreset: 'auto' | 'split' | 'grid' | 'columns' | 'stack';
   selectedAgentForModal: string | null; // agentId
   maximizedAgentId: string | null; // agentId for fullscreen/maximized terminal
@@ -40,7 +42,8 @@ interface UIState {
   toggleShortcuts: () => void;
   setSettingsOpen: (open: boolean) => void;
   toggleSettings: () => void;
-  setActiveDiffFile: (file: string | null) => void;
+  setActiveDiffFile: (file: string | null, staged?: boolean) => void;
+  setDiffViewMode: (mode: 'side-by-side' | 'unified') => void;
   setCanvasLayoutPreset: (preset: 'auto' | 'split' | 'grid' | 'columns' | 'stack') => void;
   setMaximizedAgentId: (agentId: string | null) => void;
 }
@@ -60,6 +63,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   isShortcutsOpen: false,
   isSettingsOpen: false,
   activeDiffFile: null,
+  activeDiffStaged: false,
+  diffViewMode: 'side-by-side',
   canvasLayoutPreset: 'auto',
   selectedAgentForModal: null,
   maximizedAgentId: null,
@@ -83,8 +88,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(state => ({ isSettingsOpen: !state.isSettingsOpen }));
   },
 
-  setActiveDiffFile: (file: string | null) => {
-    set({ activeDiffFile: file });
+  setActiveDiffFile: (file: string | null, staged: boolean = false) => {
+    set({ activeDiffFile: file, activeDiffStaged: staged });
+  },
+
+  setDiffViewMode: (mode: 'side-by-side' | 'unified') => {
+    set({ diffViewMode: mode });
   },
 
   setCanvasLayoutPreset: (preset) => {

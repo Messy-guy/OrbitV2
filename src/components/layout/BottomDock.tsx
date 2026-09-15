@@ -9,7 +9,7 @@ import { clsx } from 'clsx';
 
 export const BottomDock: React.FC = () => {
   const { activeBottomPanel, toggleBottomPanel } = useUIStore();
-  const { currentContext, checkpoints } = useContextStore();
+  const { currentContext, checkpoints, gitState } = useContextStore();
   const { activeWorkspaceId } = useWorkspaceStore();
   const { getActivities } = useActivityStore();
 
@@ -41,9 +41,9 @@ export const BottomDock: React.FC = () => {
     },
     {
       id: 'git',
-      label: 'Git',
+      label: 'Source Control',
       icon: <GitBranch size={12} />,
-      badge: '3 mod',
+      badge: gitState?.modifiedFiles && gitState.modifiedFiles.length > 0 ? `${gitState.modifiedFiles.length}` : undefined,
     },
     {
       id: 'sessions',

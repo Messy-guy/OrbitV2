@@ -2,8 +2,8 @@ use crate::context::build_context_package;
 use crate::discovery::detect_all_agents;
 use crate::git::inspect_git_state;
 use crate::models::{
-    Agent, ChangedFileItem, Checkpoint, ContextPackage, DetectedAgent, GitState, HandoffRecord,
-    ProjectContext, Session, Workspace,
+    Agent, ChangedFileItem, Checkpoint, ContextPackage, DetectedAgent, GitFileDiffData, GitState,
+    HandoffRecord, ProjectContext, Session, Workspace,
 };
 use crate::runtime::PtyManager;
 use crate::storage::StorageManager;
@@ -1287,6 +1287,49 @@ pub fn open_in_external_editor(project_path: String, relative_path: Option<Strin
     Ok(())
 }
 
+#[tauri::command]
+pub fn git_stage_file(project_path: String, file_path: String) -> Result<(), String> {
+    crate::git::stage_file(&project_path, &file_path)
+}
+
+#[tauri::command]
+pub fn git_unstage_file(project_path: String, file_path: String) -> Result<(), String> {
+    crate::git::unstage_file(&project_path, &file_path)
+}
+
+#[tauri::command]
+pub fn git_stage_all(project_path: String) -> Result<(), String> {
+    crate::git::stage_all(&project_path)
+}
+
+#[tauri::command]
+pub fn git_unstage_all(project_path: String) -> Result<(), String> {
+    crate::git::unstage_all(&project_path)
+}
+
+#[tauri::command]
+pub fn git_discard_file(project_path: String, file_path: String) -> Result<(), String> {
+    crate::git::discard_file(&project_path, &file_path)
+}
+
+#[tauri::command]
+pub fn git_discard_all(project_path: String) -> Result<(), String> {
+    crate::git::discard_all(&project_path)
+}
+
+#[tauri::command]
+pub fn git_commit(project_path: String, message: String) -> Result<String, String> {
+    crate::git::commit_changes(&project_path, &message)
+}
+
+#[tauri::command]
+pub fn get_git_file_diff_data(
+    project_path: String,
+    file_path: String,
+    staged: Option<bool>,
+) -> Result<GitFileDiffData, String> {
+    Ok(crate::git::get_git_file_diff_data(&project_path, &file_path, staged))
+}
 
 fn chrono_now_millis() -> i64 {
     std::time::SystemTime::now()
