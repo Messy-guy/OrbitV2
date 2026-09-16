@@ -1208,14 +1208,253 @@ pub fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn read_workspace_file(project_path: String, relative_path: String) -> Result<String, String> {
-    let base = std::path::Path::new(&project_path);
-    let full_path = if std::path::Path::new(&relative_path).is_absolute() {
-        std::path::PathBuf::from(&relative_path)
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct WorkspaceFileContent {
+    pub content: String,
+    pub resolved_path: String,
+    pub is_external: bool,
+}
+
+fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::PathBuf {
+    let clean = relative_path
+        .trim()
+        .trim_start_matches("file://")
+        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+
+    // Expand tilde (~) if present
+    if clean.starts_with("~/") || clean == "~" {
+        let home = {
+            #[cfg(windows)]
+            {
+                std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var_os("HOME").map(std::path::PathBuf::from)
+            }
+        };
+        if let Some(h) = home {
+            let sub = clean.trim_start_matches('~').trim_start_matches('/');
+            return h.join(sub);
+        }
+    }
+
+    let p = std::path::Path::new(clean);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else if !project_path.is_empty() {
+        std::path::Path::new(project_path).join(clean)
     } else {
-        base.join(&relative_path)
-    };
+        p.to_path_buf()
+    }
+}
+
+/// Looks up an agent-generated artifact (e.g. implementation_plan.md, walkthrough.md)
+/// in known agent stores, prioritizing active sessions matching the current project_path.
+fn find_agent_artifact_path(project_path: &str, input_path: &str) -> Option<std::path::PathBuf> {
+    let clean = input_path
+        .trim()
+        .trim_start_matches("file://")
+        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+
+    let file_name = std::path::Path::new(clean)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(clean);
+
+    if file_name.is_empty() {
+        return None;
+    }
+
+    let home = {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(std::path::PathBuf::from)
+        }
+    }?;
+
+    // 1. Check Antigravity / Gemini CLI brain directories
+    let brain_path = home.join(".gemini/antigravity-cli/brain");
+    if brain_path.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&brain_path) {
+            let mut conv_folders: Vec<(std::path::PathBuf, std::time::SystemTime, bool)> = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let mtime = entry
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+                    // Check if transcript in this brain directory matches current project_path
+                    let mut matches_project = false;
+                    if !project_path.is_empty() {
+                        let transcript = path.join(".system_generated/logs/transcript.jsonl");
+                        if transcript.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&transcript) {
+                                if content.contains(project_path) {
+                                    matches_project = true;
+                                }
+                            }
+                        }
+                    }
+                    conv_folders.push((path, mtime, matches_project));
+                }
+            }
+
+            // Prioritize sessions matching project_path, then newest modified time
+            conv_folders.sort_by(|a, b| {
+                match (a.2, b.2) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => b.1.cmp(&a.1),
+                }
+            });
+
+            for (conv_dir, _, _) in conv_folders {
+                // Direct file in conversation directory (e.g. brain/<id>/implementation_plan.md)
+                let direct = conv_dir.join(file_name);
+                if direct.is_file() {
+                    return Some(direct);
+                }
+                // File in scratch directory
+                let scratch = conv_dir.join("scratch").join(file_name);
+                if scratch.is_file() {
+                    return Some(scratch);
+                }
+                // Also check if relative path within conv_dir matches (e.g. if input was scratch/foo.py)
+                let relative_in_conv = conv_dir.join(clean);
+                if relative_in_conv.is_file() {
+                    return Some(relative_in_conv);
+                }
+            }
+        }
+    }
+
+    // 2. Check Claude / Orbit / common agent artifact stores
+    let agent_dirs = [
+        home.join(".claude/artifacts"),
+        home.join(".claude/projects"),
+        home.join(".orbit/artifacts"),
+        home.join(".local/share/orbit/artifacts"),
+    ];
+    for dir in agent_dirs {
+        if dir.is_dir() {
+            let direct = dir.join(file_name);
+            if direct.is_file() {
+                return Some(direct);
+            }
+        }
+    }
+
+    None
+}
+
+/// Recursively searches for a file by name inside the project directory,
+/// ignoring common build/dependency folders.
+fn find_file_in_project_tree(project_path: &str, file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
+    if project_path.is_empty() || file_name.is_empty() {
+        return None;
+    }
+    let root = std::path::Path::new(project_path);
+    if !root.is_dir() {
+        return None;
+    }
+
+    let mut stack = vec![(root.to_path_buf(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > max_depth {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = entry.file_type().ok();
+            if file_type.map_or(false, |ft| ft.is_dir()) {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if matches!(name, "node_modules" | ".git" | "target" | "dist" | "build" | ".next" | ".cargo") {
+                        continue;
+                    }
+                    stack.push((path, depth + 1));
+                }
+            } else if file_type.map_or(false, |ft| ft.is_file()) {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.eq_ignore_ascii_case(file_name) {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn find_real_file_path(project_path: &str, input_path: &str) -> std::path::PathBuf {
+    let clean = input_path
+        .trim()
+        .trim_start_matches("file://")
+        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+
+    // 1. Direct candidate
+    let candidate = resolve_file_path(project_path, clean);
+    if candidate.exists() {
+        return candidate;
+    }
+
+    // 2. Try stripping trailing sentence punctuation like . , ; : ! ?
+    let stripped_punct = clean.trim_end_matches(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?'));
+    if stripped_punct != clean {
+        let candidate2 = resolve_file_path(project_path, stripped_punct);
+        if candidate2.exists() {
+            return candidate2;
+        }
+    }
+
+    // 3. Try stripping trailing line/column indicators like :12:34 or :12
+    if let Some(colon_pos) = clean.rfind(':') {
+        let sub = &clean[..colon_pos];
+        let sub2 = if let Some(first_colon) = sub.rfind(':') {
+            if sub[first_colon + 1..].chars().all(|c| c.is_ascii_digit()) {
+                &sub[..first_colon]
+            } else {
+                sub
+            }
+        } else {
+            sub
+        };
+        let candidate3 = resolve_file_path(project_path, sub2);
+        if candidate3.exists() {
+            return candidate3;
+        }
+    }
+
+    // 4. Check if file exists inside project tree (e.g. docs/, src/, .gemini/)
+    let bare_name = std::path::Path::new(clean)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(clean);
+    if let Some(in_tree) = find_file_in_project_tree(project_path, bare_name, 4) {
+        return in_tree;
+    }
+
+    // 5. Look in agent artifact/brain directories (Antigravity CLI brain, Claude artifacts, Orbit)
+    if let Some(agent_file) = find_agent_artifact_path(project_path, clean) {
+        return agent_file;
+    }
+
+    // If still not found, return candidate so the error message shows the attempted path
+    candidate
+}
+
+#[tauri::command]
+pub fn read_workspace_file(project_path: String, relative_path: String) -> Result<WorkspaceFileContent, String> {
+    let full_path = find_real_file_path(&project_path, &relative_path);
 
     if !full_path.exists() {
         return Err(format!("File not found: {}", full_path.display()));
@@ -1224,18 +1463,26 @@ pub fn read_workspace_file(project_path: String, relative_path: String) -> Resul
         return Err(format!("Path is a directory: {}", full_path.display()));
     }
 
-    std::fs::read_to_string(&full_path)
-        .map_err(|e| format!("Failed to read file {}: {}", full_path.display(), e))
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read file {}: {}", full_path.display(), e))?;
+
+    let resolved_path = full_path.to_string_lossy().to_string();
+    let is_external = if !project_path.is_empty() {
+        !resolved_path.starts_with(&project_path)
+    } else {
+        false
+    };
+
+    Ok(WorkspaceFileContent {
+        content,
+        resolved_path,
+        is_external,
+    })
 }
 
 #[tauri::command]
 pub fn write_workspace_file(project_path: String, relative_path: String, content: String) -> Result<(), String> {
-    let base = std::path::Path::new(&project_path);
-    let full_path = if std::path::Path::new(&relative_path).is_absolute() {
-        std::path::PathBuf::from(&relative_path)
-    } else {
-        base.join(&relative_path)
-    };
+    let full_path = find_real_file_path(&project_path, &relative_path);
 
     if let Some(parent) = full_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1252,14 +1499,9 @@ pub fn get_workspace_file_diff(project_path: String, file_path: String) -> Resul
 
 #[tauri::command]
 pub fn open_in_external_editor(project_path: String, relative_path: Option<String>) -> Result<(), String> {
-    let base = std::path::Path::new(&project_path);
     let target = match relative_path {
         Some(ref rel) if !rel.is_empty() => {
-            if std::path::Path::new(rel).is_absolute() {
-                rel.clone()
-            } else {
-                base.join(rel).to_string_lossy().to_string()
-            }
+            find_real_file_path(&project_path, rel).to_string_lossy().to_string()
         }
         _ => project_path.clone(),
     };
@@ -1337,8 +1579,309 @@ pub fn git_clone_repo(clone_url: String, target_path: String) -> Result<String, 
 }
 
 #[tauri::command]
+pub fn save_image_bytes(project_path: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let dir = if !project_path.is_empty() {
+        std::path::PathBuf::from(&project_path).join(".orbit").join("attachments")
+    } else {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        home.join(".orbit").join("attachments")
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let file_path = dir.join(&filename);
+    std::fs::write(&file_path, &bytes)
+        .map_err(|e| format!("Failed to save image file: {}", e))?;
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn get_gh_cli_repos() -> Result<Vec<crate::git::GitHubCliRepo>, String> {
     crate::git::get_gh_cli_repositories()
+}
+
+#[tauri::command]
+pub fn read_clipboard_text() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Clipboard"])
+            .output()
+        {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("pbpaste").output() {
+            if output.status.success() {
+                return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try wl-paste
+        if let Ok(output) = std::process::Command::new("wl-paste").args(["--no-newline"]).output() {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout).to_string();
+                if !s.is_empty() { return Ok(s); }
+            }
+        }
+
+        // 2. Try xclip
+        if let Ok(output) = std::process::Command::new("xclip").args(["-selection", "clipboard", "-o"]).output() {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout).to_string();
+                if !s.is_empty() { return Ok(s); }
+            }
+        }
+
+        // 3. Try xsel
+        if let Ok(output) = std::process::Command::new("xsel").args(["--clipboard", "--output"]).output() {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout).to_string();
+                if !s.is_empty() { return Ok(s); }
+            }
+        }
+
+        // 4. Try python3 with Gtk
+        let py_script = "import gi\ngi.require_version('Gtk', '3.0')\nfrom gi.repository import Gtk, Gdk\ncb = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)\nt = cb.wait_for_text()\nif t: print(t, end='')";
+        if let Ok(output) = std::process::Command::new("python3").args(["-c", py_script]).output() {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout).to_string();
+                return Ok(s);
+            }
+        }
+    }
+
+    Ok(String::new())
+}
+
+#[tauri::command]
+pub fn write_clipboard_text(text: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let escaped = text.replace('\'', "''");
+        let ps_cmd = format!("Set-Clipboard -Value '{}'", escaped);
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Write;
+        if let Ok(mut child) = std::process::Command::new("pbcopy").stdin(std::process::Stdio::piped()).spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        let mut written = false;
+
+        // Try wl-copy
+        if let Ok(mut child) = std::process::Command::new("wl-copy").stdin(std::process::Stdio::piped()).spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if child.wait().map(|s| s.success()).unwrap_or(false) {
+                written = true;
+            }
+        }
+
+        // Try xclip
+        if !written {
+            if let Ok(mut child) = std::process::Command::new("xclip").args(["-selection", "clipboard"]).stdin(std::process::Stdio::piped()).spawn() {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                if child.wait().map(|s| s.success()).unwrap_or(false) {
+                    written = true;
+                }
+            }
+        }
+
+        // Try python3 Gtk
+        if !written {
+            let py_script = format!(
+                "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk, Gdk; cb = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD); cb.set_text({:?}, -1); cb.store()",
+                text
+            );
+            let _ = std::process::Command::new("python3").args(["-c", &py_script]).output();
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_clipboard_image(project_path: String) -> Result<Option<String>, String> {
+    let dir = if !project_path.is_empty() {
+        std::path::PathBuf::from(&project_path).join(".orbit").join("attachments")
+    } else {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        home.join(".orbit").join("attachments")
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let filename = format!("screenshot_{}.png", chrono_now_millis());
+    let file_path = dir.join(&filename);
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try wl-paste --type image/png
+        if let Ok(output) = std::process::Command::new("wl-paste").args(["--type", "image/png"]).output() {
+            if output.status.success() && !output.stdout.is_empty() {
+                if std::fs::write(&file_path, &output.stdout).is_ok() {
+                    return Ok(Some(file_path_str));
+                }
+            }
+        }
+
+        // 2. Try xclip
+        if let Ok(output) = std::process::Command::new("xclip").args(["-selection", "clipboard", "-t", "image/png", "-o"]).output() {
+            if output.status.success() && !output.stdout.is_empty() {
+                if std::fs::write(&file_path, &output.stdout).is_ok() {
+                    return Ok(Some(file_path_str));
+                }
+            }
+        }
+
+        // 3. Try python3 with Gtk
+        let py_script = format!(
+            "import gi\ngi.require_version('Gtk', '3.0')\nfrom gi.repository import Gtk, Gdk\nGtk.init_check()\ncb = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)\nimg = cb.wait_for_image()\nif img:\n    img.savev({:?}, 'png', [], [])\n    print('ok', end='')\nelse:\n    for target_name in ['image/png', 'image/jpeg', 'PNG']:\n        atom = Gdk.Atom.intern(target_name, False)\n        if cb.wait_is_target_available(atom):\n            sel = cb.wait_for_contents(atom)\n            if sel and sel.get_data():\n                with open({:?}, 'wb') as f: f.write(sel.get_data())\n                print('ok', end='')\n                break",
+            file_path_str, file_path_str
+        );
+        if let Ok(output) = std::process::Command::new("python3").args(["-c", &py_script]).output() {
+            if String::from_utf8_lossy(&output.stdout).trim() == "ok" && file_path.exists() {
+                return Ok(Some(file_path_str));
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) {{ $img.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png); Write-Host 'ok' }}",
+            file_path_str.replace('\'', "''")
+        );
+        if let Ok(output) = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &ps_script]).output() {
+            if String::from_utf8_lossy(&output.stdout).trim() == "ok" && file_path.exists() {
+                return Ok(Some(file_path_str));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+pub fn get_latest_screenshot(project_path: Option<String>) -> Result<Option<String>, String> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+
+    if let Some(ref h) = home {
+        dirs.push(h.join("Pictures").join("Screenshots"));
+        dirs.push(h.join("Pictures"));
+        dirs.push(h.join("Desktop"));
+        dirs.push(h.join(".orbit").join("attachments"));
+    }
+
+    if let Some(ref p) = project_path {
+        if !p.is_empty() {
+            dirs.push(std::path::PathBuf::from(p).join(".orbit").join("attachments"));
+        }
+    }
+
+    let mut latest_path: Option<std::path::PathBuf> = None;
+    let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
+
+    for dir in dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if ["png", "jpg", "jpeg", "webp"].contains(&ext.as_str()) {
+                        if let Ok(meta) = entry.metadata() {
+                            if let Ok(modified) = meta.modified() {
+                                if modified > latest_time {
+                                    latest_time = modified;
+                                    latest_path = Some(path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(latest_path.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub fn read_image_base64(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    if !p.is_file() {
+        return Err(format!("File does not exist: {}", path));
+    }
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        _ => "image/png",
+    };
+
+    let bytes = std::fs::read(p).map_err(|e| format!("Failed to read image: {}", e))?;
+    const STANDARD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
+
+        b64.push(STANDARD[(b0 >> 2) as usize] as char);
+        b64.push(STANDARD[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            b64.push(STANDARD[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            b64.push('=');
+        }
+        if chunk.len() > 2 {
+            b64.push(STANDARD[(b2 & 0x3f) as usize] as char);
+        } else {
+            b64.push('=');
+        }
+    }
+
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 fn chrono_now_millis() -> i64 {
@@ -1347,3 +1890,138 @@ fn chrono_now_millis() -> i64 {
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
+
+#[tauri::command]
+pub fn transcribe_audio(audio_path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&audio_path);
+    if !p.exists() {
+        return Err(format!("Audio file not found: {}", audio_path));
+    }
+
+    // Locate whisper-cli binary
+    let whisper_bin = {
+        let mut found: Option<std::path::PathBuf> = None;
+        if let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+        {
+            let candidates = [
+                home.join(".local/bin/whisper-cli"),
+                home.join(".cargo/bin/whisper-cli"),
+                home.join("bin/whisper-cli"),
+            ];
+            for c in candidates {
+                if c.is_file() {
+                    found = Some(c);
+                    break;
+                }
+            }
+        }
+        if found.is_none() {
+            let common_paths = [
+                std::path::PathBuf::from("/usr/local/bin/whisper-cli"),
+                std::path::PathBuf::from("/usr/bin/whisper-cli"),
+                std::path::PathBuf::from("/tmp/whisper.cpp/build/bin/whisper-cli"),
+            ];
+            for c in common_paths {
+                if c.is_file() {
+                    found = Some(c);
+                    break;
+                }
+            }
+        }
+        if found.is_none() {
+            if let Ok(output) = std::process::Command::new("which").arg("whisper-cli").output() {
+                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !s.is_empty() {
+                    let pb = std::path::PathBuf::from(&s);
+                    if pb.is_file() {
+                        found = Some(pb);
+                    }
+                }
+            }
+        }
+        found.ok_or_else(|| "whisper-cli binary not found on system. Please ensure whisper-cli is installed.".to_string())?
+    };
+
+    // Locate Whisper ggml model (prioritize base.en for high accuracy, fallback to tiny.en)
+    let model_path = {
+        let mut found: Option<std::path::PathBuf> = None;
+        if let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+        {
+            let candidates = [
+                home.join(".local/share/whisper/ggml-base.en.bin"),
+                home.join(".local/share/whisper/ggml-small.en.bin"),
+                home.join(".local/share/whisper/ggml-tiny.en.bin"),
+                home.join(".local/share/whisper/ggml-base.bin"),
+                home.join(".local/share/whisper/ggml-tiny.bin"),
+                home.join(".cache/whisper/ggml-base.en.bin"),
+                home.join(".cache/whisper/ggml-tiny.en.bin"),
+            ];
+            for c in candidates {
+                if c.is_file() {
+                    found = Some(c);
+                    break;
+                }
+            }
+        }
+        if found.is_none() {
+            let tmp_candidates = [
+                std::path::PathBuf::from("/tmp/whisper.cpp/models/ggml-base.en.bin"),
+                std::path::PathBuf::from("/tmp/whisper.cpp/models/ggml-small.en.bin"),
+                std::path::PathBuf::from("/tmp/whisper.cpp/models/ggml-tiny.en.bin"),
+            ];
+            for c in tmp_candidates {
+                if c.is_file() {
+                    found = Some(c);
+                    break;
+                }
+            }
+        }
+        found.ok_or_else(|| "Whisper speech model not found (expected ~/.local/share/whisper/ggml-base.en.bin or ggml-tiny.en.bin)".to_string())?
+    };
+
+    let output = std::process::Command::new(&whisper_bin)
+        .args([
+            "-m",
+            model_path.to_str().unwrap_or(""),
+            "-f",
+            &audio_path,
+            "-nt",
+            "--no-prints",
+            "-t",
+            "4",
+            "-l",
+            "en",
+            "--prompt",
+            "Orbit software engineering AI assistant. Code, git, commit, push, branch, terminal, React, TypeScript, Rust, build, test, refactor, bug, agents, CLI, workspace.",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute whisper-cli: {}", e))?;
+
+    let raw_text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Clean up any non-speech tokens or tags
+    let lines = raw_text
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('[') && !l.ends_with(']'))
+        .collect::<Vec<_>>();
+
+    let mut result = if !lines.is_empty() {
+        lines.join(" ")
+    } else {
+        if raw_text.contains("[BLANK_AUDIO]") {
+            String::new()
+        } else {
+            raw_text
+        }
+    };
+
+    result = result.replace("[BLANK_AUDIO]", "").trim().to_string();
+
+    Ok(result)
+}
+

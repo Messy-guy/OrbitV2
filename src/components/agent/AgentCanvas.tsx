@@ -63,7 +63,7 @@ export const AgentCanvas: React.FC = () => {
 
   // All agents belonging to this workspace are visible on the canvas
   const visibleAgents = agents.filter(
-    (a) => !activeWorkspace || a.workspaceId === activeWorkspace.id || !a.workspaceId
+    (a) => Boolean(a && a.id) && (!activeWorkspace || a.workspaceId === activeWorkspace.id || !a.workspaceId)
   );
 
   // Track container dimensions on resize
@@ -90,37 +90,59 @@ export const AgentCanvas: React.FC = () => {
     const count = agentList.length;
     const layout: Record<string, WindowBounds> = {};
 
-    if (count === 1) {
+    if (count === 0) {
+      return layout;
+    } else if (count === 1) {
       // 1 Agent: Long full-height terminal, centered horizontally
       const w = Math.min(880, Math.floor(availW * 0.62));
       const fullH = availH;
       const x = Math.floor(pad + (availW - w) / 2);
-      layout[agentList[0].id] = { x, y: pad, width: w, height: fullH, zIndex: 10 };
+      if (agentList[0]?.id) {
+        layout[agentList[0].id] = { x, y: pad, width: w, height: fullH, zIndex: 10 };
+      }
     } else if (count === 2) {
       // 2 Agents: 2 Long Full-Height Terminals Side-by-Side (50% / 50%)
       const halfW = Math.floor((availW - gap) / 2);
       const fullH = availH;
-      layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
-      layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: fullH, zIndex: 11 };
+      if (agentList[0]?.id) {
+        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
+      }
+      if (agentList[1]?.id) {
+        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: fullH, zIndex: 11 };
+      }
     } else if (count === 3) {
       // 3 Agents: Master-Stack (1st long full-height on left, 2nd & 3rd stacked up/down on right)
       const halfW = Math.floor((availW - gap) / 2);
       const halfH = Math.floor((availH - gap) / 2);
       const fullH = availH;
       // 1st Agent (Master): Left 50% width, 100% full height
-      layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
+      if (agentList[0]?.id) {
+        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
+      }
       // 2nd Agent: Top-right quadrant
-      layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
+      if (agentList[1]?.id) {
+        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
+      }
       // 3rd Agent: Bottom-right quadrant
-      layout[agentList[2].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
+      if (agentList[2]?.id) {
+        layout[agentList[2].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
+      }
     } else if (count === 4) {
       // 4 Agents: 2x2 Grid (Each 50% width, 50% height)
       const halfW = Math.floor((availW - gap) / 2);
       const halfH = Math.floor((availH - gap) / 2);
-      layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: halfH, zIndex: 10 };
-      layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
-      layout[agentList[2].id] = { x: pad, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
-      layout[agentList[3].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 13 };
+      if (agentList[0]?.id) {
+        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: halfH, zIndex: 10 };
+      }
+      if (agentList[1]?.id) {
+        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
+      }
+      if (agentList[2]?.id) {
+        layout[agentList[2].id] = { x: pad, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
+      }
+      if (agentList[3]?.id) {
+        layout[agentList[3].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 13 };
+      }
     } else {
       // 5+ Agents: 3-column Grid
       const cols = 3;
@@ -128,6 +150,7 @@ export const AgentCanvas: React.FC = () => {
       const cellW = Math.floor((availW - (cols - 1) * gap) / cols);
       const cellH = Math.floor((availH - (rows - 1) * gap) / rows);
       agentList.forEach((agent, idx) => {
+        if (!agent?.id) return;
         const c = idx % cols;
         const r = Math.floor(idx / cols);
         layout[agent.id] = {
@@ -421,6 +444,7 @@ export const AgentCanvas: React.FC = () => {
             const halfW = Math.floor((availW - gap) / 2);
             const layout: Record<string, WindowBounds> = {};
             visibleAgents.forEach((a, i) => {
+              if (!a?.id) return;
               if (i === 0) layout[a.id] = { x: pad, y: pad, width: halfW, height: availH, zIndex: 10 };
               else if (i === 1) layout[a.id] = { x: pad + halfW + gap, y: pad, width: halfW, height: availH, zIndex: 11 };
               else layout[a.id] = { x: pad + 40 * i, y: pad + 40 * i, width: halfW, height: availH, zIndex: 10 + i };
@@ -442,6 +466,7 @@ export const AgentCanvas: React.FC = () => {
             const halfH = Math.floor((availH - gap) / 2);
             const layout: Record<string, WindowBounds> = {};
             visibleAgents.forEach((a, i) => {
+              if (!a?.id) return;
               const c = i % 2;
               const r = Math.floor(i / 2);
               layout[a.id] = {
@@ -469,6 +494,7 @@ export const AgentCanvas: React.FC = () => {
             const cellW = Math.floor((availW - (cols - 1) * gap) / cols);
             const layout: Record<string, WindowBounds> = {};
             visibleAgents.forEach((a, i) => {
+              if (!a?.id) return;
               const c = i % cols;
               layout[a.id] = {
                 x: pad + c * (cellW + gap),
@@ -504,6 +530,7 @@ export const AgentCanvas: React.FC = () => {
         <div className="absolute inset-0 z-50 p-2 bg-[#0b0c0e] pointer-events-auto flex flex-col">
           {(() => {
             const maxAgent = visibleAgents.find((a) => a.id === maximizedAgentId) || visibleAgents[0];
+            if (!maxAgent) return null;
             const bounds = windowBounds[maxAgent.id] || {
               x: 0,
               y: 0,
@@ -564,25 +591,32 @@ export const AgentCanvas: React.FC = () => {
               </button>
             </div>
           ) : (
-            visibleAgents.map(agent => {
-              const bounds = windowBounds[agent.id] || {
-                x: 40,
-                y: 40,
-                width: 600,
-                height: 420,
-                zIndex: 10,
-              };
+            (() => {
+              const defaultLayout = calculateSmartLayout(
+                visibleAgents,
+                containerSize.width || (typeof window !== 'undefined' ? window.innerWidth - 260 : 1200),
+                containerSize.height || (typeof window !== 'undefined' ? window.innerHeight - 80 : 800)
+              );
+              return visibleAgents.map(agent => {
+                if (!agent?.id) return null;
+                const bounds = windowBounds[agent.id] || defaultLayout[agent.id] || {
+                  x: 40,
+                  y: 40,
+                  width: 880,
+                  height: 600,
+                  zIndex: 10,
+                };
 
-              return (
-                <AgentFloatingWindow
-                  key={agent.id}
-                  agent={agent}
-                  initialPosition={{
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width,
-                    height: bounds.height,
-                  }}
+                return (
+                  <AgentFloatingWindow
+                    key={agent.id}
+                    agent={agent}
+                    initialPosition={{
+                      x: bounds.x,
+                      y: bounds.y,
+                      width: bounds.width,
+                      height: bounds.height,
+                    }}
                   zIndex={bounds.zIndex}
                   isActive={activeAgentId === agent.id}
                   scale={zoom}
@@ -590,8 +624,9 @@ export const AgentCanvas: React.FC = () => {
                   onPositionChange={pos => handlePositionChange(agent.id, pos)}
                 />
               );
-            })
-          )}
+            });
+          })()
+        )}
         </div>
       </div>
 

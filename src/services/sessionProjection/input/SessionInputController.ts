@@ -42,11 +42,8 @@ export class SessionInputController {
     const item = this.queue.shift()!;
     try {
       if (isTauriAvailable()) {
-        await tauriService.sendAgentInput(item.agentId, item.sessionId, item.payload);
-        if (item.preSubmitDelayMs && item.preSubmitDelayMs > 0) {
-          await new Promise((r) => setTimeout(r, item.preSubmitDelayMs));
-        }
-        await tauriService.sendAgentInput(item.agentId, item.sessionId, item.submitKey);
+        // Send payload and submit key all at once in a single atomic write
+        await tauriService.sendAgentInput(item.agentId, item.sessionId, `${item.payload}${item.submitKey}`);
       }
       item.resolve();
     } catch (err) {

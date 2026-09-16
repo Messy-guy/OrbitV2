@@ -2594,6 +2594,7 @@ dependencies = [
  "tauri-plugin-updater",
  "thiserror 2.0.20",
  "tracing",
+ "webkit2gtk",
 ]
 
 [[package]]

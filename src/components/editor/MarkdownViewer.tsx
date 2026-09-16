@@ -113,10 +113,43 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content }) => {
   };
 
   const renderInlineFormatting = (text: string): React.ReactNode => {
-    // Recognize file paths (e.g. `src/App.tsx`, `implement.md`) and backticked code
-    const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+    // Recognize markdown links [label](url), backticked code `code`, bold **text**, and italic *text*
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
 
     return parts.map((part, i) => {
+      // Markdown link [label](url)
+      const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (linkMatch) {
+        const label = linkMatch[1];
+        const url = linkMatch[2].trim();
+        const isWeb = /^https?:\/\//i.test(url);
+        if (isWeb) {
+          return (
+            <a
+              key={i}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-0.5 font-medium transition-colors"
+            >
+              <span>{label}</span>
+              <ExternalLink size={10} />
+            </a>
+          );
+        }
+        return (
+          <button
+            key={i}
+            onClick={() => handlePathClick(url)}
+            className="inline-flex items-center gap-1 px-1.5 py-0.2 mx-0.5 rounded bg-well hover:bg-panel-hover text-amber-400 hover:text-amber-300 border border-border text-[11px] font-mono transition-colors cursor-pointer"
+            title={`Open ${url} in Orbit Editor`}
+          >
+            <FileCode size={10} className="text-amber-500" />
+            <span>{label}</span>
+          </button>
+        );
+      }
+
       if (part.startsWith('`') && part.endsWith('`')) {
         const codeContent = part.slice(1, -1);
         const isFilePath = /\.[a-zA-Z0-9]+$/.test(codeContent) || codeContent.includes('/');

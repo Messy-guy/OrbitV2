@@ -30,10 +30,17 @@ interface WorkspaceState {
 
 const PINNED_STORAGE_KEY = 'orbit_pinned_projects_v1';
 const VIEW_MODE_STORAGE_KEY = 'orbit_launcher_view_mode_v1';
+const LAST_ACTIVE_WORKSPACE_KEY = 'orbit_last_active_workspace_id_v1';
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
-  activeWorkspaceId: null,
+  activeWorkspaceId: (() => {
+    try {
+      return localStorage.getItem(LAST_ACTIVE_WORKSPACE_KEY) || null;
+    } catch {
+      return null;
+    }
+  })(),
   activeSpaceIdByProject: {},
   collapsedProjects: {},
   pinnedProjectIds: (() => {
@@ -80,10 +87,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     } catch (e) {
       console.warn('Failed to delete workspace backend storage:', e);
     }
-    set(state => ({
-      workspaces: state.workspaces.filter(w => w.id !== id),
-      activeWorkspaceId: state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
-    }));
+    set(state => {
+      const isCurrent = state.activeWorkspaceId === id;
+      if (isCurrent) {
+        try {
+          localStorage.removeItem(LAST_ACTIVE_WORKSPACE_KEY);
+        } catch {}
+      }
+      return {
+        workspaces: state.workspaces.filter(w => w.id !== id),
+        activeWorkspaceId: isCurrent ? null : state.activeWorkspaceId,
+      };
+    });
   },
 
   loadWorkspaces: async () => {
@@ -97,7 +112,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           { id: `space-${w.id}-1`, projectId: w.id, name: 'Main Canvas', createdAt: Date.now() }
         ]
       }));
-      set({ workspaces: enriched, isLoading: false });
+
+      // Validate that the persisted activeWorkspaceId actually exists
+      const currentActive = get().activeWorkspaceId;
+      const validActive = currentActive && enriched.some(w => w.id === currentActive) ? currentActive : null;
+      if (!validActive && currentActive) {
+        try {
+          localStorage.removeItem(LAST_ACTIVE_WORKSPACE_KEY);
+        } catch {}
+      }
+
+      set({ workspaces: enriched, activeWorkspaceId: validActive, isLoading: false });
     } catch (e) {
       console.error('Failed to load workspaces', e);
       set({ isLoading: false });
@@ -105,6 +130,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveWorkspace: (id: string | null) => {
+    try {
+      if (id) {
+        localStorage.setItem(LAST_ACTIVE_WORKSPACE_KEY, id);
+      } else {
+        localStorage.removeItem(LAST_ACTIVE_WORKSPACE_KEY);
+      }
+    } catch {}
     set({ activeWorkspaceId: id });
   },
 

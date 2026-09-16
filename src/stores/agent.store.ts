@@ -668,7 +668,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   sendTerminalCommand: async (agentId: string, command: string, projectPath?: string, workspaceId?: string) => {
-    const sessionId = get().activeSessionIdByAgent[agentId] || get().sessions[agentId]?.[0]?.id;
+    const targetAgent = get().agents.find((a) => a.id === agentId);
+    const sessionId = targetAgent?.currentSessionId || get().activeSessionIdByAgent[agentId] || get().sessions[agentId]?.[0]?.id || `sess-${agentId}`;
     if (!sessionId) return;
 
     const trimmed = command.trim();
@@ -677,15 +678,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return;
     }
 
-    // In native Tauri mode, deliver through the canonical profile-aware pipeline
-    // (submit key included — a bare command typed with no `\r` never executes).
-    const targetAgent = get().agents.find((a) => a.id === agentId);
+    // In native Tauri mode, send the full message and Enter key at once in a single atomic write
     if (isTauriAvailable() && targetAgent) {
+      const nativeSessionId = targetAgent.currentSessionId || sessionId;
+      const payloadWithEnter = command.endsWith('\r') || command.endsWith('\n') ? command : `${command}\r`;
+      const bytes = new TextEncoder().encode(payloadWithEnter);
+
       try {
-        const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
-        await conversationCaptureService.submitUserMessage(sessionId, command);
+        // Send directly to the native terminal session all at once
+        await tauriService.sendNativeTerminalInput(nativeSessionId, bytes);
+
+        // Record in conversation capture service for session history
+        try {
+          const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+          conversationCaptureService.recordDirectUserMessage(nativeSessionId, trimmed);
+        } catch {}
         return;
       } catch (e) {
+        // If sending directly failed, try sendAgentInput
+        try {
+          await tauriService.sendAgentInput(agentId, nativeSessionId, payloadWithEnter);
+          return;
+        } catch {}
+
         // If no active process, restart cleanly (no command as prompt) then send
         if (projectPath) {
           try {
@@ -699,10 +714,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             );
             setTimeout(async () => {
               try {
-                const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
-                await conversationCaptureService.submitUserMessage(sessionId, command);
+                const nativeBytes = new TextEncoder().encode(payloadWithEnter);
+                await tauriService.sendNativeTerminalInput(sessionId, nativeBytes);
               } catch (err) {
-                console.warn('Tauri PTY delayed profile-aware delivery error:', err);
+                console.warn('Tauri PTY send after restart error:', err);
               }
             }, 2000);
             return;

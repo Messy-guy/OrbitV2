@@ -110,15 +110,15 @@ export async function deliverPtySubmission(
       await sendInputWithRetry(agentId, sessionId, payload.slice(i, i + PACED_CHUNK_CHARS));
       await new Promise((r) => setTimeout(r, profile.interKeyDelayMs!));
     }
+    if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, submission.preSubmitDelayMs));
+    }
+    await sendInputWithRetry(agentId, sessionId, submission.submitKey);
   } else {
-    await sendInputWithRetry(agentId, sessionId, submission.payload);
+    // Deliver entire message and submit key together at once in a single atomic write
+    const combined = `${submission.payload}${submission.submitKey}`;
+    await sendInputWithRetry(agentId, sessionId, combined);
   }
-
-  if (submission.preSubmitDelayMs && submission.preSubmitDelayMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, submission.preSubmitDelayMs));
-  }
-
-  await sendInputWithRetry(agentId, sessionId, submission.submitKey);
 }
 
 /**

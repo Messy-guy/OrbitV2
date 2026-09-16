@@ -44,6 +44,12 @@ export const ShortcutsModal: React.FC = () => {
         return;
       }
 
+      // Do not hijack shortcuts if user is typing in a terminal, input, or editor
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[role="textbox"], .terminal-container, canvas, input, textarea, select')) {
+        return;
+      }
+
       // Global Action Shortcuts
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         // Ctrl+H -> Context Handoff
@@ -60,8 +66,8 @@ export const ShortcutsModal: React.FC = () => {
           return;
         }
 
-        // Ctrl+Shift+C -> Create Checkpoint
-        if (e.key.toLowerCase() === 'c' && e.shiftKey) {
+        // Ctrl+Shift+S -> Create Checkpoint (Snapshot)
+        if (e.key.toLowerCase() === 's' && e.shiftKey) {
           e.preventDefault();
           setCreateCheckpointOpen(true);
           return;
@@ -121,7 +127,7 @@ export const ShortcutsModal: React.FC = () => {
     { keys: ['Ctrl', '1…9'], action: 'Focus Agent 1 through 9' },
     { keys: ['Ctrl', '⇧', 'F'], action: 'Toggle Fullscreen Terminal' },
     { keys: ['Ctrl', '⇧', 'A'], action: 'Spawn New Agent Instance' },
-    { keys: ['Ctrl', '⇧', 'C'], action: 'Snapshot Checkpoint' },
+    { keys: ['Ctrl', '⇧', 'S'], action: 'Snapshot Checkpoint' },
     { keys: ['Ctrl', 'G'], action: 'Toggle Git & File Diffs Dock' },
     { keys: ['Ctrl', 'J'], action: 'Toggle Context Synthesizer' },
     { keys: ['?'], action: 'Toggle this Shortcuts Guide' },

@@ -8,13 +8,22 @@ const ATTR_ITALIC = 4;
 const ATTR_UNDERLINE = 8;
 const ATTR_HIDDEN = 1 << 8;
 
+export const TERMINAL_FONT_FAMILY = 'JetBrains Mono, Menlo, Monaco, Consolas, monospace';
+export const TERMINAL_FONT_SIZE = 13;
+export const TERMINAL_LINE_HEIGHT = 18;
+
 export class TerminalCanvasRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D;
   private readonly fontFamily: string;
   private readonly fontSize: number;
+  private cachedCellSize: { width: number; height: number } | null = null;
 
-  constructor(canvas: HTMLCanvasElement, fontFamily = 'JetBrains Mono, monospace', fontSize = 13) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    fontFamily = TERMINAL_FONT_FAMILY,
+    fontSize = TERMINAL_FONT_SIZE,
+  ) {
     this.canvas = canvas;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D context unavailable');
@@ -24,50 +33,94 @@ export class TerminalCanvasRenderer {
   }
 
   cellSize(): { width: number; height: number } {
+    if (this.cachedCellSize) return this.cachedCellSize;
     this.context.font = `${this.fontSize}px ${this.fontFamily}`;
-    return { width: Math.max(7, this.context.measureText('M').width), height: this.fontSize * 1.35 };
+    const measuredWidth = this.context.measureText('M').width;
+    const width = measuredWidth > 0 ? measuredWidth : 7.8;
+    this.cachedCellSize = {
+      width: Math.max(6, width),
+      height: TERMINAL_LINE_HEIGHT,
+    };
+    return this.cachedCellSize;
+  }
+
+  invalidateMetrics(): void {
+    this.cachedCellSize = null;
   }
 
   render(snapshot: TerminalSnapshot, selection?: SelectionRange | null): void {
     const dpr = window.devicePixelRatio || 1;
     const cell = this.cellSize();
     const rows = [...snapshot.scrollback, ...snapshot.cells];
-    const width = Math.max(1, snapshot.columns * cell.width);
-    const height = Math.max(1, rows.length * cell.height);
+    const totalRows = rows.length;
+    const width = Math.max(1, Math.ceil(snapshot.columns * cell.width));
+    const height = Math.max(1, Math.ceil(totalRows * cell.height));
+
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
     this.canvas.width = Math.ceil(width * dpr);
     this.canvas.height = Math.ceil(height * dpr);
+
     this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.context.textBaseline = 'top';
+    this.context.textBaseline = 'middle';
     this.context.clearRect(0, 0, width, height);
 
-    rows.forEach((row, displayRow) => {
+    const fontOffsetY = cell.height / 2;
+
+    for (let displayRow = 0; displayRow < totalRows; displayRow += 1) {
+      const row = rows[displayRow];
+      if (!row) continue;
+
+      const y = Math.floor(displayRow * cell.height);
+      const nextY = Math.floor((displayRow + 1) * cell.height);
+      const rowH = nextY - y;
+
       for (let column = 0; column < row.cells.length; column += 1) {
         const item = row.cells[column];
+
+        // Width 0 indicates a spacer for a preceding wide character; skip it completely
+        // so its background does not overwrite or slice into the wide glyph.
+        if (item.width === 0) continue;
+
+        const charWidthMultiplier = item.width === 2 ? 2 : 1;
+        const x = Math.floor(column * cell.width);
+        const nextX = Math.floor((column + charWidthMultiplier) * cell.width);
+        const cellW = nextX - x;
+
         const inverse = (item.attributes & ATTR_INVERSE) !== 0;
         const foreground = inverse ? item.background : item.foreground;
         const background = inverse ? item.foreground : item.background;
-        const x = column * cell.width;
-        const y = displayRow * cell.height;
-        this.context.fillStyle = rgba(background);
-        const cellWidth = item.width === 2 ? cell.width * 2 : cell.width;
-        this.context.fillRect(x, y, cellWidth + 0.5, cell.height + 0.5);
-        if (selection && containsPoint(selection, displayRow, column)) {
-          this.context.fillStyle = 'rgba(56, 189, 248, 0.35)';
-          this.context.fillRect(x, y, cellWidth + 0.5, cell.height + 0.5);
+
+        // Render cell background if not default dark transparent
+        if (background.r !== 9 || background.g !== 10 || background.b !== 15 || background.a !== 255 || inverse) {
+          this.context.fillStyle = rgba(background);
+          this.context.fillRect(x, y, cellW, rowH);
         }
-        if (item.width === 0 || (item.attributes & ATTR_HIDDEN) !== 0) continue;
-        this.context.fillStyle = rgba(foreground);
-        this.context.font = `${(item.attributes & ATTR_BOLD) ? '700' : '400'} ${(item.attributes & ATTR_ITALIC) ? 'italic ' : ''}${this.fontSize}px ${this.fontFamily}`;
-        this.context.fillText(item.text || ' ', x, y);
+
+        // Selection highlight
+        if (selection && (containsPoint(selection, displayRow, column) || (item.width === 2 && containsPoint(selection, displayRow, column + 1)))) {
+          this.context.fillStyle = 'rgba(56, 189, 248, 0.35)';
+          this.context.fillRect(x, y, cellW, rowH);
+        }
+
+        if ((item.attributes & ATTR_HIDDEN) !== 0) continue;
+
+        // Render text glyph if present and non-empty
+        if (item.text && item.text !== ' ' && item.text !== '') {
+          this.context.fillStyle = rgba(foreground);
+          this.context.font = `${(item.attributes & ATTR_BOLD) ? '700' : '400'} ${(item.attributes & ATTR_ITALIC) ? 'italic ' : ''}${this.fontSize}px ${this.fontFamily}`;
+          this.context.fillText(item.text, x, y + fontOffsetY);
+        }
+
+        // Underline
         if ((item.attributes & ATTR_UNDERLINE) !== 0) {
-          this.context.fillRect(x, y + cell.height - 1, cell.width * Math.max(1, item.width), 1);
+          this.context.fillStyle = rgba(foreground);
+          this.context.fillRect(x, y + rowH - 1, cellW, 1);
         }
       }
-    });
+    }
 
-    if (snapshot.cursor.row < snapshot.rows && snapshot.cursor.column < snapshot.columns) {
+    if (snapshot.cursor.visible && snapshot.cursor.row < snapshot.rows && snapshot.cursor.column < snapshot.columns) {
       drawTerminalCursor(this.context, {
         ...snapshot.cursor,
         row: snapshot.scrollback.length + snapshot.cursor.row,

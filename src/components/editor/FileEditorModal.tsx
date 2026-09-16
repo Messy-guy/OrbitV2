@@ -114,7 +114,7 @@ export const FileEditorModal: React.FC = () => {
                       ? 'bg-well border-border text-text-primary shadow-sm'
                       : 'bg-transparent border-transparent hover:bg-well/60 text-text-muted hover:text-text-secondary'
                   )}
-                  title={file.path}
+                  title={file.resolvedPath || file.path}
                 >
                   {getFileIcon(file.language)}
                   <span className="truncate max-w-[140px] font-medium">{file.name}</span>
@@ -245,9 +245,22 @@ export const FileEditorModal: React.FC = () => {
 
         {/* Status Bar Footer */}
         <div className="h-7 px-3 bg-panel border-t border-border flex items-center justify-between text-[11px] text-text-muted select-none">
-          <div className="flex items-center gap-3 truncate">
-            <span className="text-text-secondary truncate font-mono">{activeFile.path}</span>
-            <span className="uppercase text-[10px] px-1 rounded bg-well text-text-dim border border-border">
+          <div className="flex items-center gap-2.5 truncate">
+            <span
+              className="text-text-secondary truncate font-mono"
+              title={activeFile.resolvedPath || (activeFile.projectPath ? `${activeFile.projectPath}/${activeFile.path}` : activeFile.path)}
+            >
+              {activeFile.resolvedPath ||
+                (activeFile.projectPath && !activeFile.path.startsWith('/') && !activeFile.path.startsWith('~')
+                  ? `${activeFile.projectPath}/${activeFile.path}`
+                  : activeFile.path)}
+            </span>
+            {activeFile.isExternal && (
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 uppercase tracking-wider font-semibold shrink-0">
+                Agent Artifact
+              </span>
+            )}
+            <span className="uppercase text-[10px] px-1 rounded bg-well text-text-dim border border-border shrink-0">
               {activeFile.language}
             </span>
           </div>

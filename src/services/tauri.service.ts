@@ -35,6 +35,12 @@ export interface DetectedAgentDto {
   installedByOrbit?: boolean;
 }
 
+export interface WorkspaceFileContent {
+  content: string;
+  resolved_path: string;
+  is_external: boolean;
+}
+
 export interface AgentOutputPayload {
   agentId: string;
   sessionId: string;
@@ -108,6 +114,45 @@ export const tauriService = {
   async openFileDialog(title?: string): Promise<string | null> {
     if (!isTauriAvailable()) return null;
     return invoke<string | null>('open_file_dialog', { title });
+  },
+
+  async saveImageBytes(projectPath: string, filename: string, bytes: number[] | Uint8Array): Promise<string> {
+    if (!isTauriAvailable()) return `mock-path/${filename}`;
+    return invoke<string>('save_image_bytes', { projectPath, filename, bytes: Array.from(bytes) });
+  },
+
+  async readClipboardText(): Promise<string> {
+    if (!isTauriAvailable()) {
+      return navigator.clipboard?.readText ? navigator.clipboard.readText().catch(() => '') : '';
+    }
+    return invoke<string>('read_clipboard_text').catch(() => '');
+  },
+
+  async writeClipboardText(text: string): Promise<void> {
+    if (!isTauriAvailable()) {
+      return navigator.clipboard?.writeText ? navigator.clipboard.writeText(text).catch(() => {}) : undefined;
+    }
+    return invoke<void>('write_clipboard_text', { text }).catch(() => {});
+  },
+
+  async readClipboardImage(projectPath: string): Promise<string | null> {
+    if (!isTauriAvailable()) return null;
+    return invoke<string | null>('read_clipboard_image', { projectPath }).catch(() => null);
+  },
+
+  async getLatestScreenshot(projectPath?: string): Promise<string | null> {
+    if (!isTauriAvailable()) return null;
+    return invoke<string | null>('get_latest_screenshot', { projectPath }).catch(() => null);
+  },
+
+  async transcribeAudio(audioPath: string): Promise<string> {
+    if (!isTauriAvailable()) return '';
+    return invoke<string>('transcribe_audio', { audioPath });
+  },
+
+  async readImageBase64(path: string): Promise<string | null> {
+    if (!isTauriAvailable()) return null;
+    return invoke<string>('read_image_base64', { path }).catch(() => null);
   },
 
   async openExternalUrl(url: string): Promise<void> {
@@ -462,9 +507,15 @@ export const tauriService = {
     return invoke<string>('uninstall_agent_cli', { provider });
   },
 
-  async readWorkspaceFile(projectPath: string, relativePath: string): Promise<string> {
-    if (!isTauriAvailable()) return `// Web demo preview for ${relativePath}`;
-    return invoke<string>('read_workspace_file', { projectPath, relativePath });
+  async readWorkspaceFile(projectPath: string, relativePath: string): Promise<WorkspaceFileContent> {
+    if (!isTauriAvailable()) {
+      return {
+        content: `// Web demo preview for ${relativePath}`,
+        resolved_path: relativePath,
+        is_external: false,
+      };
+    }
+    return invoke<WorkspaceFileContent>('read_workspace_file', { projectPath, relativePath });
   },
 
   async writeWorkspaceFile(projectPath: string, relativePath: string, content: string): Promise<void> {

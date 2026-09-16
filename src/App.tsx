@@ -20,6 +20,7 @@ import { useAgentStore } from './stores/agent.store';
 import { useAuthStore } from './stores/auth.store';
 import { LoginScreen } from './pages/LoginScreen';
 import { desktopRelayService } from './services/desktopRelay.service';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 const ONBOARDING_STORAGE_KEY = 'orbit_onboarding_completed_v1';
 
@@ -76,7 +77,9 @@ export const App: React.FC = () => {
 
       {/* Main Screen */}
       <div className="flex-1 flex overflow-hidden">
-        {activeWorkspaceId ? <WorkspaceView /> : <Home />}
+        <ErrorBoundary name="MainScreen">
+          {activeWorkspaceId ? <WorkspaceView /> : <Home />}
+        </ErrorBoundary>
       </div>
 
       {/* Global Modals & Update Notifier */}

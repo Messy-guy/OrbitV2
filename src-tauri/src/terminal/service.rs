@@ -111,6 +111,7 @@ impl TerminalService {
     pub fn input(&self, session_id: &str, bytes: Vec<u8>) -> Result<(), String> {
         self.registry
             .get(session_id)
+            .or_else(|| self.registry.find_by_agent(session_id))
             .ok_or_else(|| format!("terminal session '{session_id}' is not registered"))?
             .input(bytes)
     }
@@ -118,6 +119,7 @@ impl TerminalService {
     pub fn resize(&self, session_id: &str, rows: u16, columns: u16) -> Result<(), String> {
         self.registry
             .get(session_id)
+            .or_else(|| self.registry.find_by_agent(session_id))
             .ok_or_else(|| format!("terminal session '{session_id}' is not registered"))?
             .resize(rows, columns)
     }
@@ -125,6 +127,7 @@ impl TerminalService {
     pub fn interrupt(&self, session_id: &str) -> Result<(), String> {
         self.registry
             .get(session_id)
+            .or_else(|| self.registry.find_by_agent(session_id))
             .ok_or_else(|| format!("terminal session '{session_id}' is not registered"))?
             .interrupt()
     }

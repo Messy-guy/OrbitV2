@@ -25,7 +25,9 @@ use commands::{
     uninstall_agent_cli, write_project_skill_file, read_workspace_file, write_workspace_file,
     get_workspace_file_diff, open_in_external_editor, git_stage_file, git_unstage_file,
     git_stage_all, git_unstage_all, git_discard_file, git_discard_all, git_commit,
-    get_git_file_diff_data, git_clone_repo, get_gh_cli_repos, AppState,
+    get_git_file_diff_data, git_clone_repo, get_gh_cli_repos, save_image_bytes,
+    read_clipboard_text, write_clipboard_text, read_clipboard_image,
+    get_latest_screenshot, read_image_base64, transcribe_audio, AppState,
 };
 use runtime::{ActivityDetector, PtyManager};
 use std::sync::Arc;
@@ -34,6 +36,14 @@ use terminal::TerminalService;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        // Fix WebKitGTK black/blank screen freeze on Linux with hardware acceleration / DMA-BUF
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     if std::env::var_os("ORBIT_TERMINAL_HEADLESS_SMOKE").is_some() {
         if let Err(error) = terminal::smoke::run() {
             eprintln!("[ORBIT TERMINAL SMOKE] failed: {error}");
@@ -102,6 +112,22 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
+        .setup(|app| {
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| {
+                        use webkit2gtk::{PermissionRequestExt, WebViewExt};
+                        webview.inner().connect_permission_request(|_view, request| {
+                            request.allow();
+                            true
+                        });
+                    });
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             detect_agents,
             refresh_detected_agents,
@@ -156,6 +182,13 @@ pub fn run() {
             get_git_file_diff_data,
             git_clone_repo,
             get_gh_cli_repos,
+            save_image_bytes,
+            read_clipboard_text,
+            write_clipboard_text,
+            read_clipboard_image,
+            get_latest_screenshot,
+            read_image_base64,
+            transcribe_audio,
             install_agent_cli,
             uninstall_agent_cli,
             open_external_url,

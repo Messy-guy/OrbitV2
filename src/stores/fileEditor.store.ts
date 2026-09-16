@@ -5,6 +5,9 @@ import { useWorkspaceStore } from './workspace.store';
 export interface OpenFileItem {
   path: string;
   name: string;
+  projectPath: string;
+  resolvedPath?: string;
+  isExternal?: boolean;
   content: string;
   originalContent: string;
   isDirty: boolean;
@@ -87,7 +90,17 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
   toggleMaximize: () => set((state) => ({ isMaximized: !state.isMaximized })),
 
   openFile: async (path: string, projectPath?: string, initialMode?: 'preview' | 'edit') => {
-    const cleanPath = path.trim().replace(/^file:\/\//, '');
+    let cleanPath = path.trim().replace(/^file:\/\//, '');
+    cleanPath = cleanPath
+      .replace(/^['"`<([{\\]+/, '')
+      .replace(/['"`>)\]},;]+$/, '')
+      .replace(/[.,:;]+$/, '');
+
+    const lineColMatch = cleanPath.match(/^(.+?)(?::\d+){1,2}$/);
+    if (lineColMatch) {
+      cleanPath = lineColMatch[1];
+    }
+
     const ws = useWorkspaceStore.getState().getActiveWorkspace();
     const activeProjPath = projectPath || ws?.projectPath || '';
     const name = cleanPath.split('/').pop() || cleanPath;
@@ -116,6 +129,7 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
         [cleanPath]: {
           path: cleanPath,
           name,
+          projectPath: activeProjPath,
           content: '',
           originalContent: '',
           isDirty: false,
@@ -127,7 +141,7 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
     }));
 
     try {
-      const content = await tauriService.readWorkspaceFile(activeProjPath, cleanPath);
+      const res = await tauriService.readWorkspaceFile(activeProjPath, cleanPath);
       set((state) => {
         const file = state.openFiles[cleanPath];
         if (!file) return state;
@@ -136,8 +150,10 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
             ...state.openFiles,
             [cleanPath]: {
               ...file,
-              content,
-              originalContent: content,
+              content: res.content,
+              originalContent: res.content,
+              resolvedPath: res.resolved_path,
+              isExternal: res.is_external,
               isLoading: false,
               isDirty: false,
             },
@@ -213,11 +229,12 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
     if (!file) return false;
 
     const ws = useWorkspaceStore.getState().getActiveWorkspace();
-    const activeProjPath = ws?.projectPath || '';
+    const targetProjPath = file.projectPath || ws?.projectPath || '';
+    const savePath = file.resolvedPath || targetPath;
 
     set({ isSaving: true, error: null });
     try {
-      await tauriService.writeWorkspaceFile(activeProjPath, targetPath, file.content);
+      await tauriService.writeWorkspaceFile(targetProjPath, savePath, file.content);
       set((state) => {
         const currentFile = state.openFiles[targetPath];
         if (!currentFile) return { isSaving: false };
@@ -261,9 +278,11 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
 
   openInExternalEditor: async (path?: string) => {
     const targetPath = path || get().activeFilePath || undefined;
+    const file = targetPath ? get().openFiles[targetPath] : undefined;
     const ws = useWorkspaceStore.getState().getActiveWorkspace();
-    const activeProjPath = ws?.projectPath || '';
-    if (!activeProjPath) return;
-    await tauriService.openInExternalEditor(activeProjPath, targetPath);
+    const targetProjPath = file?.projectPath || ws?.projectPath || '';
+    const openPath = file?.resolvedPath || targetPath;
+    if (!targetProjPath && !openPath) return;
+    await tauriService.openInExternalEditor(targetProjPath, openPath);
   },
 }));

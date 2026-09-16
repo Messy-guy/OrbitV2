@@ -275,6 +275,19 @@ class ConversationCaptureService {
   }
 
   /**
+   * Authoritatively record a user message that was sent directly to native PTY input
+   */
+  recordDirectUserMessage(sessionId: string, message: string) {
+    const cleanText = message.trim();
+    if (!cleanText) return;
+
+    const turnId = `turn_u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    this.startTurn(sessionId, cleanText, turnId);
+    pendingInputEchoQueue.registerPendingEcho(sessionId, cleanText);
+    conversationStore.addUserMessage(sessionId, cleanText);
+  }
+
+  /**
    * Process raw stdout/stderr chunks from desktop runtime
    */
   handlePtyOutput(sessionId: string, text: string) {
