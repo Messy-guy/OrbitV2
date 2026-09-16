@@ -357,6 +357,9 @@ export const useContextStore = create<ContextState>((set, get) => ({
       changedFiles: params.selection.includeChangedFiles
         ? (params.previewSummary.relevantFiles?.map((f: string) => ({ path: f, status: 'modified' })) || gitState?.modifiedFiles || [])
         : [],
+      fileSummaries: params.selection.includeChangedFiles
+        ? params.previewSummary.fileSummaries
+        : undefined,
       knownIssues: params.selection.includeKnownIssues
         ? (params.previewSummary.currentIssue ? [params.previewSummary.currentIssue] : currentContext?.issues.map((i) => i.title) || [])
         : [],
@@ -366,6 +369,7 @@ export const useContextStore = create<ContextState>((set, get) => ({
 
     const contextPackage: ContextPackage = {
       ...rawContextPackage,
+      fileSummaries: params.previewSummary.fileSummaries || rawContextPackage.fileSummaries,
       formattedInstruction: params.previewSummary.formattedInstruction || rawContextPackage.formattedInstruction,
       estimatedTokens: params.previewSummary.estimatedTokens || rawContextPackage.estimatedTokens,
     };

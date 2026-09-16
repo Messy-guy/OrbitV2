@@ -1,4 +1,4 @@
-import { ExtractedSessionData } from './extractor.service';
+import { ExtractedSessionData, FileEditSummary, ConversationSynthesis } from './extractor.service';
 import { OrbitKnowledgeGraph, GraphNode } from './graph.service';
 import { TimeLensService, TimeLensFileAnalysis } from './timelens.service';
 
@@ -10,6 +10,8 @@ export interface DistilledSessionBrief {
   summaryNarrative: string;
   recentUserDirectives: string[];
   filesTouched: string[];
+  fileSummaries?: FileEditSummary[];
+  conversationSynthesis?: ConversationSynthesis;
   timeLensReport: string;
   blockers: string[];
   decisions: string[];
@@ -23,7 +25,8 @@ export interface DistilledSessionBrief {
 
 export class SessionDistillerService {
   /**
-   * Distills session into high-signal Knapsack optimized brief with Tridev & TimeLens integration
+   * Distills session into high-signal Knapsack optimized brief with Tridev & TimeLens integration,
+   * comprehensive conversation synthesis, and file edit summaries with diffs.
    */
   public static distillSession(
     sessionData: ExtractedSessionData,
@@ -140,10 +143,23 @@ export class SessionDistillerService {
     const rawTokensEstimated = sessionData.turns.reduce((acc, t) => acc + Math.ceil(t.content.length / 4), 0) + 800;
     const compressionRatio = Math.max(70, Math.round((1 - totalPackedTokens / Math.max(1000, rawTokensEstimated)) * 100));
 
-    // 9. Generate Tailored Continuity Envelopes (Tridev / Master Formats)
+    // 9. Format File Edit Summaries & Diffs
+    const fileSummariesSection = sessionData.fileSummaries && sessionData.fileSummaries.length > 0
+      ? `## 📝 File Edit Summaries & Diffs\n` + sessionData.fileSummaries.map(f => {
+          let block = `### \`${f.filePath}\` (${f.status}, +${f.additions}/-${f.deletions} lines)\n**Summary**: ${f.summary}`;
+          if (f.diffSnippet && f.diffSnippet.trim().length > 0) {
+            block += `\n\`\`\`diff\n${f.diffSnippet}\n\`\`\``;
+          }
+          return block;
+        }).join('\n\n')
+      : '';
+
+    // 10. Generate Tailored Continuity Envelopes (Tridev / Master Formats)
     let formattedEnvelope = '';
-    const latestUserPrompt = sessionData.recentUserInstructions[sessionData.recentUserInstructions.length - 1] || 'Proceed with workspace task';
     const nextStep = sessionData.lastUnfinishedStep || 'Continue active implementation flow without repeating prior work';
+    const conversationNarrative = sessionData.conversationSynthesis?.narrativeSummary 
+      || sessionData.detailedConversationLog 
+      || sessionData.recentUserInstructions.map(u => `• User: "${u}"`).join('\n');
 
     if (intent === 'chat_continue') {
       formattedEnvelope = `# 🔄 ORBIT CONTINUITY: RESUMING CONVERSATION (MASTER BOOT)
@@ -153,13 +169,13 @@ export class SessionDistillerService {
 ## 🎯 Active Goal
 ${sessionData.primaryGoal || 'Workspace Task'}
 
-## 💬 Distilled Conversation Context (PageRank & Knapsack Filtered)
-${sessionData.recentUserInstructions.map(u => `• User: "${u}"`).join('\n')}
+## 💬 Conversation Summary & Trajectory
+${conversationNarrative}
 
 ## ⚡ Active Invariants & Decisions
 ${chosenDecisions.length > 0 ? chosenDecisions.map(d => `• ${d}`).join('\n') : '• Adhere strictly to project conventions and existing types.'}
 
-## ⏳ TIME-LENS File Map
+${fileSummariesSection ? `${fileSummariesSection}\n\n` : ''}## ⏳ TIME-LENS File Map
 ${timeLensReport}
 
 ## 👉 Immediate Next Action
@@ -174,13 +190,16 @@ ${nextStep}
 ## 📐 BRAHMA Specification & Invariants
 ${sessionData.primaryGoal || 'Workspace Implementation Specification'}
 
+## 💬 Architectural Plan & Decisions
+${conversationNarrative}
+
 ## 🛑 MAHESH Guardrails (Zero Bloat Invariants)
 • Rule 1: Pass test suite with minimal diff.
 • Rule 2: Zero sequential awaits for independent tasks (use Promise.all).
 • Rule 3: Zero unapproved npm packages or dependency bloat.
 • Rule 4: Absolute file protection (.env, .git, config untouched).
 
-## ⏳ TIME-LENS Active Touchpoints
+${fileSummariesSection ? `${fileSummariesSection}\n\n` : ''}## ⏳ TIME-LENS Active Touchpoints
 ${timeLensReport}
 
 ## 👉 Immediate Action: Step 1
@@ -199,7 +218,10 @@ ${nextStep}
 3. No secrets or environment leakage.
 4. Error boundary & crash recovery.
 
-## 📝 Modified Files for Scan:
+## 💬 Context & Work Under Audit
+${conversationNarrative}
+
+${fileSummariesSection ? `${fileSummariesSection}\n\n` : ''}## 📝 Modified Files for Scan:
 ${timeLensReport}
 
 *Instructions for ${targetAgentName}: Provide a concise bulleted audit report with CRITICAL, WARNING, and CLEAN status.*`;
@@ -211,6 +233,8 @@ ${timeLensReport}
       summaryNarrative: formattedEnvelope,
       recentUserDirectives: sessionData.recentUserInstructions,
       filesTouched: chosenFiles.length > 0 ? chosenFiles : sessionData.filesTouched,
+      fileSummaries: sessionData.fileSummaries,
+      conversationSynthesis: sessionData.conversationSynthesis,
       timeLensReport,
       blockers: chosenBlockers.length > 0 ? chosenBlockers : sessionData.blockersFound,
       decisions: chosenDecisions.length > 0 ? chosenDecisions : sessionData.decisionsFormulated,

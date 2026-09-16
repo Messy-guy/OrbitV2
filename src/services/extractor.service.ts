@@ -1,9 +1,17 @@
 /**
  * Universal Session Extractor
- * Ingests retained PTY terminal history or chat messages across any AI CLI
- * (Antigravity, OpenCode, Claude Code, Codex, Bash).
- * and extracts clean conversation turns, tools executed, errors encountered, user intent, and file changes.
+ * Ingests retained PTY terminal history, canonical conversationStore, or chat messages across any AI CLI
+ * (Antigravity, OpenCode, Claude Code, Codex, Bash, etc.).
+ * and extracts clean conversation turns, tools executed, errors encountered, user intent,
+ * file edit summaries, and diffs.
  */
+
+import { conversationStore } from './conversation/ConversationStore';
+import { useAgentStore } from '../stores/agent.store';
+import { isTauriAvailable, tauriService } from './tauri.service';
+import { FileEditSummary, ConversationSynthesis } from '../types/orbit';
+
+export type { FileEditSummary, ConversationSynthesis };
 
 export interface ExtractedTurn {
   id: string;
@@ -22,10 +30,12 @@ export interface ExtractedSessionData {
   primaryGoal?: string;
   recentUserInstructions: string[];
   filesTouched: string[];
+  fileSummaries?: FileEditSummary[];
   blockersFound: string[];
   decisionsFormulated: string[];
   lastUnfinishedStep?: string;
   detailedConversationLog?: string;
+  conversationSynthesis?: ConversationSynthesis;
 }
 
 export class UniversalSessionExtractor {
@@ -69,6 +79,330 @@ export class UniversalSessionExtractor {
   }
 
   /**
+   * Analyzes a unified file diff and produces a concise, human-readable summary
+   * and clean truncated diff snippet.
+   */
+  public static summarizeFileDiff(filePath: string, diffText: string, status = 'modified'): FileEditSummary {
+    if (!diffText || diffText.trim().length === 0) {
+      return {
+        filePath,
+        status,
+        additions: 0,
+        deletions: 0,
+        summary: `Referenced file ${filePath} without uncommitted local git diff modifications.`,
+      };
+    }
+
+    const lines = diffText.split('\n');
+    let additions = 0;
+    let deletions = 0;
+    const modifiedSymbols = new Set<string>();
+    const modifiedHunks: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('+++') || line.startsWith('---')) continue;
+      if (line.startsWith('+')) {
+        additions++;
+        // Check for symbol definitions
+        const symMatch = line.match(/\b(?:export\s+)?(?:function|class|const|let|var|type|interface|enum|def|struct|impl|fn)\s+([a-zA-Z0-9_$]+)/);
+        if (symMatch && symMatch[1]) {
+          modifiedSymbols.add(symMatch[1]);
+        }
+      } else if (line.startsWith('-')) {
+        deletions++;
+      } else if (line.startsWith('@@')) {
+        const hunkMatch = line.match(/@@\s+[^@]+@@\s*(.*)/);
+        if (hunkMatch && hunkMatch[1]?.trim()) {
+          const context = hunkMatch[1].trim();
+          if (context.length < 60 && !context.startsWith('//')) {
+            modifiedHunks.push(context);
+          }
+        }
+      }
+    }
+
+    // Generate intelligent human-readable summary
+    let summary = '';
+    const symbolsList = Array.from(modifiedSymbols).slice(0, 4);
+    if (symbolsList.length > 0) {
+      summary = `Updated ${filePath} (+${additions}/-${deletions} lines): Added or modified \`${symbolsList.join('`, `')}\`.`;
+    } else if (modifiedHunks.length > 0) {
+      summary = `Updated ${filePath} (+${additions}/-${deletions} lines) around ${modifiedHunks.slice(0, 2).map(h => `\`${h}\``).join(', ')}.`;
+    } else if (additions > 0 && deletions === 0) {
+      summary = `Added +${additions} lines of new code/configuration to ${filePath}.`;
+    } else if (additions > 0 || deletions > 0) {
+      summary = `Refactored logic in ${filePath} (+${additions} additions, -${deletions} deletions).`;
+    } else {
+      summary = `Verified ${filePath}.`;
+    }
+
+    // Truncate overly massive diff snippets so token budget stays disciplined
+    const maxSnippetLines = 120;
+    let diffSnippet = '';
+    if (lines.length > maxSnippetLines) {
+      const truncated = lines.slice(0, 100).join('\n');
+      diffSnippet = `${truncated}\n\n... [truncated ${lines.length - 100} remaining lines of diff]`;
+    } else {
+      diffSnippet = diffText;
+    }
+
+    return {
+      filePath,
+      status,
+      additions,
+      deletions,
+      summary,
+      diffSnippet,
+    };
+  }
+
+  /**
+   * Synthesizes conversation turns into structured ConversationSynthesis and rich Markdown narrative
+   */
+  public static synthesizeConversation(
+    turns: ExtractedTurn[],
+    primaryGoal: string,
+    decisions: string[],
+    blockers: string[],
+    filesTouched: string[],
+    userDirectives: string[] = [],
+    workSteps: Array<{ step: string; detail?: string; tool?: string }> = []
+  ): ConversationSynthesis {
+    const objectives = userDirectives.length > 0 
+      ? userDirectives 
+      : turns.filter(t => t.role === 'user').map(t => t.content.trim()).filter(Boolean);
+    
+    const resolvedPrimaryGoal = primaryGoal || objectives[0] || 'Active workspace task';
+
+    // Build work accomplished if not already populated
+    const accomplishments = [...workSteps];
+    if (accomplishments.length === 0) {
+      for (const turn of turns) {
+        if (turn.role === 'agent') {
+          if (turn.toolsExecuted && turn.toolsExecuted.length > 0) {
+            accomplishments.push({
+              step: `Ran ${turn.toolsExecuted.map(t => t.name + (t.target ? ` (${t.target})` : '')).join(', ')}`,
+              detail: turn.content.slice(0, 200),
+            });
+          } else {
+            const firstLine = turn.content.split('\n')[0].trim();
+            if (firstLine && firstLine.length > 5) {
+              accomplishments.push({ step: firstLine });
+            }
+          }
+        }
+      }
+    }
+
+    const blockersAndErrors: Array<{ issue: string; resolution?: string; status: 'resolved' | 'pending' }> = blockers.map(b => ({
+      issue: b,
+      status: 'pending' as const,
+    }));
+
+    // Check last agent turn for current state and next step
+    const agentTurns = turns.filter(t => t.role === 'agent');
+    const lastAgentTurn = agentTurns[agentTurns.length - 1];
+    let currentExecutionState = 'Active development';
+    let nextStepDirective = 'Inspect active touched files and continue implementation without repeating completed steps.';
+
+    if (lastAgentTurn) {
+      const lines = lastAgentTurn.content.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+      if (lines.length > 0) {
+        currentExecutionState = lines[lines.length - 1];
+        nextStepDirective = lines.length > 1 ? lines.slice(-2).join('; ') : currentExecutionState;
+      }
+    }
+
+    const narrativeLines: string[] = [
+      `### 🎯 Session Objectives & Directives:`,
+      `**Goal**: ${resolvedPrimaryGoal}`,
+      ...objectives.slice(-4).map((u, i) => `• Directive ${i + 1}: "${u}"`),
+      ``,
+      `### 🛠️ Work Accomplished (${accomplishments.length} Steps Executed):`,
+      ...(accomplishments.length > 0 
+        ? accomplishments.slice(-6).map((step, idx) => `• **Step ${idx + 1}**: ${step.step}`)
+        : ['• Executed workspace code inspections and runtime updates.']),
+      ``,
+      `### ⚡ Architectural Decisions Formulated:`,
+      ...(decisions.length > 0 
+        ? decisions.map(d => `• ${d}`)
+        : ['• Adhere to existing repository conventions, strict typing, and test contracts.']),
+      ``,
+      `### ⚠️ Blockers & Errors:`,
+      ...(blockers.length > 0 
+        ? blockers.map(b => `• ⚠️ ${b}`)
+        : ['• No critical blockers pending.']),
+      ``,
+      `### 👉 Current Execution State & Next Step:`,
+      `• **State**: ${currentExecutionState}`,
+      `• **Next Action**: ${nextStepDirective}`
+    ];
+
+    const narrativeSummary = narrativeLines.join('\n');
+
+    return {
+      primaryGoal: resolvedPrimaryGoal,
+      userObjectives: objectives,
+      workAccomplished: accomplishments,
+      decisionsFormulated: decisions,
+      blockersAndErrors,
+      currentExecutionState,
+      nextStepDirective,
+      narrativeSummary,
+    };
+  }
+
+  /**
+   * Authoritative extraction from canonical ConversationStore
+   */
+  public static extractFromCanonicalSession(agentId: string, sessionId: string): ExtractedSessionData | null {
+    const session = conversationStore.getSession(sessionId);
+    if (!session || !session.conversation?.turns || session.conversation.turns.length === 0) {
+      return null;
+    }
+
+    const turns: ExtractedTurn[] = [];
+    const filesTouched = new Set<string>();
+    const blockersFound = new Set<string>();
+    const decisionsFormulated = new Set<string>();
+    const recentUserInstructions: string[] = [];
+    const workSteps: Array<{ step: string; detail?: string; tool?: string }> = [];
+    let primaryGoal = '';
+
+    const FILE_PATH_REGEX = /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g;
+    const DECISION_REGEX = /(?:decided to|refactored|switched from|chosen|agreed upon|standardized|we have fixed|updated|configured|implemented|added|created|modified)\s+([^\n\r]+)/i;
+    const ERROR_REGEX = /(?:error|failed|exception|panic|fatal|cannot find|invalid|syntax error|type error):?\s*(.*)/i;
+
+    for (const turn of session.conversation.turns) {
+      const role: 'user' | 'agent' | 'system' = turn.role === 'user' ? 'user' : 'agent';
+      let textContent = '';
+      let thoughtContent = '';
+      const toolsExecuted: Array<{ name: string; target?: string; status: 'completed' | 'failed' }> = [];
+
+      for (const msg of turn.messages) {
+        for (const item of msg.content) {
+          if (item.type === 'text') {
+            textContent += (textContent ? '\n' : '') + item.text;
+          } else if (item.type === 'markdown') {
+            textContent += (textContent ? '\n' : '') + item.markdown;
+          } else if (item.type === 'code') {
+            textContent += (textContent ? '\n' : '') + item.code;
+          } else if (item.type === 'file') {
+            filesTouched.add(item.path);
+            workSteps.push({
+              step: `${item.action.toUpperCase()} ${item.path}`,
+              detail: item.path,
+            });
+          }
+
+          const rawItem = item as any;
+          if (rawItem.thought) {
+            thoughtContent += (thoughtContent ? '\n' : '') + rawItem.thought;
+          }
+          if (rawItem.toolUse) {
+            const t = rawItem.toolUse;
+            const target = typeof t.input === 'string' 
+              ? t.input 
+              : (t.input?.targetFile || t.input?.file || t.input?.path || t.input?.command || JSON.stringify(t.input));
+            toolsExecuted.push({
+              name: t.name,
+              target,
+              status: 'completed',
+            });
+            if (t.input?.targetFile) filesTouched.add(t.input.targetFile);
+            if (t.input?.file) filesTouched.add(t.input.file);
+            if (t.input?.path) filesTouched.add(t.input.path);
+          }
+        }
+      }
+
+      // Also scan turn activities
+      for (const act of turn.activities || []) {
+        if (act.category === 'files' && act.details) {
+          for (const d of act.details) {
+            if (d.path) filesTouched.add(d.path);
+          }
+        }
+        if (act.summary) {
+          workSteps.push({
+            step: act.summary,
+            detail: act.details?.[0]?.description,
+          });
+        }
+      }
+
+      if (role === 'user' && textContent) {
+        recentUserInstructions.push(textContent.trim());
+        if (!primaryGoal) primaryGoal = textContent.split('\n')[0].trim();
+      }
+
+      const combinedText = `${textContent}\n${thoughtContent}`;
+      const fileMatches = combinedText.match(FILE_PATH_REGEX);
+      if (fileMatches) {
+        fileMatches.forEach((f) => {
+          if (!f.startsWith('http') && !f.includes('node_modules') && !f.includes('.system_generated')) {
+            filesTouched.add(f);
+          }
+        });
+      }
+
+      const errMatch = combinedText.match(ERROR_REGEX);
+      if (errMatch && errMatch[1]?.trim().length > 4) {
+        blockersFound.add(errMatch[0].trim());
+      }
+
+      const decMatch = combinedText.match(DECISION_REGEX);
+      if (decMatch && decMatch[1]?.trim().length > 6) {
+        decisionsFormulated.add(decMatch[0].replace(/^[•\-\*]\s*/, '').trim());
+      }
+
+      if (role === 'agent' && (textContent || toolsExecuted.length > 0)) {
+        const stepDesc = toolsExecuted.length > 0
+          ? `Executed ${toolsExecuted.map(t => `${t.name}${t.target ? ` on ${t.target}` : ''}`).join(', ')}`
+          : textContent.split('\n')[0].slice(0, 160);
+        workSteps.push({
+          step: stepDesc,
+          detail: textContent.slice(0, 300),
+          tool: toolsExecuted[0]?.name,
+        });
+      }
+
+      turns.push({
+        id: turn.id,
+        role,
+        content: textContent || thoughtContent || `Turn ${turn.id}`,
+        timestamp: turn.startedAt || Date.now(),
+        toolsExecuted: toolsExecuted.length > 0 ? toolsExecuted : undefined,
+        filesReferenced: fileMatches || [],
+      });
+    }
+
+    const synthesis = this.synthesizeConversation(
+      turns,
+      primaryGoal || recentUserInstructions[0] || 'Workspace implementation',
+      Array.from(decisionsFormulated),
+      Array.from(blockersFound),
+      Array.from(filesTouched),
+      recentUserInstructions,
+      workSteps
+    );
+
+    return {
+      agentId,
+      sessionId,
+      turns,
+      primaryGoal: synthesis.primaryGoal,
+      recentUserInstructions: synthesis.userObjectives,
+      filesTouched: Array.from(filesTouched),
+      blockersFound: Array.from(blockersFound),
+      decisionsFormulated: Array.from(decisionsFormulated),
+      lastUnfinishedStep: synthesis.nextStepDirective,
+      detailedConversationLog: synthesis.narrativeSummary,
+      conversationSynthesis: synthesis,
+    };
+  }
+
+  /**
    * Universal extractor from raw PTY terminal history buffer
    */
   public static extractFromTerminalHistory(agentId: string, sessionId: string, rawTerminalHistory: string): ExtractedSessionData {
@@ -81,7 +415,6 @@ export class UniversalSessionExtractor {
 
     let currentTurn: ExtractedTurn | null = null;
     let primaryGoal = '';
-    let lastUnfinishedStep = '';
 
     const finalizeTurn = () => {
       if (currentTurn && currentTurn.content.trim()) {
@@ -178,33 +511,27 @@ export class UniversalSessionExtractor {
 
     finalizeTurn();
 
-    // Determine last unfinished step from last agent turn
-    if (turns.length > 0) {
-      const lastTurn = turns[turns.length - 1];
-      if (lastTurn.role === 'agent') {
-        const lastLines = lastTurn.content.split('\n').filter(l => l.trim().length > 10);
-        lastUnfinishedStep = lastLines.slice(-3).join(' ').trim();
-      }
-    }
-
-    // Build structured full conversational dialogue transcript
-    const detailedDialogue = turns.map(t => {
-      const prefix = t.role === 'user' ? '👤 USER REQUEST' : '🤖 AGENT WORK';
-      const snippet = t.content.length > 500 ? t.content.slice(0, 500) + '... [truncated]' : t.content;
-      return `### ${prefix}:\n${snippet}`;
-    }).join('\n\n');
+    const synthesis = this.synthesizeConversation(
+      turns,
+      primaryGoal || recentUserInstructions[0] || 'Active workspace development',
+      Array.from(decisionsFormulated),
+      Array.from(blockersFound),
+      Array.from(filesTouched),
+      recentUserInstructions
+    );
 
     return {
       agentId,
       sessionId,
       turns,
-      primaryGoal: recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace development',
-      recentUserInstructions: recentUserInstructions.slice(-5),
+      primaryGoal: synthesis.primaryGoal,
+      recentUserInstructions: synthesis.userObjectives.slice(-5),
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound),
       decisionsFormulated: Array.from(decisionsFormulated),
-      lastUnfinishedStep: lastUnfinishedStep || 'Continue active implementation flow from previous agent without repeating work.',
-      detailedConversationLog: detailedDialogue,
+      lastUnfinishedStep: synthesis.nextStepDirective,
+      detailedConversationLog: synthesis.narrativeSummary,
+      conversationSynthesis: synthesis,
     };
   }
 
@@ -217,9 +544,12 @@ export class UniversalSessionExtractor {
     const blockersFound = new Set<string>();
     const decisionsFormulated = new Set<string>();
     const recentUserInstructions: string[] = [];
+    const workSteps: Array<{ step: string; detail?: string; tool?: string }> = [];
     let primaryGoal = '';
 
     const FILE_PATH_REGEX = /(?:[\w.-]+\/)+[\w.-]+\.[a-zA-Z0-9]+/g;
+    const DECISION_REGEX = /(?:decided to|refactored|switched from|chosen|agreed upon|standardized|we have fixed|updated|configured|implemented|added|created|modified)\s+([^\n\r]+)/i;
+    const ERROR_REGEX = /(?:error|failed|exception|panic|fatal|cannot find|invalid|syntax error|type error):?\s*(.*)/i;
 
     for (const msg of messages) {
       const role: 'user' | 'agent' | 'system' = msg.role === 'user' ? 'user' : 'agent';
@@ -252,6 +582,24 @@ export class UniversalSessionExtractor {
         }
       }
 
+      const decMatch = content.match(DECISION_REGEX);
+      if (decMatch && decMatch[1]?.trim().length > 6) {
+        decisionsFormulated.add(decMatch[0].replace(/^[•\-\*]\s*/, '').trim());
+      }
+
+      const errMatch = content.match(ERROR_REGEX);
+      if (errMatch && errMatch[1]?.trim().length > 4) {
+        blockersFound.add(errMatch[0].trim());
+      }
+
+      if (role === 'agent' && (content || tools.length > 0)) {
+        workSteps.push({
+          step: tools.length > 0 ? `Ran ${tools.map(t => `${t.name} (${t.target || ''})`).join(', ')}` : content.split('\n')[0].slice(0, 160),
+          detail: content.slice(0, 300),
+          tool: tools[0]?.name,
+        });
+      }
+
       turns.push({
         id: msg.id || `msg-${Date.now()}`,
         role,
@@ -262,17 +610,116 @@ export class UniversalSessionExtractor {
       });
     }
 
+    const synthesis = this.synthesizeConversation(
+      turns,
+      recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace task',
+      Array.from(decisionsFormulated),
+      Array.from(blockersFound),
+      Array.from(filesTouched),
+      recentUserInstructions,
+      workSteps
+    );
+
     return {
       agentId,
       sessionId,
       turns,
-      primaryGoal: recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace task',
-      recentUserInstructions: recentUserInstructions.slice(-5),
+      primaryGoal: synthesis.primaryGoal,
+      recentUserInstructions: synthesis.userObjectives.slice(-5),
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound),
       decisionsFormulated: Array.from(decisionsFormulated),
-      lastUnfinishedStep: turns[turns.length - 1]?.content.slice(0, 150) || 'Continue implementation',
-      detailedConversationLog: turns.map(t => `${t.role.toUpperCase()}: ${t.content}`).join('\n\n'),
+      lastUnfinishedStep: synthesis.nextStepDirective,
+      detailedConversationLog: synthesis.narrativeSummary,
+      conversationSynthesis: synthesis,
     };
+  }
+
+  /**
+   * Unified authoritative session extractor across all stores with automatic file diff generation.
+   */
+  public static async extractAuthoritativeSession(
+    agentId: string,
+    sessionId: string,
+    projectPath?: string,
+    rawTerminalHistory?: string
+  ): Promise<ExtractedSessionData> {
+    // 1. Try canonical ConversationStore first (most authoritative)
+    let sessionData = this.extractFromCanonicalSession(agentId, sessionId);
+
+    // 2. If no canonical turns, try agentStore chat messages
+    if (!sessionData || sessionData.turns.length === 0) {
+      try {
+        const chatMessages = useAgentStore.getState().messages[sessionId] || [];
+        if (chatMessages.length > 0) {
+          sessionData = this.extractFromChatMessages(agentId, sessionId, chatMessages);
+        }
+      } catch (e) {
+        console.warn('Error reading chat store messages:', e);
+      }
+    }
+
+    // 3. If still empty, try PTY terminal history
+    if (!sessionData || sessionData.turns.length === 0) {
+      let termHistory = rawTerminalHistory;
+      if (!termHistory && isTauriAvailable()) {
+        try {
+          termHistory = await tauriService.getAgentTerminalHistory(agentId);
+        } catch (e) {
+          console.warn('Error fetching agent terminal history:', e);
+        }
+      }
+      if (termHistory && termHistory.trim().length > 0) {
+        sessionData = this.extractFromTerminalHistory(agentId, sessionId, termHistory);
+      }
+    }
+
+    // 4. Fallback baseline if absolutely no history exists
+    if (!sessionData || sessionData.turns.length === 0) {
+      const synthesis = this.synthesizeConversation(
+        [],
+        'Workspace implementation and verification',
+        ['Follow project typing and testing requirements.'],
+        [],
+        []
+      );
+      sessionData = {
+        agentId,
+        sessionId,
+        turns: [],
+        primaryGoal: synthesis.primaryGoal,
+        recentUserInstructions: ['Continue workspace task'],
+        filesTouched: [],
+        blockersFound: [],
+        decisionsFormulated: synthesis.decisionsFormulated,
+        lastUnfinishedStep: synthesis.nextStepDirective,
+        detailedConversationLog: synthesis.narrativeSummary,
+        conversationSynthesis: synthesis,
+      };
+    }
+
+    // 5. Gather all files touched and generate FileEditSummary with diffs
+    const fileSummaries: FileEditSummary[] = [];
+    if (projectPath && isTauriAvailable() && sessionData.filesTouched.length > 0) {
+      for (const filePath of sessionData.filesTouched.slice(0, 15)) {
+        try {
+          const diff = await tauriService.getWorkspaceFileDiff(projectPath, filePath);
+          const summary = this.summarizeFileDiff(filePath, diff);
+          fileSummaries.push(summary);
+        } catch (err) {
+          console.warn(`Failed to fetch diff for ${filePath}:`, err);
+          fileSummaries.push({
+            filePath,
+            status: 'modified',
+            additions: 0,
+            deletions: 0,
+            summary: `Active workspace touchpoint: ${filePath}`,
+          });
+        }
+      }
+    }
+    sessionData.fileSummaries = fileSummaries;
+
+    return sessionData;
   }
 }

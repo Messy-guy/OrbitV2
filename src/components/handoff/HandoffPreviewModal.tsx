@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, FileCode, Sparkles, FolderGit2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileCode, Sparkles, FolderGit2, MessageSquareCode, ChevronDown, ChevronUp } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { Agent, HandoffSelection } from '../../types/orbit';
+import { Agent, HandoffSelection, FileEditSummary } from '../../types/orbit';
 import { useContextStore } from '../../stores/context.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 
@@ -34,8 +34,13 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
   const { executeHandoff, gitState } = useContextStore();
   const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
   const [isTransferring, setIsTransferring] = useState(false);
+  const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
 
   const activeWorkspace = getActiveWorkspace();
+
+  const toggleDiff = (filePath: string) => {
+    setExpandedDiffs(prev => ({ ...prev, [filePath]: !prev[filePath] }));
+  };
 
   const handleExecute = async () => {
     if (!activeWorkspaceId) return;
@@ -63,6 +68,8 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
     }
   };
 
+  const fileSummaries: FileEditSummary[] = previewData?.fileSummaries || [];
+
   return (
     <Modal
       isOpen={isOpen}
@@ -71,7 +78,7 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
       subtitle={`${sourceAgent.name} → ${targetAgent.name}`}
       maxWidth="lg"
     >
-      <div className="flex flex-col gap-3.5 text-xs font-mono">
+      <div className="flex flex-col gap-3.5 text-xs font-mono max-h-[82vh] overflow-y-auto pr-1">
         {/* Handoff Preview Box */}
         <div className="p-4 rounded-panel surface-well space-y-3 shadow-subtle select-text border border-border">
           <div className="flex items-center justify-between border-b border-border pb-2">
@@ -101,6 +108,19 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
             </div>
           </div>
 
+          {/* Conversation Trajectory Summary */}
+          {previewData.conversationSynthesis?.narrativeSummary && (
+            <div className="p-3 rounded-btn surface-well-subtle border border-border-subtle space-y-1.5">
+              <span className="text-text-dim uppercase text-[9.5px] font-bold flex items-center gap-1.5">
+                <MessageSquareCode size={12} className="text-emerald-400" />
+                <span>Conversation Synthesis & Work Trajectory</span>
+              </span>
+              <div className="text-text-secondary text-[11px] font-mono whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto pr-1">
+                {previewData.conversationSynthesis.narrativeSummary}
+              </div>
+            </div>
+          )}
+
           {/* Git State in Preview */}
           {gitState && (
             <div className="p-2.5 rounded-btn surface-well-subtle border border-border-subtle flex items-center justify-between text-[10.5px]">
@@ -112,16 +132,54 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
             </div>
           )}
 
+          {/* Changed Files with Intelligent Summaries */}
           <div>
-            <span className="text-text-dim uppercase text-[9.5px] font-bold block mb-1">Changed & Relevant Files</span>
-            <div className="flex flex-wrap gap-1">
-              {previewData.relevantFiles?.map((f: string, i: number) => (
-                <span key={i} className="px-2 py-0.5 rounded-badge btn-base text-text-primary text-[10.5px] flex items-center gap-1.5">
-                  <FileCode size={11} className="text-text-muted" />
-                  <span>{f}</span>
-                </span>
-              ))}
-            </div>
+            <span className="text-text-dim uppercase text-[9.5px] font-bold block mb-1">
+              Modified Files & Edit Summaries ({fileSummaries.length > 0 ? fileSummaries.length : (previewData.relevantFiles?.length || 0)})
+            </span>
+            {fileSummaries.length > 0 ? (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {fileSummaries.map((f, i) => (
+                  <div key={i} className="p-2.5 rounded-lg bg-panel border border-border space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-text-primary text-[11px] flex items-center gap-1.5 truncate">
+                        <FileCode size={12} className="text-emerald-400 shrink-0" />
+                        <span className="truncate">{f.filePath}</span>
+                      </span>
+                      <div className="flex items-center gap-2 text-[10px] shrink-0">
+                        <span className="text-emerald-400 font-bold">+{f.additions}</span>
+                        <span className="text-red-400 font-bold">-{f.deletions}</span>
+                        {f.diffSnippet && (
+                          <button
+                            type="button"
+                            onClick={() => toggleDiff(f.filePath)}
+                            className="text-text-dim hover:text-text-primary transition-colors cursor-pointer flex items-center gap-0.5 ml-1"
+                          >
+                            <span>{expandedDiffs[f.filePath] ? 'hide diff' : 'view diff'}</span>
+                            {expandedDiffs[f.filePath] ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-text-secondary text-[10.5px] font-sans">{f.summary}</p>
+                    {expandedDiffs[f.filePath] && f.diffSnippet && (
+                      <pre className="mt-1.5 p-2 rounded bg-well border border-border text-[9.5px] text-text-muted overflow-x-auto">
+                        {f.diffSnippet}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {previewData.relevantFiles?.map((f: string, i: number) => (
+                  <span key={i} className="px-2 py-0.5 rounded-badge btn-base text-text-primary text-[10.5px] flex items-center gap-1.5">
+                    <FileCode size={11} className="text-text-muted" />
+                    <span>{f}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="pt-2 border-t border-border flex items-center justify-between text-[10.5px] text-text-muted font-mono">

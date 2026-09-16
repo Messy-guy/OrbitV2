@@ -6,12 +6,16 @@ import {
   Code2, 
   Check, 
   ChevronDown, 
+  ChevronUp,
   Sparkles, 
   Layers, 
   ShieldCheck, 
   Zap, 
   MessageSquareCode,
-  Clock
+  Clock,
+  FileCode,
+  FileText,
+  ListFilter
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { Modal } from '../ui/Modal';
@@ -42,6 +46,8 @@ export const ShareContextModal: React.FC = () => {
   const [customNote, setCustomNote] = useState('');
   const [isTransferring, setIsTransferring] = useState(false);
   const [distilledBrief, setDistilledBrief] = useState<DistilledSessionBrief | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [activeTab, setActiveTab] = useState<'conversation' | 'files' | 'manifest'>('conversation');
 
   const validTarget = targetAgents.find(a => a.id === targetAgentId) || targetAgents[0];
   const sourceSessionId = (sourceAgent && activeSessionIdByAgent[sourceAgent.id]) || `sess-${sourceAgent?.id || 'src'}-1`;
@@ -81,6 +87,8 @@ export const ShareContextModal: React.FC = () => {
 
   useEffect(() => {
     if (!sourceAgent) return;
+    let isCancelled = false;
+
     const fetchSessionMemory = async () => {
       try {
         let rawHistory = '';
@@ -92,35 +100,23 @@ export const ShareContextModal: React.FC = () => {
           }
         }
 
-        let sessionData = UniversalSessionExtractor.extractFromTerminalHistory(
+        const sessionData = await UniversalSessionExtractor.extractAuthoritativeSession(
           sourceAgent.id,
           sourceSessionId,
+          activeWorkspace?.projectPath,
           rawHistory
         );
 
-        if (!sessionData.turns || sessionData.turns.length === 0) {
-          sessionData = {
-            agentId: sourceAgent.id,
-            sessionId: sourceSessionId,
-            turns: [
-              {
-                id: '1',
-                role: 'user',
-                content: 'Implement features and test workspace architecture.',
-                timestamp: Date.now() - 300000,
-              },
-              {
-                id: '2',
-                role: 'agent',
-                content: 'Analyzing codebase, verifying module bindings, and inspecting workspace state.',
-                timestamp: Date.now() - 120000,
-              },
-            ],
-            filesTouched: gitState?.modifiedFiles.map(f => f.path) || [],
-            blockersFound: [],
-            decisionsFormulated: [],
-            recentUserInstructions: ['Continue workspace task'],
-          };
+        if (isCancelled) return;
+
+        // Merge any modified files from gitState if not already tracked
+        if (gitState?.modifiedFiles) {
+          const fileSet = new Set(sessionData.filesTouched);
+          for (const f of gitState.modifiedFiles) {
+            if (!fileSet.has(f.path)) {
+              sessionData.filesTouched.push(f.path);
+            }
+          }
         }
 
         const brief = SessionDistillerService.distillSession(
@@ -130,13 +126,21 @@ export const ShareContextModal: React.FC = () => {
           validTarget?.name || 'Agent B',
           settings.maxTokenBudget
         );
-        setDistilledBrief(brief);
+
+        if (!isCancelled) {
+          setDistilledBrief(brief);
+        }
       } catch (err) {
         console.warn('Session memory extraction fallback:', err);
       }
     };
+
     fetchSessionMemory();
-  }, [sourceAgent, validTarget, intent, isShareContextOpen, settings.maxTokenBudget]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [sourceAgent, validTarget, intent, isShareContextOpen, settings.maxTokenBudget, activeWorkspace?.projectPath, gitState?.modifiedFiles]);
 
   const selection = {
     includeCurrentTask: true,
@@ -164,6 +168,8 @@ export const ShareContextModal: React.FC = () => {
           nextStep: distilledBrief.nextSteps || effectiveContext.activeWork,
           decisions: distilledBrief.decisions,
           issues: distilledBrief.blockers,
+          fileSummaries: distilledBrief.fileSummaries,
+          conversationSynthesis: distilledBrief.conversationSynthesis,
           notes: customNote 
             ? `${distilledBrief.formattedEnvelope}\n\n[USER DIRECTIVE]: ${customNote}`
             : distilledBrief.formattedEnvelope
@@ -218,10 +224,10 @@ export const ShareContextModal: React.FC = () => {
       isOpen={isShareContextOpen}
       onClose={() => setShareContextOpen(false)}
       title="Continue with Agent"
-      subtitle="Relay task state, active decisions, and repository context with zero token loss"
+      subtitle="Relay synthesized conversation trajectory, file edits, and decisions to the target agent"
       maxWidth="lg"
     >
-      <div className="flex flex-col gap-4 font-sans text-xs pt-0.5">
+      <div className="flex flex-col gap-3.5 font-sans text-xs pt-0.5 max-h-[82vh] overflow-y-auto pr-1">
         
         {/* Intent Workflow Selector Strip */}
         <div className="flex flex-col gap-1.5">
@@ -243,7 +249,7 @@ export const ShareContextModal: React.FC = () => {
                 <MessageSquareCode size={13} className="text-emerald-400" />
                 <span>Resume Chat</span>
               </div>
-              <span className="text-[9.5px] text-text-muted leading-tight">Master memory boot. Resumes chat seamlessly without repeating.</span>
+              <span className="text-[9.5px] text-text-muted leading-tight">Master memory boot. Resumes chat trajectory without repeating prior work.</span>
             </button>
 
             <button
@@ -359,18 +365,134 @@ export const ShareContextModal: React.FC = () => {
           </div>
         </div>
 
-        {/* DSA Optimization & TimeLens Metrics Strip */}
+        {/* Intelligence Metrics & Live Extraction Banner */}
         {distilledBrief && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[10.5px]">
-            <div className="flex items-center gap-2 text-text-muted">
-              <Sparkles size={12} className="text-emerald-400" />
-              <span>DSA Knapsack: <strong className="text-text-primary">{distilledBrief.estimatedTokens} tokens</strong></span>
-              <span className="text-text-dim">({distilledBrief.compressionRatioPercent}% compression)</span>
+          <div className="flex flex-col gap-2 p-3 rounded-xl bg-well border border-border font-mono text-[11px]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Sparkles size={13} className="text-emerald-400" />
+                <span>Synthesized Memory: <strong className="text-text-primary">{distilledBrief.estimatedTokens} tokens</strong></span>
+                <span className="text-text-dim">({distilledBrief.compressionRatioPercent}% compression)</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-text-muted">
+                <Clock size={12} className="text-amber-400" />
+                <span>Files: <strong className="text-text-primary">{distilledBrief.filesTouched.length} touched</strong></span>
+                {distilledBrief.fileSummaries && distilledBrief.fileSummaries.length > 0 && (
+                  <span className="text-emerald-400 font-bold">({distilledBrief.fileSummaries.length} diffs analyzed)</span>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 text-text-muted">
-              <Clock size={11} className="text-amber-400" />
-              <span>TIME-LENS: <strong className="text-text-primary">{distilledBrief.filesTouched.length} files classified</strong></span>
-            </div>
+
+            {/* Expand / Collapse Details Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowDetails(!showDetails)}
+              className="flex items-center justify-between pt-1 border-t border-border-subtle text-[10px] text-text-muted hover:text-text-primary cursor-pointer transition-colors"
+            >
+              <span className="font-sans font-medium flex items-center gap-1.5">
+                <FileText size={11} className="text-sky-400" />
+                <span>{showDetails ? 'Hide Handoff Briefing Inspector' : 'Inspect Synthesized Conversation & File Diffs'}</span>
+              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-text-dim">{showDetails ? 'Collapse' : 'Expand'}</span>
+                {showDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </div>
+            </button>
+
+            {/* Expandable Tabbed Inspector */}
+            {showDetails && (
+              <div className="flex flex-col gap-2 pt-2 border-t border-border animate-in fade-in-50 duration-150">
+                <div className="flex items-center gap-1 border-b border-border pb-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('conversation')}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-mono transition-colors cursor-pointer",
+                      activeTab === 'conversation'
+                        ? "bg-text-primary text-background font-bold"
+                        : "text-text-muted hover:text-text-primary hover:bg-panel"
+                    )}
+                  >
+                    💬 Conversation Trajectory
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('files')}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-mono transition-colors cursor-pointer",
+                      activeTab === 'files'
+                        ? "bg-text-primary text-background font-bold"
+                        : "text-text-muted hover:text-text-primary hover:bg-panel"
+                    )}
+                  >
+                    📝 Files & Diffs ({distilledBrief.fileSummaries?.length || distilledBrief.filesTouched.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('manifest')}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-mono transition-colors cursor-pointer",
+                      activeTab === 'manifest'
+                        ? "bg-text-primary text-background font-bold"
+                        : "text-text-muted hover:text-text-primary hover:bg-panel"
+                    )}
+                  >
+                    📄 HANDOFF.md Preview
+                  </button>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto p-2 rounded-lg bg-panel border border-border text-[11px] font-mono whitespace-pre-wrap leading-relaxed">
+                  {activeTab === 'conversation' && (
+                    <div className="space-y-2">
+                      <div className="font-bold text-text-primary">
+                        {distilledBrief.conversationSynthesis?.narrativeSummary || distilledBrief.summaryNarrative}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'files' && (
+                    <div className="space-y-3">
+                      {distilledBrief.fileSummaries && distilledBrief.fileSummaries.length > 0 ? (
+                        distilledBrief.fileSummaries.map((f, i) => (
+                          <div key={i} className="p-2 rounded-lg bg-well border border-border-subtle space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-text-primary flex items-center gap-1.5">
+                                <FileCode size={12} className="text-emerald-400" />
+                                <span>{f.filePath}</span>
+                              </span>
+                              <div className="flex items-center gap-1.5 text-[10px]">
+                                <span className="text-emerald-400 font-bold">+{f.additions}</span>
+                                <span className="text-red-400 font-bold">-{f.deletions}</span>
+                              </div>
+                            </div>
+                            <p className="text-text-secondary text-[10.5px] font-sans">{f.summary}</p>
+                            {f.diffSnippet && (
+                              <pre className="p-1.5 rounded bg-panel border border-border text-[9.5px] text-text-dim overflow-x-auto">
+                                {f.diffSnippet}
+                              </pre>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-text-muted">
+                          {distilledBrief.filesTouched.length > 0 ? (
+                            distilledBrief.filesTouched.map((f, i) => <div key={i}>• {f}</div>)
+                          ) : (
+                            <div>No file modifications detected in active session.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'manifest' && (
+                    <div className="text-text-secondary font-mono text-[10px]">
+                      {previewData?.formattedInstruction || distilledBrief.formattedEnvelope}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

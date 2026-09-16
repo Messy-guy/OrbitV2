@@ -211,6 +211,26 @@ export interface HandoffSelection {
   requireConfirmation?: boolean; // When true, the target agent summarizes and waits for user confirmation before executing
 }
 
+export interface FileEditSummary {
+  filePath: string;
+  status: 'modified' | 'added' | 'deleted' | 'untracked' | string;
+  additions: number;
+  deletions: number;
+  summary: string;
+  diffSnippet?: string;
+}
+
+export interface ConversationSynthesis {
+  primaryGoal: string;
+  userObjectives: string[];
+  workAccomplished: Array<{ step: string; detail?: string; tool?: string }>;
+  decisionsFormulated: string[];
+  blockersAndErrors: Array<{ issue: string; resolution?: string; status: 'resolved' | 'pending' }>;
+  currentExecutionState: string;
+  nextStepDirective: string;
+  narrativeSummary: string;
+}
+
 export interface ContextPackage {
   schemaVersion: number;
   sourceAgent: string;
@@ -224,6 +244,7 @@ export interface ContextPackage {
   progress: string;
   decisions: string[];
   changedFiles: ChangedFileItem[];
+  fileSummaries?: FileEditSummary[];
   knownIssues: string[];
   gitState?: GitState;
   relevantHistory?: string[];
