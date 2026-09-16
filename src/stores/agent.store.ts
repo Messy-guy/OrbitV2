@@ -692,6 +692,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         try {
           const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
           conversationCaptureService.recordDirectUserMessage(nativeSessionId, trimmed);
+          get().addDirectMessage(nativeSessionId, {
+            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            sessionId: nativeSessionId,
+            role: 'user',
+            content: trimmed,
+            timestamp: Date.now(),
+          });
         } catch {}
         return;
       } catch (e) {

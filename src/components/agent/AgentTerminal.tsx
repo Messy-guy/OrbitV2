@@ -9,6 +9,7 @@ import { isTauriAvailable, tauriService } from '../../services/tauri.service';
 import { TerminalCanvasRenderer, TERMINAL_LINE_HEIGHT } from '../terminal/TerminalCanvasRenderer';
 import { TerminalGridView } from '../terminal/TerminalGridView';
 import { TerminalSessionStore, createBlankSnapshot, useTerminalSnapshot } from '../../services/terminal/terminalSessionStore';
+import { conversationCaptureService } from '../../services/conversation/ConversationCaptureService';
 
 const ESTIMATED_CHAR_WIDTH = 7.82;
 
@@ -25,6 +26,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const [phase, setPhase] = useState<Phase>('booting');
   const [errorMsg, setErrorMsg] = useState('');
   const [fallbackSnapshot, setFallbackSnapshot] = useState(() => createBlankSnapshot(sessionRef.current, 30, 100));
+  const inputBufferRef = useRef<string>('');
   const { resizeTerminal } = useAgentStore();
   const setActiveSession = useAgentStore(s => s.setActiveSession);
   const workspaces = useWorkspaceStore(s => s.workspaces);
@@ -177,6 +179,49 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const renderedSnapshot = snapshot || fallbackSnapshot;
   const providerLabel = agent.provider.charAt(0).toUpperCase() + agent.provider.slice(1).toLowerCase();
   const sendInput = (bytes: Uint8Array) => {
+    try {
+      if (bytes.length === 1 && bytes[0] === 127) {
+        inputBufferRef.current = inputBufferRef.current.slice(0, -1);
+      } else if (bytes.length === 1 && bytes[0] === 13) {
+        const line = inputBufferRef.current.trim();
+        inputBufferRef.current = '';
+        if (line) {
+          try {
+            conversationCaptureService.recordDirectUserMessage(sessionRef.current, line);
+            useAgentStore.getState().addDirectMessage(sessionRef.current, {
+              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              sessionId: sessionRef.current,
+              role: 'user',
+              content: line,
+              timestamp: Date.now(),
+            });
+          } catch {}
+        }
+      } else {
+        const decoded = new TextDecoder().decode(bytes);
+        const cleanDecoded = decoded.replace(/\x1b\[20[01]~/g, '');
+        if (cleanDecoded.includes('\r') || cleanDecoded.includes('\n')) {
+          const fullText = (inputBufferRef.current + cleanDecoded).trim();
+          inputBufferRef.current = '';
+          const parts = fullText.split(/[\r\n]+/).map((p) => p.trim()).filter(Boolean);
+          for (const line of parts) {
+            try {
+              conversationCaptureService.recordDirectUserMessage(sessionRef.current, line);
+              useAgentStore.getState().addDirectMessage(sessionRef.current, {
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                sessionId: sessionRef.current,
+                role: 'user',
+                content: line,
+                timestamp: Date.now(),
+              });
+            } catch {}
+          }
+        } else if (!cleanDecoded.startsWith('\x1b')) {
+          inputBufferRef.current += cleanDecoded;
+        }
+      }
+    } catch {}
+
     void tauriService.sendNativeTerminalInput(sessionRef.current, bytes).catch((error) => {
       setPhase('error'); setErrorMsg(error instanceof Error ? error.message : String(error));
     });

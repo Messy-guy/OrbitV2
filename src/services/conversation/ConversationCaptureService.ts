@@ -281,6 +281,24 @@ class ConversationCaptureService {
     const cleanText = message.trim();
     if (!cleanText) return;
 
+    if (!conversationStore.getSession(sessionId)) {
+      const boundAgentId = this.sessionToAgentId.get(sessionId) || sessionId;
+      const agents = useAgentStore.getState().agents;
+      const agent = agents.find((a) => a.id === boundAgentId || a.currentSessionId === sessionId || a.id === sessionId);
+      conversationStore.getOrCreateSession(
+        sessionId,
+        agent?.workspaceId || 'default',
+        agent?.workspaceId || 'default',
+        {
+          id: agent?.id || boundAgentId,
+          name: agent?.name || boundAgentId,
+          provider: agent?.provider || 'terminal',
+          transport: 'pty',
+        },
+        agent?.name || sessionId
+      );
+    }
+
     const turnId = `turn_u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     this.startTurn(sessionId, cleanText, turnId);
     pendingInputEchoQueue.registerPendingEcho(sessionId, cleanText);

@@ -7,6 +7,8 @@ import { isTauriAvailable, tauriService } from './tauri.service';
 import { conversationStore } from './conversation/ConversationStore';
 import { conversationCaptureService } from './conversation/ConversationCaptureService';
 import { universalRemoteController } from './remoteControl';
+import { sessionService } from './session.service';
+import { sessionGateway } from './sessionGateway/sessionGateway';
 
 class DesktopRelayService {
   private socket: Socket | null = null;
@@ -17,6 +19,7 @@ class DesktopRelayService {
   private unlistenTauriOutput: (() => void) | null = null;
   private unlistenTauriStatus: (() => void) | null = null;
   private syncThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.unsubscribeConversationStore = conversationStore.subscribe(() => {
@@ -120,10 +123,18 @@ class DesktopRelayService {
         console.log('✅ [Desktop Relay] Connected to Live Relay! Socket ID:', this.socket?.id);
         this.notifyStatus(true);
         this.broadcastLiveTelemetry();
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+          this.broadcastLiveTelemetry();
+        }, 3000);
       });
 
       this.socket.on('disconnect', () => {
         this.isConnecting = false;
+        if (this.heartbeatTimer) {
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+        }
         this.notifyStatus(false);
       });
 
@@ -133,6 +144,12 @@ class DesktopRelayService {
       });
 
       this.socket.on('desktop:request_telemetry', () => {
+        this.broadcastLiveTelemetry();
+      });
+      this.socket.on('mobile:request_telemetry', () => {
+        this.broadcastLiveTelemetry();
+      });
+      this.socket.on('relay:request_telemetry', () => {
         this.broadcastLiveTelemetry();
       });
 
@@ -357,6 +374,185 @@ class DesktopRelayService {
     }
   }
 
+  private async hydrateAgentChatHistory(
+    session?: any,
+    liveAgent?: any,
+    activeProjectPath?: string
+  ): Promise<{ chatHistory: any[]; previewText: string }> {
+    const chatHistory: any[] = [];
+    let previewText = '';
+
+    const agentId = liveAgent?.id || session?.engine?.id || session?.id || 'agent';
+    const sessionId = session?.id || liveAgent?.currentSessionId || agentId;
+
+    // Source 1: Canonical conversationStore turns
+    if (session?.conversation?.turns && session.conversation.turns.length > 0) {
+      for (const turn of session.conversation.turns) {
+        for (const msg of turn.messages || []) {
+          const rawContent = (msg.content || [])
+            .map((c: any) =>
+              c.type === 'text'
+                ? c.text
+                : c.type === 'markdown'
+                ? c.markdown
+                : c.type === 'code'
+                ? c.code
+                : c.path
+            )
+            .join('\n');
+
+          if (rawContent && rawContent.trim()) {
+            previewText = rawContent.slice(0, 120);
+          }
+
+          const thoughtActivity = turn.activities?.find((a: any) => a.category === 'other');
+          const toolActivity = turn.activities?.find((a: any) => a.category !== 'other');
+
+          chatHistory.push({
+            id: msg.id,
+            agentId,
+            sessionId,
+            turnId: turn.id,
+            sender: msg.role === 'user' ? 'user' : 'agent',
+            content: rawContent,
+            thought: thoughtActivity?.summary,
+            toolCall: toolActivity
+              ? {
+                  toolName: toolActivity.summary,
+                  summary: toolActivity.category,
+                }
+              : undefined,
+            activities: turn.activities,
+            streaming: msg.streaming,
+            timestamp: msg.createdAt || Date.now(),
+          });
+        }
+      }
+    }
+
+    // Source 2: In-memory messages from useAgentStore
+    if (chatHistory.length === 0) {
+      const { messages: storeMessages, activeSessionIdByAgent } = useAgentStore.getState();
+      const candidateKeys = [
+        sessionId,
+        agentId,
+        liveAgent?.currentSessionId,
+        session?.id,
+        liveAgent ? activeSessionIdByAgent[liveAgent.id] : undefined,
+      ].filter(Boolean) as string[];
+
+      for (const key of candidateKeys) {
+        const msgs = storeMessages[key];
+        if (msgs && msgs.length > 0) {
+          for (const msg of msgs) {
+            if (msg.content && msg.content.trim()) {
+              previewText = msg.content.slice(0, 120);
+            }
+            chatHistory.push({
+              id: msg.id,
+              agentId,
+              sessionId,
+              turnId: `turn-${msg.id}`,
+              sender: msg.role === 'user' ? 'user' : 'agent',
+              content: msg.content,
+              streaming: (msg as any)._streaming,
+              timestamp: msg.timestamp || Date.now(),
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    // Source 3: Persisted sessionService messages
+    if (chatHistory.length === 0) {
+      const candidateKeys = [
+        sessionId,
+        agentId,
+        liveAgent?.currentSessionId,
+        session?.id,
+      ].filter(Boolean) as string[];
+
+      for (const key of candidateKeys) {
+        const svcMsgs = await sessionService.getMessages(key).catch(() => []);
+        if (svcMsgs && svcMsgs.length > 0) {
+          for (const msg of svcMsgs) {
+            if (msg.content && msg.content.trim()) {
+              previewText = msg.content.slice(0, 120);
+            }
+            chatHistory.push({
+              id: msg.id,
+              agentId,
+              sessionId,
+              turnId: `turn-${msg.id}`,
+              sender: msg.role === 'user' ? 'user' : 'agent',
+              content: msg.content,
+              timestamp: msg.timestamp || Date.now(),
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    // Source 4: SessionGateway / Native Terminal PTY History reconstruction
+    if (chatHistory.length === 0 && isTauriAvailable()) {
+      try {
+        const provider = (liveAgent?.provider || session?.engine?.provider || 'antigravity') as any;
+        const historyMsgs = await sessionGateway.getSessionHistory(
+          agentId,
+          provider,
+          activeProjectPath,
+          sessionId
+        ).catch(() => []);
+
+        if (historyMsgs && historyMsgs.length > 0) {
+          for (const hMsg of historyMsgs) {
+            if (hMsg.content && hMsg.content.trim()) {
+              previewText = hMsg.content.slice(0, 120);
+            }
+            chatHistory.push({
+              id: hMsg.id,
+              agentId,
+              sessionId,
+              turnId: `turn-${hMsg.id}`,
+              sender: hMsg.sender,
+              content: hMsg.content,
+              timestamp: hMsg.timestamp,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // Source 5: Terminal logs buffer fallback
+    if (chatHistory.length === 0 && liveAgent?.id) {
+      const tLogs = useAgentStore.getState().terminalLogs[liveAgent.id] || [];
+      if (tLogs.length > 0) {
+        const cleanLines = tLogs
+          .map((l: any) => {
+            const raw = typeof l === 'string' ? l : l?.text || '';
+            return raw.replace(/\x1B\[[0-9;?]*[a-zA-Z]/g, '').trim();
+          })
+          .filter(Boolean);
+        if (cleanLines.length > 0) {
+          previewText = cleanLines[cleanLines.length - 1].slice(0, 120);
+          chatHistory.push({
+            id: `tlog-${liveAgent.id}`,
+            agentId,
+            sessionId,
+            turnId: `turn-tlog-${liveAgent.id}`,
+            sender: 'agent',
+            content: cleanLines.slice(-40).join('\n'),
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
+
+    return { chatHistory, previewText };
+  }
+
   async broadcastLiveTelemetry() {
     if (!this.socket || !this.socket.connected) return;
 
@@ -397,100 +593,82 @@ class DesktopRelayService {
       const deviceMeta = this.getDeviceMetadata();
 
       // Map sessions to canonical mobile representation
-      const mappedAgents = canonicalSessions.map((session) => {
-        // Find matching live agent store if present
-        const liveAgent = agents.find((a) => a.id === session.id || a.id === session.engine?.id || a.currentSessionId === session.id);
-        const isRuntimeLive = !!session.runtime?.isAlive && session.status !== 'offline';
-        const effectiveStatus = isRuntimeLive ? session.status : 'offline';
+      const mappedAgents = await Promise.all(
+        canonicalSessions.map(async (session) => {
+          // Find matching live agent store if present
+          const liveAgent = agents.find((a) => a.id === session.id || a.id === session.engine?.id || a.currentSessionId === session.id);
+          const isRuntimeLive = !!session.runtime?.isAlive && session.status !== 'offline';
+          const effectiveStatus = isRuntimeLive ? session.status : 'offline';
 
-        // Map canonical turns into flat message stream for backwards compat and UI rendering
-        const chatHistory: any[] = [];
-        let previewText = '';
+          const sessionWs = workspaces.find((w) => w.id === session.workspaceId || w.id === session.projectId);
+          const { chatHistory, previewText } = await this.hydrateAgentChatHistory(
+            session,
+            liveAgent,
+            sessionWs?.projectPath
+          );
 
-        for (const turn of session.conversation.turns) {
-          for (const msg of turn.messages) {
-            const rawContent = msg.content
-              .map((c) => (c.type === 'text' ? c.text : c.type === 'markdown' ? c.markdown : c.type === 'code' ? c.code : c.path))
-              .join('\n');
+          const equippedSkills = liveAgent ? useSkillStore.getState().getEquippedSkills(liveAgent.id) : [];
 
-            if (rawContent.trim()) {
-              previewText = rawContent.slice(0, 120);
-            }
-
-            const thoughtActivity = turn.activities?.find((a) => a.category === 'other');
-            const toolActivity = turn.activities?.find((a) => a.category !== 'other');
-
-            chatHistory.push({
-              id: msg.id,
-              agentId: session.id,
-              // INV-9/10 — every mobile message carries its Orbit session and
-              // turn identity so the mobile projection can reject foreign events.
-              sessionId: session.id,
-              turnId: turn.id,
-              sender: msg.role === 'user' ? 'user' : 'agent',
-              content: rawContent,
-              thought: thoughtActivity?.summary,
-              toolCall: toolActivity
-                ? {
-                    toolName: toolActivity.summary,
-                    summary: toolActivity.category,
-                  }
-                : undefined,
-              activities: turn.activities,
-              streaming: msg.streaming,
-              timestamp: msg.createdAt,
-            });
-          }
-        }
-
-        const equippedSkills = liveAgent ? useSkillStore.getState().getEquippedSkills(liveAgent.id) : [];
-
-        return {
-          id: session.id,
-          name: session.engine.name || session.title,
-          provider: session.engine.provider,
-          role: liveAgent?.role || 'raw',
-          operationalMode: liveAgent?.operationalMode || (liveAgent?.role === 'architect' ? 'plan' : liveAgent?.role === 'reviewer' ? 'audit' : 'code'),
-          workspaceId: session.workspaceId,
-          projectId: session.projectId,
-          status: effectiveStatus,
-          isLive: isRuntimeLive,
-          title: session.title,
-          preview: previewText || 'Awaiting instructions...',
-          currentTaskDescription:
-            effectiveStatus === 'working'
-              ? 'Processing instructions...'
-              : effectiveStatus === 'waiting'
-              ? 'Ready for prompt'
-              : 'Offline · Previous conversation',
-          chatHistory,
-          conversation: session.conversation,
-          capabilities: session.capabilities,
-          equippedSkills: equippedSkills.map((s) => ({
-            id: s.id,
-            name: s.name,
-            shortLabel: s.shortLabel,
-            category: s.category,
-          })),
-          runtime: {
-            isAlive: isRuntimeLive,
-            pid: session.runtime?.pid,
-            lastHeartbeat: session.runtime?.lastHeartbeat,
-          },
-          terminalLogs: ['● Conversation mode active.'],
-          updatedAt: session.updatedAt,
-        };
-      });
+          return {
+            id: liveAgent?.id || session.engine?.id || session.id,
+            sessionId: session.id,
+            name: session.engine.name || liveAgent?.name || session.title,
+            provider: session.engine.provider || liveAgent?.provider || 'agent',
+            role: liveAgent?.role || 'raw',
+            operationalMode: liveAgent?.operationalMode || (liveAgent?.role === 'architect' ? 'plan' : liveAgent?.role === 'reviewer' ? 'audit' : 'code'),
+            workspaceId: session.workspaceId,
+            projectId: session.projectId,
+            status: effectiveStatus,
+            isLive: isRuntimeLive,
+            title: session.title,
+            preview: previewText || 'Awaiting instructions...',
+            currentTaskDescription:
+              effectiveStatus === 'working'
+                ? 'Processing instructions...'
+                : effectiveStatus === 'waiting'
+                ? (previewText || 'Ready for prompt')
+                : 'Offline · Previous conversation',
+            chatHistory,
+            conversation: session.conversation,
+            capabilities: session.capabilities,
+            equippedSkills: equippedSkills.map((s) => ({
+              id: s.id,
+              name: s.name,
+              shortLabel: s.shortLabel,
+              category: s.category,
+            })),
+            runtime: {
+              isAlive: isRuntimeLive,
+              pid: session.runtime?.pid,
+              lastHeartbeat: session.runtime?.lastHeartbeat,
+            },
+            terminalLogs: ['● Conversation mode active.'],
+            updatedAt: session.updatedAt,
+          };
+        })
+      );
 
       // Also ensure all workspace agents from useAgentStore are represented in mappedAgents
       for (const agent of agents) {
         const alreadyMapped = mappedAgents.some(
-          (m) => m.id === agent.id || m.id === agent.currentSessionId
+          (m) =>
+            m.id === agent.id ||
+            m.id === agent.currentSessionId ||
+            (m as any).sessionId === agent.currentSessionId ||
+            (m as any).sessionId === agent.id
         );
         if (!alreadyMapped) {
           const isAlive = agent.status === 'working' || agent.status === 'ready';
+          const agentWs = workspaces.find((w) => w.id === agent.workspaceId) || workspaces[0];
+          const { chatHistory, previewText } = await this.hydrateAgentChatHistory(
+            undefined,
+            agent,
+            agentWs?.projectPath
+          );
+
           mappedAgents.push({
             id: agent.id,
+            sessionId: agent.currentSessionId || agent.id,
             name: agent.name,
             provider: agent.provider,
             role: agent.role || 'raw',
@@ -500,9 +678,9 @@ class DesktopRelayService {
             status: (agent.status === 'ready' || !agent.status ? 'waiting' : agent.status === 'working' ? 'working' : 'offline') as any,
             isLive: isAlive,
             title: agent.name,
-            preview: 'Ready for prompt',
-            currentTaskDescription: 'Ready for prompt',
-            chatHistory: [],
+            preview: previewText || 'Ready for prompt',
+            currentTaskDescription: previewText || 'Ready for prompt',
+            chatHistory,
             conversation: { turns: [] },
             capabilities: { cancel: true, input: true } as any,
             equippedSkills: [],

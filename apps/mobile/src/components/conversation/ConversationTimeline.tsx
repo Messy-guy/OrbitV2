@@ -24,12 +24,24 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   isWorking,
   sessionId,
 }) => {
-  // INV-10 — session-scoped projection: only messages owned by the active
-  // session are ever rendered. A switch resets this list wholesale; messages
-  // from a previous session can never accumulate into the new view.
-  const messages = sessionId
-    ? allMessages.filter((m) => (m.sessionId ? m.sessionId === sessionId : m.agentId === sessionId))
+  // INV-10 — session-scoped projection: filter messages owned by active session,
+  // normalizing session and agent IDs (such as stripping 'sess-' prefixes).
+  // If strict filtering matches 0 but allMessages has content (e.g. from agent.chatHistory),
+  // fallback to allMessages so previous conversation turns are never dropped.
+  const filtered = sessionId
+    ? allMessages.filter((m) => {
+        if (!sessionId) return true;
+        if (m.sessionId === sessionId || m.agentId === sessionId) return true;
+        const normSession = sessionId.replace(/^sess-/, '');
+        const normMSession = m.sessionId?.replace(/^sess-/, '');
+        const normMAgent = m.agentId?.replace(/^sess-/, '');
+        if (normMSession && (normMSession === normSession || normMSession === sessionId || m.sessionId === normSession)) return true;
+        if (normMAgent && (normMAgent === normSession || normMAgent === sessionId || m.agentId === normSession)) return true;
+        return false;
+      })
     : allMessages;
+
+  const messages = filtered.length > 0 ? filtered : allMessages;
   const scrollRef = useRef<ScrollView>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);

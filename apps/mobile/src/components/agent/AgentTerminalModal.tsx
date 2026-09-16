@@ -36,7 +36,12 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
 
   // Directly subscribe to live store by agent ID to get streaming real-time updates
   const liveAgent = useLiveRelayStore((s) =>
-    s.agents.find((a) => a.id === initialAgent?.id) || initialAgent
+    s.agents.find(
+      (a) =>
+        a.id === initialAgent?.id ||
+        (initialAgent?.id && a.id.replace(/^sess-/, '') === initialAgent.id.replace(/^sess-/, '')) ||
+        (initialAgent?.id && a.name?.toLowerCase() === initialAgent.name?.toLowerCase())
+    ) || initialAgent
   );
 
   const agent = liveAgent;
