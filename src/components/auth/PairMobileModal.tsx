@@ -27,7 +27,7 @@ export const PairMobileModal: React.FC = () => {
 
   const token = desktopRelayService.getRelayToken();
   const pairingCode = desktopRelayService.getPairingCode();
-  const relayUrl = (import.meta as any).env?.VITE_API_URL || 'http://192.168.18.60:3000';
+  const relayUrl = (import.meta as any).env?.VITE_API_URL || 'https://orbit-cloud-backend.onrender.com';
 
   const pairingPayload = JSON.stringify({
     type: 'orbit_pair',

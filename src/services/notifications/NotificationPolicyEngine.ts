@@ -67,6 +67,17 @@ export class NotificationPolicyEngine {
         break;
       }
 
+      case 'assistant_completed': {
+        if (!prefs.agentCompleted) return null;
+        const cleanText = (event.text || '').trim();
+        if (!cleanText) return null;
+        notificationType = 'agent_completed';
+        priority = 'normal';
+        title = `@${displayName}`;
+        body = cleanText.length > 120 ? `${cleanText.slice(0, 117)}...` : cleanText;
+        break;
+      }
+
       case 'session_status_changed': {
         if (event.status === 'input_required' || event.status === 'waiting') {
           if (event.status === 'input_required' && !prefs.needsInput) return null;

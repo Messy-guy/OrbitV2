@@ -228,6 +228,21 @@ class DesktopRelayService {
             conversationStore.setSessionStatus(agentId, 'working');
             useAgentStore.getState().setAgentStatus(agentId, 'working');
           }
+        } else if (actionType === 'APPROVE') {
+          const decision = payload?.decision || 'APPROVE';
+          const keystroke = decision === 'APPROVE' ? 'y\r' : 'n\r';
+          const agent = useAgentStore.getState().agents.find((a) => a.id === agentId);
+          const targetSessionId = agent?.currentSessionId || agentId;
+
+          if (isTauriAvailable()) {
+            const bytes = new TextEncoder().encode(keystroke);
+            await tauriService.sendNativeTerminalInput(targetSessionId, bytes).catch(() => {
+              return tauriService.sendAgentInput(agentId, targetSessionId, keystroke);
+            });
+          }
+
+          conversationStore.setSessionStatus(targetSessionId, decision === 'APPROVE' ? 'working' : 'waiting');
+          useAgentStore.getState().setAgentStatus(agentId, decision === 'APPROVE' ? 'working' : 'ready');
         }
         this.scheduleSync();
       });
@@ -248,8 +263,7 @@ class DesktopRelayService {
       this.scheduleSync();
     });
 
-    this.unsubscribeAgentStore = useAgentStore.subscribe(() => {
-      // Ensure all current desktop agents are bound in the conversation capture service using active sessionId
+    const bindCurrentAgents = () => {
       const { agents, activeSessionIdByAgent } = useAgentStore.getState();
       const activeWs = useWorkspaceStore.getState().getActiveWorkspace();
       for (const a of agents) {
@@ -266,6 +280,13 @@ class DesktopRelayService {
           a.name
         );
       }
+    };
+
+    // Bind current desktop agents immediately
+    bindCurrentAgents();
+
+    this.unsubscribeAgentStore = useAgentStore.subscribe(() => {
+      bindCurrentAgents();
       this.scheduleSync();
     });
 
@@ -461,6 +482,37 @@ class DesktopRelayService {
         };
       });
 
+      // Also ensure all workspace agents from useAgentStore are represented in mappedAgents
+      for (const agent of agents) {
+        const alreadyMapped = mappedAgents.some(
+          (m) => m.id === agent.id || m.id === agent.currentSessionId
+        );
+        if (!alreadyMapped) {
+          const isAlive = agent.status === 'working' || agent.status === 'ready';
+          mappedAgents.push({
+            id: agent.id,
+            name: agent.name,
+            provider: agent.provider,
+            role: agent.role || 'raw',
+            operationalMode: (agent as any).operationalMode || (agent.role === 'architect' ? 'plan' : agent.role === 'reviewer' ? 'audit' : 'code'),
+            workspaceId: agent.workspaceId || activeWorkspaceId || 'default_project',
+            projectId: agent.workspaceId || activeWorkspaceId || 'default_project',
+            status: (agent.status === 'ready' || !agent.status ? 'waiting' : agent.status === 'working' ? 'working' : 'offline') as any,
+            isLive: isAlive,
+            title: agent.name,
+            preview: 'Ready for prompt',
+            currentTaskDescription: 'Ready for prompt',
+            chatHistory: [],
+            conversation: { turns: [] },
+            capabilities: { cancel: true, input: true } as any,
+            equippedSkills: [],
+            runtime: { isAlive, pid: undefined, lastHeartbeat: Date.now() },
+            terminalLogs: ['● Agent ready.'],
+            updatedAt: Date.now(),
+          });
+        }
+      }
+
       const runtimeSnapshot = {
         generatedAt: Date.now(),
         desktopOnline: true,
@@ -474,9 +526,31 @@ class DesktopRelayService {
         })),
       };
 
+      const pendingApprovals: any[] = [];
+      for (const session of canonicalSessions) {
+        if (session.status === 'input_required') {
+          for (const turn of session.conversation.turns) {
+            const approvalActivity = turn.activities?.find((a) => a.category === 'approvals');
+            if (approvalActivity) {
+              const detail = approvalActivity.details?.[0];
+              pendingApprovals.push({
+                id: detail?.id || `app-${session.id}`,
+                agentId: session.id,
+                agentName: session.engine.name || session.title,
+                provider: session.engine.provider || 'agent',
+                question: approvalActivity.summary || 'Confirmation needed to proceed',
+                commandSnippet: detail?.description || '',
+                createdAt: approvalActivity.startedAt,
+              });
+            }
+          }
+        }
+      }
+
       const packet = {
         projects,
         agents: mappedAgents,
+        approvals: pendingApprovals,
         runtimeSnapshot,
         activeWorkspaceId,
         device: deviceMeta,
@@ -485,6 +559,12 @@ class DesktopRelayService {
       this.socket.emit('desktop:telemetry', packet);
     } catch (err) {
       console.warn('Failed to broadcast telemetry packet:', err);
+    }
+  }
+
+  broadcastNotification(intent: any) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('desktop:notification', intent);
     }
   }
 }

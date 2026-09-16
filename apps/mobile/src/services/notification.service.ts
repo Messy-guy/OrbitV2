@@ -293,6 +293,57 @@ class MobileNotificationService {
       this.pendingDeepLink = null;
     }
   }
+
+  /**
+   * Present an immediate live notification banner & haptic alert upon receiving relay notification event
+   */
+  async handleIncomingLiveNotification(intent: any) {
+    if (!intent) return;
+
+    // Check foreground suppression: if user is actively looking at this exact session, suppress duplicate popup
+    if (
+      this.currentAttention.appState === 'active' &&
+      this.currentAttention.activeSessionId === intent.sessionId &&
+      this.currentAttention.activeAgentId === intent.agentId
+    ) {
+      return;
+    }
+
+    try {
+      const Haptics = require('expo-haptics');
+      if (intent.priority === 'high' || intent.type === 'approval_required' || intent.type === 'agent_error') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch {}
+
+    const Notifications = this.getNotificationsModule();
+    if (Notifications && Notifications.scheduleNotificationAsync) {
+      try {
+        const channelId =
+          intent.type === 'approval_required' || intent.type === 'agent_needs_input'
+            ? 'agent_attention'
+            : intent.type === 'agent_error'
+            ? 'agent_errors'
+            : 'agent_completion';
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: intent.title,
+            body: intent.body,
+            data: intent.data || {},
+            sound: true,
+            priority: intent.priority === 'high' ? 'high' : 'default',
+            channelId,
+          },
+          trigger: null, // deliver immediately
+        });
+      } catch (err) {
+        console.warn('[Notifications] Local schedule error:', err);
+      }
+    }
+  }
 }
 
 export const mobileNotificationService = new MobileNotificationService();

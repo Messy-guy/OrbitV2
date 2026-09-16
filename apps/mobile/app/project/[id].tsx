@@ -24,7 +24,9 @@ export default function ProjectDetailScreen() {
   const allAgents = useLiveRelayStore((s) => s.agents);
 
   // Filter agents belonging to this project (or all if in single-workspace mode)
-  const projectAgents = allAgents.filter((a) => !a.workspaceId || a.workspaceId === projectId);
+  const projectAgents = allAgents.filter(
+    (a) => !a.workspaceId || a.workspaceId === projectId || a.projectId === projectId
+  );
 
   const [activeTerminalAgent, setActiveTerminalAgent] = useState<MobileAgentDetail | null>(null);
 

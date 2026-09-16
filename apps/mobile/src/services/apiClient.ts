@@ -1,7 +1,7 @@
 import { secureStorage } from './secureStorage';
 import { ENDPOINTS } from '../constants/endpoints';
 
-const DEFAULT_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.60:3000';
+const DEFAULT_API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://orbit-cloud-backend.onrender.com';
 
 export class ApiError extends Error {
   status: number;

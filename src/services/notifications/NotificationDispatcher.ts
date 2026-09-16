@@ -50,6 +50,11 @@ export class NotificationDispatcher {
       pushGateway.dispatchNotification(userId, intent).catch((err) => {
         console.warn('[NotificationDispatcher] Dispatch error:', err);
       });
+
+      // Also broadcast live to paired mobile cockpits over WebSocket
+      import('../desktopRelay.service').then(({ desktopRelayService }) => {
+        desktopRelayService.broadcastNotification(intent);
+      }).catch(() => {});
     } catch (e) {
       // Isolation: Catch all errors to prevent affecting engine adapters
       console.error('[NotificationDispatcher] handleCanonicalEvent error:', e);

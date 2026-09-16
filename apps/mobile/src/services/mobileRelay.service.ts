@@ -16,6 +16,13 @@ class MobileRelayService {
   private isConnecting = false;
   private isExplicitlyDisconnected = false;
 
+  private sanitizeRelayUrl(url?: string | null): string | null {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.includes('192.168.18.60')) return null;
+    return trimmed;
+  }
+
   async verifyAndConnect(inputCodeOrToken: string, relayUrlOverride?: string): Promise<{ success: boolean; error?: string; device?: ConnectedDeviceMetadata }> {
     const raw = inputCodeOrToken.trim();
     let token = '';
@@ -38,7 +45,11 @@ class MobileRelayService {
       token = raw;
     }
 
-    const targetRelay = relayUrl || (await secureStorage.getRelayUrl()) || process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.60:3000';
+    const targetRelay =
+      this.sanitizeRelayUrl(relayUrl) ||
+      this.sanitizeRelayUrl(await secureStorage.getRelayUrl()) ||
+      this.sanitizeRelayUrl(process.env.EXPO_PUBLIC_API_URL) ||
+      'https://orbit-cloud-backend.onrender.com';
 
     return new Promise((resolve) => {
       let resolved = false;
@@ -111,8 +122,11 @@ class MobileRelayService {
     if (this.socket?.connected || this.isConnecting) return;
 
     this.isConnecting = true;
-    const customRelayUrl = await secureStorage.getRelayUrl();
-    const relayUrl = customRelayUrl || process.env.EXPO_PUBLIC_API_URL || 'http://192.168.18.60:3000';
+    const customRelayUrl = this.sanitizeRelayUrl(await secureStorage.getRelayUrl());
+    const relayUrl =
+      customRelayUrl ||
+      this.sanitizeRelayUrl(process.env.EXPO_PUBLIC_API_URL) ||
+      'https://orbit-cloud-backend.onrender.com';
 
     try {
       if (this.socket) {
@@ -188,6 +202,17 @@ class MobileRelayService {
           device: resolvedDevice,
         });
       });
+
+      const handleNotification = (intent: any) => {
+        if (intent) {
+          import('./notification.service').then(({ mobileNotificationService }) => {
+            mobileNotificationService.handleIncomingLiveNotification(intent);
+          }).catch(() => {});
+        }
+      };
+
+      this.socket.on('mobile:notification', handleNotification);
+      this.socket.on('relay:notification', handleNotification);
     } catch (e) {
       this.isConnecting = false;
       console.error('[Mobile Relay] Connection setup failed:', e);

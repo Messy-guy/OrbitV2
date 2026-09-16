@@ -7,6 +7,7 @@ interface LiveRelayState {
   device: ConnectedDeviceMetadata | null;
   projects: MobileProjectSummary[];
   agents: MobileAgentDetail[];
+  approvals: any[];
   activeWorkspaceId: string | null;
 
   // Actions
@@ -15,6 +16,7 @@ interface LiveRelayState {
   updateTelemetry: (payload: {
     projects?: MobileProjectSummary[];
     agents?: MobileAgentDetail[];
+    approvals?: any[];
     activeWorkspaceId?: string;
     device?: ConnectedDeviceMetadata;
   }) => void;
@@ -28,13 +30,14 @@ let state: LiveRelayState = {
   device: null,
   projects: [],
   agents: [],
+  approvals: [],
   activeWorkspaceId: null,
 
   setConnectionStatus: (connected: boolean) => {
     state = {
       ...state,
       isConnected: connected,
-      ...(connected ? {} : { device: null, projects: [], agents: [], activeWorkspaceId: null }),
+      ...(connected ? {} : { device: null, projects: [], agents: [], approvals: [], activeWorkspaceId: null }),
     };
     emitChange();
   },
@@ -48,6 +51,7 @@ let state: LiveRelayState = {
     try {
       const safeProjects = Array.isArray(payload.projects) ? payload.projects : state.projects;
       const safeAgents = Array.isArray(payload.agents) ? payload.agents : state.agents;
+      const safeApprovals = Array.isArray(payload.approvals) ? payload.approvals : state.approvals;
       const safeActiveWorkspaceId =
         typeof payload.activeWorkspaceId === 'string' || payload.activeWorkspaceId === null
           ? payload.activeWorkspaceId
@@ -57,6 +61,7 @@ let state: LiveRelayState = {
         isConnected: true,
         projects: safeProjects,
         agents: safeAgents,
+        approvals: safeApprovals,
         activeWorkspaceId: safeActiveWorkspaceId,
         device:
           payload.device !== undefined && payload.device !== null && typeof payload.device === 'object'
@@ -76,6 +81,7 @@ let state: LiveRelayState = {
       device: null,
       projects: [],
       agents: [],
+      approvals: [],
       activeWorkspaceId: null,
     };
     emitChange();

@@ -28,12 +28,13 @@ export const useAgentsByProject = (projectId: string) => {
 
 export const usePendingApprovals = () => {
   const isConnected = useLiveRelayStore((s) => s.isConnected);
+  const approvals = useLiveRelayStore((s) => s.approvals);
 
   return {
-    data: [] as any[],
+    data: approvals || [],
     isLoading: !isConnected,
     isRefetching: false,
-    refetch: async () => ({ data: [] }),
+    refetch: async () => ({ data: approvals || [] }),
   };
 };
 
