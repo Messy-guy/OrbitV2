@@ -85,6 +85,19 @@ pub struct ChangedFileItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileEditSummary {
+    pub file_path: String,
+    pub status: String,
+    #[serde(default)]
+    pub additions: usize,
+    #[serde(default)]
+    pub deletions: usize,
+    pub summary: String,
+    pub diff_snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct GitBranchItem {
     pub name: String,
@@ -184,9 +197,13 @@ pub struct ContextPackage {
     pub progress: String,
     pub decisions: Vec<String>,
     pub changed_files: Vec<ChangedFileItem>,
+    #[serde(default)]
+    pub file_summaries: Option<Vec<FileEditSummary>>,
     pub known_issues: Vec<String>,
     pub git_state: Option<GitState>,
     pub relevant_history: Option<Vec<String>>,
+    #[serde(default)]
+    pub patterns: Option<Vec<String>>,
     pub notes: Option<Vec<String>>,
     pub generated_at: i64,
     pub estimated_tokens: usize,

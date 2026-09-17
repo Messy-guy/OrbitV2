@@ -189,6 +189,22 @@ export const tauriService = {
     return invoke<AgentUsageStats>('get_agent_usage_stats', { agentId, provider });
   },
 
+  // Account Profiles
+  async getProfiles(): Promise<string[]> {
+    if (!isTauriAvailable()) return [];
+    return invoke<string[]>('get_profiles');
+  },
+
+  async saveProfile(profile: string): Promise<string> {
+    if (!isTauriAvailable()) return profile;
+    return invoke<string>('save_profile', { profile });
+  },
+
+  async deleteProfile(profile: string): Promise<void> {
+    if (!isTauriAvailable()) return;
+    return invoke<void>('delete_profile', { profile });
+  },
+
   // Sessions
   async getSessions(workspaceId: string): Promise<Session[]> {
     if (!isTauriAvailable()) return [];
@@ -211,7 +227,8 @@ export const tauriService = {
     rows?: number,
     cols?: number,
     profileId?: string,
-    role?: string
+    role?: string,
+    resume?: boolean
   ): Promise<number> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
     const pid = await invoke<number>('start_agent_session', {
@@ -225,6 +242,7 @@ export const tauriService = {
       rows,
       cols,
       role,
+      resume,
     });
     // Record the spawn instant so PTY delivery can distinguish a freshly-spawned
     // TUI (needs its short readiness gate) from an established, ready process
@@ -243,6 +261,7 @@ export const tauriService = {
     role?: string,
     prompt?: string,
     profileId?: string,
+    resume?: boolean
   ): Promise<NativeTerminalSessionInfo> {
     if (!isTauriAvailable()) throw new Error('Tauri runtime unavailable');
     const info = await invoke<NativeTerminalSessionInfo>('terminal_v2_start', {
@@ -255,6 +274,7 @@ export const tauriService = {
       role,
       prompt,
       profileId,
+      resume,
     });
     // Keep remote-control delivery's startup/ready bookkeeping coherent for
     // sessions started through the native terminal path.

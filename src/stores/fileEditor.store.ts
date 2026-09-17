@@ -90,11 +90,21 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
   toggleMaximize: () => set((state) => ({ isMaximized: !state.isMaximized })),
 
   openFile: async (path: string, projectPath?: string, initialMode?: 'preview' | 'edit') => {
-    let cleanPath = path.trim().replace(/^file:\/\//, '');
-    cleanPath = cleanPath
-      .replace(/^['"`<([{\\]+/, '')
-      .replace(/['"`>)\]},;]+$/, '')
-      .replace(/[.,:;]+$/, '');
+    let cleanPath = path.trim();
+    if (cleanPath.startsWith('file://')) {
+      cleanPath = cleanPath.slice(7);
+    }
+    // Strip leading markdown formatting (*, _, `), quotes, backticks, brackets
+    cleanPath = cleanPath.replace(/^[*_`'"<([{\\]+/, '');
+    // Strip trailing markdown formatting, quotes, backticks, brackets, punctuation
+    cleanPath = cleanPath.replace(/[*_`'">)\]},;!?]+$/, '');
+    cleanPath = cleanPath.replace(/[.,:;!?]+$/, '').trim();
+
+    // Route web URLs (e.g. agent OAuth login URLs, localhost dev servers, web docs) directly to browser
+    if (/^https?:\/\//i.test(cleanPath)) {
+      void tauriService.openExternalUrl(cleanPath);
+      return;
+    }
 
     const lineColMatch = cleanPath.match(/^(.+?)(?::\d+){1,2}$/);
     if (lineColMatch) {

@@ -43,7 +43,7 @@ export const AddAgentModal: React.FC = () => {
   const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
   const { addAgent, agents } = useAgentStore();
   const { user } = useAuthStore();
-  const { savedProfiles, addSavedProfile } = useSettingsStore();
+  const { savedProfiles, addSavedProfile, loadSavedProfiles } = useSettingsStore();
 
   const parentAgent = spawnerParentAgentId ? agents.find(a => a.id === spawnerParentAgentId) : null;
 
@@ -78,22 +78,22 @@ export const AddAgentModal: React.FC = () => {
     new Set([
       'default',
       ...(savedProfiles || [])
-        .map((p) => {
-          if (p.startsWith(`${selectedProvider}:`)) {
-            return p.slice(`${selectedProvider}:`.length);
-          }
-          if (!p.includes(':') && p !== 'default' && selectedProvider === 'antigravity') {
-            return p;
-          }
-          return null;
-        })
-        .filter((p): p is string => Boolean(p)),
+        .map((p) => (p.includes(':') ? p.split(':')[1] : p).trim().toLowerCase())
+        .filter(Boolean),
       ...agents
-        .filter((a) => a.provider === selectedProvider)
-        .map((a) => a.profileId)
-        .filter((p): p is string => Boolean(p) && p !== 'default')
+        .map((a) => a.profileId?.trim().toLowerCase())
+        .filter((p): p is string => Boolean(p) && p !== 'default'),
     ])
   );
+
+  const handleSaveProfile = () => {
+    const clean = customProfile.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (clean && clean !== 'default') {
+      addSavedProfile(clean);
+      setCustomProfile(clean);
+      setIsCreatingNewProfile(false);
+    }
+  };
 
   const isPro = user?.plan === 'PRO';
   const maxAllowedSlots = isPro ? 999 : 2;
@@ -106,6 +106,7 @@ export const AddAgentModal: React.FC = () => {
 
   useEffect(() => {
     if (isAddAgentOpen) {
+      void loadSavedProfiles();
       setSelectedRole(parentAgent ? 'implementer' : 'architect');
       setTaskDirective('');
       setCustomProfile('default');
@@ -185,9 +186,9 @@ export const AddAgentModal: React.FC = () => {
 
     try {
       setIsSubmitting(true);
-      const cleanProfile = customProfile.trim() || 'default';
+      const cleanProfile = customProfile.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
       if (cleanProfile !== 'default') {
-        addSavedProfile(`${selectedProvider}:${cleanProfile}`);
+        addSavedProfile(cleanProfile);
       }
 
       const roleLabels: Record<string, string> = {
@@ -558,9 +559,26 @@ export const AddAgentModal: React.FC = () => {
                       placeholder="e.g. work, client-a"
                       value={customProfile}
                       onChange={(e) => setCustomProfile(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveProfile();
+                        } else if (e.key === 'Escape') {
+                          setIsCreatingNewProfile(false);
+                          setCustomProfile('default');
+                        }
+                      }}
                       autoFocus
                       className="flex-1 px-3.5 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-xs focus:outline-hidden"
                     />
+                    <button
+                      type="button"
+                      onClick={handleSaveProfile}
+                      disabled={!customProfile.trim()}
+                      className="px-3 py-2 rounded-xl bg-accent text-white hover:opacity-90 disabled:opacity-40 text-xs font-mono font-medium cursor-pointer transition-opacity"
+                    >
+                      Save
+                    </button>
                     <button
                       type="button"
                       onClick={() => {

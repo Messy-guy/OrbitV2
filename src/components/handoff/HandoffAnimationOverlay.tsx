@@ -72,12 +72,17 @@ export const HandoffAnimationOverlay: React.FC = () => {
           {/* Success Title */}
           <div className="flex items-center gap-1.5 text-status-success font-bold text-xs mb-1">
             <Check size={14} strokeWidth={3} />
-            <span className="uppercase tracking-wider">Context Injected</span>
+            <span className="uppercase tracking-wider">Context Injected & Memory Synced</span>
           </div>
 
-          <p className="text-[10px] text-text-muted mb-3 font-mono">
+          <p className="text-[10px] text-text-muted mb-2.5 font-mono">
             {sourceAgentName} ──&gt; {targetAgentName}
           </p>
+
+          <div className="w-full mb-3 px-2.5 py-1.5 rounded-btn surface-well border border-border-subtle flex items-center justify-between text-[10px] text-text-muted font-mono">
+            <span className="text-text-primary font-bold">7 Memory Files Synced</span>
+            <span className="text-status-success">~/.orbit/memory/projects/</span>
+          </div>
 
           {/* Transfer stats */}
           <div className="w-full grid grid-cols-2 gap-1.5 text-[10.5px] mb-4 text-text-muted">

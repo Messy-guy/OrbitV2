@@ -1,3 +1,14 @@
+if (typeof globalThis.localStorage === 'undefined') {
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+    clear: () => {},
+    length: 0,
+    key: () => null,
+  } as any;
+}
+
 import { conversationStore } from '../conversation/ConversationStore';
 import { useAgentStore } from '../../stores/agent.store';
 import { UniversalSessionExtractor } from '../extractor.service';
@@ -151,7 +162,9 @@ async function runHandoffIntelligenceTests() {
   assert(preview.previousAgent === 'Claude Code', 'Previous agent preserved');
   assert(preview.fileSummaries?.length === 1, 'Preview contains file edit summaries');
   assert(preview.formattedInstruction?.includes('# ORBIT CONTEXT HANDOFF BRIEF'), 'Contains standard handoff brief header');
-  assert(preview.formattedInstruction?.includes('MANDATORY INGESTION PROTOCOL'), 'Contains ingestion protocol');
+  assert(preview.formattedInstruction?.includes('INGESTION & CONTINUITY PROTOCOL'), 'Contains ingestion & continuity protocol');
+  assert(preview.formattedInstruction?.includes('Connected Project Memory Files'), 'Contains connected project memory index');
+  assert(preview.formattedInstruction?.includes('Discovered Patterns & Repository Conventions'), 'Contains patterns section');
   assert(preview.formattedInstruction?.includes('Agent Conversation & Work Trajectory'), 'Contains rich conversation narrative');
   assert(preview.formattedInstruction?.includes('Modified Files & Detailed Edit Summaries'), 'Contains file edit summaries section');
   assert(preview.formattedInstruction?.includes('rotateRefreshToken'), 'Contains actual code diffs inside HANDOFF.md');
@@ -181,7 +194,22 @@ async function runHandoffIntelligenceTests() {
   assert(!!fallbackExtracted.primaryGoal?.includes('Refactor desktop relay'), 'Primary goal extracted from chat messages');
   assert(fallbackExtracted.filesTouched.includes('src/services/desktopRelay.service.ts'), 'File touched extracted from chat messages');
 
-  console.log('\n=== ALL 5 HANDOFF INTELLIGENCE SUITES PASSED CLEANLY! ===');
+  // --- TEST 6: Terminal Noise & Slash Command Sanitization ---
+  console.log('\n--- TEST 6: Terminal Noise & Slash Command Sanitization ---');
+  const noisyRawTerminal = `
+> /res
+Keyboard: enter Select | f2 Rename | f4 Delete | esc Back
+(tab to cycle)
+> implement user auth controller
+Created src/controllers/auth.controller.ts
+`;
+  const terminalExtracted = UniversalSessionExtractor.extractFromTerminalHistory('ag-test-terminal', 'sess-term-1', noisyRawTerminal);
+  assert(Boolean(!terminalExtracted.primaryGoal?.includes('/res')), 'Slash command (/res) ignored as primary goal');
+  assert(Boolean(terminalExtracted.primaryGoal?.includes('implement user auth controller')), 'Actual user directive extracted as goal');
+  assert(terminalExtracted.conversationSynthesis !== undefined, 'Generated conversation synthesis');
+  assert(!terminalExtracted.conversationSynthesis?.workAccomplished.some(w => w.step.includes('Keyboard:') || Boolean(w.detail?.includes('tab to cycle'))), 'TUI keyboard footer noise stripped from accomplishments');
+
+  console.log('\n=== ALL 6 HANDOFF INTELLIGENCE SUITES PASSED CLEANLY! ===');
 }
 
 runHandoffIntelligenceTests().catch((err) => {

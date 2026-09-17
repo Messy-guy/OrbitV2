@@ -313,9 +313,13 @@ fn worker_loop(
             bytes
         });
     let prompt_due = Instant::now() + Duration::from_millis(spec.startup_delay_ms);
+    let prompt_fallback_due = prompt_due + Duration::from_secs(5);
 
     loop {
-        if initial_prompt.is_some() && Instant::now() >= prompt_due {
+        if initial_prompt.is_some()
+            && Instant::now() >= prompt_due
+            && (first_output_emitted || Instant::now() >= prompt_fallback_due)
+        {
             if let Some(bytes) = initial_prompt.take() {
                 let _ = input.write(&bytes);
             }

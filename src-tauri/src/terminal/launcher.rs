@@ -102,6 +102,7 @@ pub fn resolve(
     role: Option<&str>,
     profile_id: Option<&str>,
     prompt: Option<String>,
+    resume: Option<bool>,
 ) -> Result<LaunchSpec, String> {
     let provider_key = provider.trim().to_ascii_lowercase();
     let (aliases, is_shell) = match provider_key.as_str() {
@@ -159,6 +160,7 @@ pub fn resolve(
                 role,
                 profile_id,
                 prompt,
+                resume.unwrap_or(false),
             ));
         }
     };
@@ -184,6 +186,7 @@ pub fn resolve(
         role,
         profile_id,
         prompt,
+        resume.unwrap_or(false),
     ))
 }
 
@@ -198,6 +201,7 @@ fn build_spec(
     role: Option<&str>,
     profile_id: Option<&str>,
     initial_prompt: Option<String>,
+    resume: bool,
 ) -> LaunchSpec {
     if is_shell {
         args.insert(0, OsString::from("-i"));
@@ -213,11 +217,21 @@ fn build_spec(
             }
             _ => {}
         }
-    } else if provider.eq_ignore_ascii_case("claude")
-        && matches!(role, Some("architect" | "reviewer"))
-    {
-        args.push(OsString::from("--permission-mode"));
-        args.push(OsString::from("plan"));
+        if resume && initial_prompt.is_none() {
+            args.push(OsString::from("--continue"));
+        }
+    } else if provider.eq_ignore_ascii_case("claude") {
+        if matches!(role, Some("architect" | "reviewer")) {
+            args.push(OsString::from("--permission-mode"));
+            args.push(OsString::from("plan"));
+        }
+        if resume && initial_prompt.is_none() {
+            args.push(OsString::from("--continue"));
+        }
+    } else if provider.eq_ignore_ascii_case("opencode") || provider.eq_ignore_ascii_case("opencode-ai") {
+        if resume && initial_prompt.is_none() {
+            args.push(OsString::from("--continue"));
+        }
     } else if matches!(
         provider.to_ascii_lowercase().as_str(),
         "vibe" | "mistral-vibe" | "vibe-cli"
@@ -328,13 +342,13 @@ mod tests {
 
     #[test]
     fn shell_is_explicit_and_interactive() {
-        let spec = resolve("bash", "/tmp", 24, 80, None, None, None).unwrap();
+        let spec = resolve("bash", "/tmp", 24, 80, None, None, None, None).unwrap();
         assert_eq!(spec.args, vec!["-i"]);
     }
 
     #[test]
     fn built_in_terminal_provider_resolves_to_an_interactive_shell() {
-        let spec = resolve("terminal", "/tmp", 24, 80, None, None, None).unwrap();
+        let spec = resolve("terminal", "/tmp", 24, 80, None, None, None, None).unwrap();
         assert_eq!(spec.args, vec!["-i"]);
         // Windows shell executables include the `.exe` suffix (for example
         // `bash.exe`), while Unix paths do not. Compare the executable's
@@ -357,6 +371,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect_err("missing provider must fail");
         assert!(error.contains("could not be launched"));
@@ -364,7 +379,7 @@ mod tests {
 
     #[test]
     fn custom_profile_gets_isolated_paths() {
-        let spec = resolve("bash", "/tmp", 24, 80, None, Some("work"), None).unwrap();
+        let spec = resolve("bash", "/tmp", 24, 80, None, Some("work"), None, None).unwrap();
         let keys = spec
             .env
             .iter()
@@ -373,5 +388,12 @@ mod tests {
         assert!(keys.iter().any(|key| key == "HOME"));
         assert!(keys.iter().any(|key| key == "XDG_CONFIG_HOME"));
         assert!(keys.iter().any(|key| key == "ORBIT_PROFILE_ID"));
+    }
+
+    #[test]
+    fn resume_flag_appends_continue_for_supported_providers() {
+        if let Ok(spec) = resolve("agy", "/tmp", 24, 80, None, None, None, Some(true)) {
+            assert!(spec.args.iter().any(|arg| arg == "--continue" || arg == "-c"));
+        }
     }
 }

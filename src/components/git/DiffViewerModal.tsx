@@ -13,6 +13,11 @@ import {
   ChevronRight,
   Plus,
   Minus,
+  ListTree,
+  FileText,
+  WrapText,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { useUIStore } from '../../stores/ui.store';
 import { useContextStore } from '../../stores/context.store';
@@ -22,9 +27,11 @@ import { tauriService } from '../../services/tauri.service';
 import { GitFileDiffData } from '../../types/orbit';
 import { clsx } from 'clsx';
 
-interface DiffLine {
+interface UnifiedLine {
   type: 'header' | 'hunk' | 'added' | 'removed' | 'context';
   text: string;
+  oldNum?: number;
+  newNum?: number;
 }
 
 interface SplitRow {
@@ -51,6 +58,9 @@ export const DiffViewerModal: React.FC = () => {
   const [diffData, setDiffData] = useState<GitFileDiffData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [isFileDrawerOpen, setIsFileDrawerOpen] = useState<boolean>(false);
+  const [wrapLines, setWrapLines] = useState<boolean>(true);
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
 
   const activeWorkspace = getActiveWorkspace();
   const projectPath = activeWorkspace?.projectPath;
@@ -83,16 +93,21 @@ export const DiffViewerModal: React.FC = () => {
     }
   }, [activeDiffFile, activeDiffStaged, projectPath]);
 
-  // ESC key listener to close modal
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (activeDiffFile && e.key === 'Escape') {
-        setActiveDiffFile(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeDiffFile, setActiveDiffFile]);
+  const diffText = diffData?.diff || '';
+
+  // Calculate live diff stats (+N, -N)
+  const diffStats = useMemo(() => {
+    if (!diffText) return { additions: 0, deletions: 0 };
+    let additions = 0;
+    let deletions = 0;
+    const lines = diffText.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff --git')) continue;
+      if (line.startsWith('+')) additions++;
+      else if (line.startsWith('-')) deletions++;
+    }
+    return { additions, deletions };
+  }, [diffText]);
 
   // All files for next/prev cycling
   const allChangedFiles = useMemo(() => {
@@ -115,34 +130,141 @@ export const DiffViewerModal: React.FC = () => {
     }
   };
 
-  if (!activeDiffFile) return null;
-
-  const diffText = diffData?.diff || '';
-
-  // Parse raw git diff string into structured lines for Unified View
-  const parseDiff = (raw: string): DiffLine[] => {
-    if (!raw) return [];
-    return raw.split('\n').map((line) => {
-      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff --git')) {
-        return { type: 'header', text: line };
-      }
-      if (line.startsWith('@@')) {
-        return { type: 'hunk', text: line };
-      }
-      if (line.startsWith('+')) {
-        return { type: 'added', text: line };
-      }
-      if (line.startsWith('-')) {
-        return { type: 'removed', text: line };
-      }
-      return { type: 'context', text: line };
-    });
+  const handleCopy = async () => {
+    if (!diffText) return;
+    await navigator.clipboard.writeText(diffText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
-  // Build aligned side-by-side rows from raw diff + contents
+  const handleOpenInEditor = () => {
+    if (activeDiffFile) {
+      const fileToOpen = activeDiffFile;
+      setActiveDiffFile(null);
+      openFile(fileToOpen);
+    }
+  };
+
+  const handleToggleStage = async () => {
+    if (!projectPath || !activeDiffFile) return;
+    if (activeDiffStaged) {
+      await unstageFile(projectPath, activeDiffFile);
+      setActiveDiffFile(activeDiffFile, false);
+    } else {
+      await stageFile(projectPath, activeDiffFile);
+      setActiveDiffFile(activeDiffFile, true);
+    }
+    if (projectPath) loadGitState(projectPath);
+  };
+
+  // Keyboard Shortcuts: ESC (close), [ (prev), ] (next), S (stage), E (edit), B (drawer)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!activeDiffFile) return;
+
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setActiveDiffFile(null);
+        return;
+      }
+      if (e.key === '[') {
+        e.preventDefault();
+        handlePrevFile();
+        return;
+      }
+      if (e.key === ']') {
+        e.preventDefault();
+        handleNextFile();
+        return;
+      }
+      if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleToggleStage();
+        return;
+      }
+      if (e.key.toLowerCase() === 'e' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleOpenInEditor();
+        return;
+      }
+      if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsFileDrawerOpen((prev) => !prev);
+        return;
+      }
+      if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setDiffViewMode(diffViewMode === 'side-by-side' ? 'unified' : 'side-by-side');
+        return;
+      }
+      if (e.key.toLowerCase() === 'w' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setWrapLines((prev) => !prev);
+        return;
+      }
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsMaximized((prev) => !prev);
+        return;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeDiffFile, currentFileIndex, allChangedFiles, activeDiffStaged, projectPath, diffViewMode]);
+
+
+  // Parse raw git diff into unified stream with old/new line numbers
+  const parseUnifiedDiff = (raw: string): UnifiedLine[] => {
+    if (!raw) return [];
+    const lines = raw.split('\n');
+    const result: UnifiedLine[] = [];
+    let oldNo = 1;
+    let newNo = 1;
+
+    for (const line of lines) {
+      if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) {
+        result.push({ type: 'header', text: line });
+        continue;
+      }
+      if (line.startsWith('@@')) {
+        const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+        if (match) {
+          oldNo = parseInt(match[1], 10);
+          newNo = parseInt(match[2], 10);
+        }
+        result.push({ type: 'hunk', text: line });
+        continue;
+      }
+      if (line.startsWith('-')) {
+        result.push({
+          type: 'removed',
+          text: line.slice(1),
+          oldNum: oldNo++,
+        });
+      } else if (line.startsWith('+')) {
+        result.push({
+          type: 'added',
+          text: line.slice(1),
+          newNum: newNo++,
+        });
+      } else {
+        const text = line.startsWith(' ') ? line.slice(1) : line;
+        result.push({
+          type: 'context',
+          text,
+          oldNum: oldNo++,
+          newNum: newNo++,
+        });
+      }
+    }
+    return result;
+  };
+
+  // Build aligned side-by-side rows from raw diff
   const buildSplitRows = (): SplitRow[] => {
     if (!diffText) {
-      // If no diff or clean
       const origLines = (diffData?.originalContent || '').split('\n');
       const modLines = (diffData?.modifiedContent || '').split('\n');
       const maxL = Math.max(origLines.length, modLines.length);
@@ -191,7 +313,6 @@ export const DiffViewerModal: React.FC = () => {
       }
       if (rawLine.startsWith('@@')) {
         flushPending();
-        // Parse hunk line numbers: @@ -l,s +l,s @@
         const match = rawLine.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         if (match) {
           origLineNo = parseInt(match[1], 10);
@@ -228,104 +349,133 @@ export const DiffViewerModal: React.FC = () => {
     return rows;
   };
 
-  const diffLines = parseDiff(diffText);
+  if (!activeDiffFile) return null;
+
+  const diffLines = parseUnifiedDiff(diffText);
   const splitRows = buildSplitRows();
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(diffText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  const handleOpenInEditor = () => {
-    if (activeDiffFile) {
-      const fileToOpen = activeDiffFile;
-      setActiveDiffFile(null);
-      openFile(fileToOpen);
-    }
-  };
-
-  const handleToggleStage = async () => {
-    if (!projectPath || !activeDiffFile) return;
-    if (activeDiffStaged) {
-      await unstageFile(projectPath, activeDiffFile);
-      setActiveDiffFile(activeDiffFile, false);
-    } else {
-      await stageFile(projectPath, activeDiffFile);
-      setActiveDiffFile(activeDiffFile, true);
-    }
-    if (projectPath) loadGitState(projectPath);
-  };
+  // Extract path and filename for breadcrumbs
+  const pathParts = activeDiffFile.split('/');
+  const fileName = pathParts.pop() || activeDiffFile;
+  const dirPath = pathParts.join('/') + (pathParts.length > 0 ? '/' : '');
 
   return (
-    <div className="fixed inset-0 z-[11500] flex items-center justify-center p-2 md:p-6 select-none font-mono">
+    <div
+      className={clsx(
+        "fixed inset-0 z-[11500] select-none font-mono",
+        isMaximized ? "p-0" : "flex items-center justify-center p-2 md:p-3"
+      )}
+    >
       {/* Luminous Frosted Glass Backdrop */}
-      <div
-        onClick={() => setActiveDiffFile(null)}
-        className="absolute inset-0 bg-black/60 backdrop-blur-md animate-in fade-in duration-150"
-      />
+      {!isMaximized && (
+        <div
+          onClick={() => setActiveDiffFile(null)}
+          className="absolute inset-0 bg-black/75 backdrop-blur-md animate-in fade-in duration-150"
+        />
+      )}
 
       {/* Modal Container */}
-      <div className="relative w-full max-w-6xl bg-panel-elevated border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 animate-in zoom-in-95 duration-120 h-[86vh]">
+      <div
+        className={clsx(
+          "relative bg-[#0e1017] flex flex-col z-10 overflow-hidden",
+          isMaximized
+            ? "w-full h-full rounded-none border-0 shadow-none"
+            : "w-[98vw] max-w-[1850px] h-[93vh] border border-white/15 rounded-2xl shadow-2xl animate-in zoom-in-95 duration-120"
+        )}
+      >
+        
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-panel shrink-0">
-          {/* File Name & Navigation */}
-          <div className="flex items-center gap-2 truncate">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/10 bg-[#12151f] shrink-0">
+          
+          {/* File Name, Breadcrumb & Navigation */}
+          <div className="flex items-center gap-2.5 truncate min-w-0">
             {/* Prev / Next file switcher */}
-            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-well">
+            <div className="flex items-center border border-white/10 rounded-lg overflow-hidden bg-[#161924] shrink-0">
               <button
                 onClick={handlePrevFile}
                 disabled={currentFileIndex <= 0}
-                className="p-1 hover:bg-panel text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Previous changed file"
+                className="p-1 hover:bg-white/10 text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                title="Previous changed file ( [ )"
               >
                 <ChevronLeft size={13} />
               </button>
               <button
                 onClick={handleNextFile}
                 disabled={currentFileIndex >= allChangedFiles.length - 1}
-                className="p-1 hover:bg-panel text-text-muted hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-l border-border"
-                title="Next changed file"
+                className="p-1 hover:bg-white/10 text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors border-l border-white/10 cursor-pointer"
+                title="Next changed file ( ] )"
               >
                 <ChevronRight size={13} />
               </button>
             </div>
 
-            <FileCode size={15} className="text-amber-500 shrink-0 ml-1" />
-            <span className="font-bold text-text-primary tracking-tight truncate text-xs">{activeDiffFile}</span>
+            {/* Changed Files Drawer Toggle */}
+            <button
+              onClick={() => setIsFileDrawerOpen(!isFileDrawerOpen)}
+              className={clsx(
+                "flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-mono transition-colors cursor-pointer shrink-0",
+                isFileDrawerOpen
+                  ? "bg-white/15 border-white/30 text-text-primary font-bold shadow-xs"
+                  : "bg-[#161924] border-white/10 text-text-secondary hover:text-text-primary hover:border-white/20"
+              )}
+              title="Toggle Changed Files List ( B )"
+            >
+              <ListTree size={13} />
+              <span>{currentFileIndex + 1}/{allChangedFiles.length}</span>
+            </button>
+
+            <FileCode size={15} className="text-text-secondary shrink-0" />
+
+            {/* Breadcrumbs */}
+            <div className="flex items-center gap-1 text-xs truncate min-w-0">
+              {dirPath && (
+                <span className="text-text-dim truncate max-w-[160px] sm:max-w-xs">{dirPath}</span>
+              )}
+              <span className="font-bold text-text-primary tracking-tight truncate">{fileName}</span>
+            </div>
+
+            {/* Diff Stats Badge */}
+            {(diffStats.additions > 0 || diffStats.deletions > 0) && (
+              <div className="flex items-center gap-1 shrink-0 text-[10px] font-mono font-bold">
+                {diffStats.additions > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400">
+                    +{diffStats.additions}
+                  </span>
+                )}
+                {diffStats.deletions > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-400">
+                    −{diffStats.deletions}
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Staged / Working Tree Badge */}
             <span
               className={clsx(
-                'text-[9.5px] px-2 py-0.5 rounded-full font-bold uppercase border',
+                'text-[9.5px] px-2 py-0.5 rounded-full font-bold uppercase border shrink-0',
                 activeDiffStaged
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  ? 'bg-white/10 text-text-primary border-white/20'
+                  : 'bg-well text-text-secondary border-border'
               )}
             >
               {activeDiffStaged ? 'Staged' : 'Working Tree'}
             </span>
-
-            {allChangedFiles.length > 1 && (
-              <span className="text-[10px] text-text-dim">
-                ({currentFileIndex + 1}/{allChangedFiles.length})
-              </span>
-            )}
           </div>
 
           {/* Action Controls */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Split / Unified View Toggle */}
-            <div className="flex items-center bg-well border border-border rounded-lg p-0.5 mr-1">
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Split / Unified View Segmented Toggle */}
+            <div className="flex items-center bg-[#161924] border border-white/10 rounded-lg p-0.5">
               <button
                 onClick={() => setDiffViewMode('side-by-side')}
                 className={clsx(
-                  'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-colors cursor-pointer',
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono transition-all cursor-pointer',
                   diffViewMode === 'side-by-side'
-                    ? 'bg-panel-hover text-text-primary font-bold shadow-xs'
+                    ? 'bg-white/15 text-text-primary font-bold shadow-xs'
                     : 'text-text-muted hover:text-text-primary'
                 )}
-                title="Side-by-side Split Diff"
+                title="Side-by-side Split Diff ( M )"
               >
                 <Columns size={12} />
                 <span className="hidden sm:inline">Split</span>
@@ -333,203 +483,387 @@ export const DiffViewerModal: React.FC = () => {
               <button
                 onClick={() => setDiffViewMode('unified')}
                 className={clsx(
-                  'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-colors cursor-pointer',
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono transition-all cursor-pointer',
                   diffViewMode === 'unified'
-                    ? 'bg-panel-hover text-text-primary font-bold shadow-xs'
+                    ? 'bg-white/15 text-text-primary font-bold shadow-xs'
                     : 'text-text-muted hover:text-text-primary'
                 )}
-                title="Unified Diff Stream"
+                title="Unified Diff Stream ( M )"
               >
                 <AlignJustify size={12} />
                 <span className="hidden sm:inline">Unified</span>
               </button>
             </div>
 
-            {/* Quick Stage / Unstage */}
+            {/* Wrap Lines Toggle Button */}
+            <button
+              onClick={() => setWrapLines(!wrapLines)}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition-all cursor-pointer shadow-xs',
+                wrapLines
+                  ? 'bg-white/15 border-white/30 text-text-primary font-bold shadow-xs'
+                  : 'bg-[#161924] border-white/10 text-text-muted hover:text-text-primary'
+              )}
+              title="Toggle Word Wrap ( W )"
+            >
+              <WrapText size={12} className={wrapLines ? 'text-cyan-400' : 'text-text-muted'} />
+              <span className="hidden sm:inline">Wrap</span>
+            </button>
+
+            {/* Quick Stage / Unstage Button */}
             <button
               onClick={handleToggleStage}
               className={clsx(
-                'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors cursor-pointer',
+                'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono border transition-all cursor-pointer shadow-xs',
                 activeDiffStaged
-                  ? 'bg-well hover:bg-panel-hover text-amber-400 border-border'
-                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-semibold'
+                  ? 'bg-well hover:bg-panel text-text-secondary hover:text-text-primary border-border'
+                  : 'bg-text-primary hover:opacity-90 text-background font-bold border-transparent'
               )}
-              title={activeDiffStaged ? 'Unstage this file' : 'Stage this file'}
+              title={activeDiffStaged ? 'Unstage file ( S )' : 'Stage file ( S )'}
             >
               {activeDiffStaged ? <Minus size={12} /> : <Plus size={12} />}
-              <span className="hidden sm:inline">{activeDiffStaged ? 'Unstage' : 'Stage'}</span>
+              <span>{activeDiffStaged ? 'Unstage' : 'Stage'}</span>
             </button>
 
             {/* Open In Orbit File Editor */}
             <button
               onClick={handleOpenInEditor}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-well hover:bg-panel-hover text-text-primary border border-border transition-colors cursor-pointer"
-              title="Open and edit this file in Orbit Editor"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono bg-[#161924] hover:bg-white/10 text-text-primary border border-white/10 transition-colors cursor-pointer"
+              title="Open and edit in Orbit Editor ( E )"
             >
-              <Edit3 size={12} className="text-amber-400" />
+              <Edit3 size={12} className="text-text-secondary" />
               <span className="hidden sm:inline">Edit</span>
             </button>
 
-            {/* Open in VS Code */}
+            {/* Open in External Editor (VS Code) */}
             <button
               onClick={() => openInExternalEditor(activeDiffFile)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-well hover:bg-panel-hover text-text-muted hover:text-text-primary border border-border transition-colors cursor-pointer"
-              title="Open in External VS Code"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono bg-[#161924] hover:bg-white/10 text-text-primary border border-white/10 transition-colors cursor-pointer"
+              title="Open file in VS Code"
             >
-              <ExternalLink size={12} />
+              <ExternalLink size={12} className="text-text-secondary" />
               <span className="hidden md:inline">VS Code</span>
             </button>
 
             {/* Refresh Diff */}
             <button
               onClick={loadDiff}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-              title="Refresh Diff"
+              disabled={isLoading}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
+              title="Refresh diff"
             >
-              <RefreshCw size={13} className={clsx(isLoading && 'animate-spin')} />
+              <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
             </button>
 
             {/* Copy Diff */}
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-well hover:bg-panel-hover text-text-muted hover:text-text-primary border border-border transition-colors cursor-pointer"
-              title="Copy Patch"
+              className="flex items-center gap-1 p-1.5 px-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
+              title="Copy diff to clipboard"
             >
-              {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-              <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+              {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span className="text-[11px] hidden lg:inline">{copied ? 'Copied' : 'Copy'}</span>
             </button>
 
-            {/* Close */}
+            {/* Maximize / Restore Toggle Button */}
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
+              title={isMaximized ? "Restore Window ( F )" : "Maximize Fullscreen ( F )"}
+            >
+              {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+
+            {/* Close Modal Button */}
             <button
               onClick={() => setActiveDiffFile(null)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer ml-1"
-              title="Close (ESC)"
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/10 border border-white/10 transition-colors cursor-pointer ml-0.5"
+              title="Close ( ESC )"
             >
               <X size={14} />
             </button>
           </div>
         </div>
 
-        {/* Diff Content Viewport */}
-        <div className="flex-1 overflow-auto bg-[#090a0f] text-[11px] leading-snug flex flex-col font-mono custom-scrollbar select-text">
-          {isLoading ? (
-            <div className="flex-1 flex items-center justify-center gap-2 text-text-muted text-xs">
-              <span className="w-3.5 h-3.5 rounded-full border-2 border-text-primary border-t-transparent animate-spin" />
-              <span>Calculating working tree diff...</span>
-            </div>
-          ) : diffViewMode === 'side-by-side' ? (
-            /* ================= VS CODE SIDE-BY-SIDE DIFF ================= */
-            <div className="min-w-full flex flex-col divide-y divide-border/20">
-              {/* Header row for split panes */}
-              <div className="grid grid-cols-2 bg-panel border-b border-border text-[10px] text-text-muted font-bold sticky top-0 z-10">
-                <div className="px-3 py-1.5 border-r border-border flex items-center justify-between">
-                  <span>{activeDiffStaged ? 'HEAD' : 'INDEX (HEAD)'}</span>
-                  <span className="text-red-400 font-mono">Original</span>
+        {/* Main Body: Collapsible File Drawer + Diff Viewport */}
+        <div className="flex-1 flex overflow-hidden">
+          
+          {/* Collapsible Changed Files Drawer */}
+          {isFileDrawerOpen && (
+            <div className="w-72 border-r border-white/10 bg-[#0c0e15] flex flex-col shrink-0 animate-in slide-in-from-left duration-150 z-20 select-none">
+              <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between bg-[#12151f]">
+                <div className="flex items-center gap-2">
+                  <ListTree size={13} className="text-text-muted" />
+                  <span className="text-[11px] font-bold text-text-primary uppercase tracking-wider">Changed Files</span>
                 </div>
-                <div className="px-3 py-1.5 flex items-center justify-between">
-                  <span>{activeDiffStaged ? 'STAGED' : 'WORKING TREE'}</span>
-                  <span className="text-emerald-400 font-mono">Modified</span>
-                </div>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/10 text-text-muted font-bold">
+                  {allChangedFiles.length}
+                </span>
               </div>
 
-              {splitRows.length === 0 ? (
-                <div className="text-text-dim text-xs p-6 text-center">No uncommitted changes for this file.</div>
-              ) : (
-                splitRows.map((row, idx) => {
-                  const isHunkHeader = row.origType === 'empty' && row.modType === 'empty' && row.origText?.startsWith('@@');
+              <div className="flex-1 overflow-y-auto py-1 custom-scrollbar">
+                {allChangedFiles.map((filePath) => {
+                  const isCurrent = filePath === activeDiffFile;
+                  const parts = filePath.split('/');
+                  const itemFileName = parts.pop() || filePath;
+                  const itemDirPath = parts.join('/') + (parts.length > 0 ? '/' : '');
 
-                  if (isHunkHeader) {
-                    return (
-                      <div key={idx} className="bg-cyan-500/10 text-cyan-400 px-4 py-0.5 text-[10.5px] font-bold border-y border-cyan-500/20">
-                        {row.origText}
-                      </div>
-                    );
-                  }
+                  const fileInfo = gitState?.modifiedFiles.find((f) => f.path === filePath);
+                  const status = fileInfo?.status || 'modified';
 
                   return (
-                    <div key={idx} className="grid grid-cols-2 hover:bg-white/[0.02]">
-                      {/* Left Pane (Original) */}
-                      <div
-                        className={clsx(
-                          'flex items-stretch border-r border-border/40 overflow-hidden',
-                          row.origType === 'removed' && 'bg-red-500/15 text-red-300',
-                          row.origType === 'empty' && 'bg-black/30'
+                    <button
+                      key={filePath}
+                      onClick={() => setActiveDiffFile(filePath, activeDiffStaged)}
+                      className={clsx(
+                        "w-full px-3 py-1.5 text-left flex items-center justify-between text-xs font-mono transition-colors cursor-pointer group",
+                        isCurrent
+                          ? "bg-white/15 text-text-primary font-bold border-l-2 border-text-primary"
+                          : "text-text-secondary hover:bg-white/[0.04] hover:text-text-primary"
+                      )}
+                    >
+                      <div className="flex flex-col truncate pr-2 min-w-0">
+                        <span className="truncate text-[11px]">{itemFileName}</span>
+                        {itemDirPath && (
+                          <span className="truncate text-[9.5px] text-text-dim">{itemDirPath}</span>
                         )}
-                      >
-                        <span className="w-10 text-right pr-2 text-[10px] text-text-dim select-none shrink-0 py-0.5 border-r border-border/20 bg-panel/30">
-                          {row.origNum ?? ''}
-                        </span>
-                        <div className="flex-1 px-2 py-0.5 whitespace-pre overflow-x-auto truncate">
-                          {row.origType === 'removed' && <span className="text-red-400 font-bold mr-1">-</span>}
-                          {row.origText}
-                        </div>
                       </div>
 
-                      {/* Right Pane (Modified) */}
-                      <div
+                      <span
                         className={clsx(
-                          'flex items-stretch overflow-hidden',
-                          row.modType === 'added' && 'bg-emerald-500/15 text-emerald-300',
-                          row.modType === 'empty' && 'bg-black/30'
+                          "text-[9px] font-bold uppercase px-1.5 py-0.2 rounded shrink-0",
+                          status === 'added' && "text-emerald-400 bg-emerald-500/15",
+                          status === 'deleted' && "text-rose-400 bg-rose-500/15",
+                          status === 'modified' && "text-amber-400 bg-amber-500/15",
+                          status === 'untracked' && "text-cyan-400 bg-cyan-500/15"
                         )}
                       >
-                        <span className="w-10 text-right pr-2 text-[10px] text-text-dim select-none shrink-0 py-0.5 border-r border-border/20 bg-panel/30">
-                          {row.modNum ?? ''}
-                        </span>
-                        <div className="flex-1 px-2 py-0.5 whitespace-pre overflow-x-auto truncate">
-                          {row.modType === 'added' && <span className="text-emerald-400 font-bold mr-1">+</span>}
-                          {row.modText}
-                        </div>
-                      </div>
-                    </div>
+                        {status.slice(0, 1).toUpperCase()}
+                      </span>
+                    </button>
                   );
-                })
-              )}
-            </div>
-          ) : (
-            /* ================= UNIFIED DIFF VIEW ================= */
-            <div className="p-4 flex flex-col">
-              {diffLines.length === 0 ? (
-                <div className="text-text-dim text-xs p-4 text-center">No uncommitted changes for this file.</div>
-              ) : (
-                diffLines.map((line, idx) => {
-                  let lineClass = 'text-text-secondary';
-                  let bgClass = '';
-                  if (line.type === 'added') {
-                    lineClass = 'text-emerald-400 font-semibold';
-                    bgClass = 'bg-emerald-500/10 px-2 rounded-sm';
-                  } else if (line.type === 'removed') {
-                    lineClass = 'text-red-400 font-semibold';
-                    bgClass = 'bg-red-500/10 px-2 rounded-sm';
-                  } else if (line.type === 'hunk') {
-                    lineClass = 'text-cyan-400 bg-cyan-500/10 px-2 rounded-sm my-1 font-bold';
-                  } else if (line.type === 'header') {
-                    lineClass = 'text-text-muted text-[10px] font-bold';
-                  }
-
-                  return (
-                    <div key={idx} className={clsx('whitespace-pre font-mono py-0.5', lineClass, bgClass)}>
-                      {line.text}
-                    </div>
-                  );
-                })
-              )}
+                })}
+              </div>
             </div>
           )}
+
+          {/* Diff Content Viewport */}
+          <div className="flex-1 overflow-auto bg-[#090a0f] text-[12px] leading-5 flex flex-col font-mono custom-scrollbar select-text">
+            {isLoading ? (
+              <div className="flex-1 flex items-center justify-center gap-2 text-text-muted text-xs">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-text-primary border-t-transparent animate-spin" />
+                <span>Calculating working tree diff...</span>
+              </div>
+            ) : diffViewMode === 'side-by-side' ? (
+              /* ================= MODERN SIDE-BY-SIDE SPLIT VIEW ================= */
+              <div className="min-w-full flex flex-col">
+                {/* Header row for split panes */}
+                <div className="grid grid-cols-2 bg-[#121520] border-b border-white/10 text-[10px] text-text-muted font-bold sticky top-0 z-20 select-none shadow-xs">
+                  <div className="px-3 py-1.5 border-r border-white/10 flex items-center justify-between">
+                    <span>{activeDiffStaged ? 'HEAD' : 'INDEX (HEAD)'}</span>
+                    <span className="text-rose-400/80 font-mono font-bold uppercase tracking-wider">Original</span>
+                  </div>
+                  <div className="px-3 py-1.5 flex items-center justify-between">
+                    <span>{activeDiffStaged ? 'STAGED' : 'WORKING TREE'}</span>
+                    <span className="text-emerald-400/80 font-mono font-bold uppercase tracking-wider">Modified</span>
+                  </div>
+                </div>
+
+                {splitRows.length === 0 ? (
+                  <div className="text-text-dim text-xs p-10 text-center">No uncommitted changes for this file.</div>
+                ) : (
+                  splitRows.map((row, idx) => {
+                    const isHunkHeader = row.origType === 'empty' && row.modType === 'empty' && row.origText?.startsWith('@@');
+
+                    if (isHunkHeader) {
+                      const parts = row.origText ? row.origText.match(/(@@ -?\d+(?:,\d+)? \+?\d+(?:,\d+)? @@)(.*)/) : null;
+                      const hunkRange = parts ? parts[1] : row.origText;
+                      const hunkContext = parts ? parts[2]?.trim() : '';
+
+                      return (
+                        <div
+                          key={idx}
+                          className="sticky top-[31px] z-10 bg-[#121522] border-y border-white/10 px-4 py-1 text-[11px] font-mono flex items-center justify-between select-none shadow-xs my-0.5"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-cyan-400 font-bold tracking-tight">{hunkRange}</span>
+                            {hunkContext && (
+                              <span className="text-text-muted truncate font-normal">{hunkContext}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={idx} className="grid grid-cols-2 group hover:bg-white/[0.02]">
+                        {/* Left Pane (Original) */}
+                        <div
+                          className={clsx(
+                            'flex items-stretch border-r border-white/10 min-w-0',
+                            row.origType === 'removed' && 'bg-rose-500/[0.10] text-[#fecdd3] border-l-2 border-rose-500/80',
+                            row.origType === 'empty' && 'bg-[#090a0f] select-none',
+                            row.origType === 'normal' && 'text-text-secondary'
+                          )}
+                        >
+                          <span className="w-12 text-right pr-2.5 text-[11px] font-mono text-text-dim select-none shrink-0 py-0.5 border-r border-white/5 bg-[#0a0c12]">
+                            {row.origNum ?? ''}
+                          </span>
+                          <span className="w-5 text-center select-none font-bold text-[11px] shrink-0 py-0.5 text-rose-400">
+                            {row.origType === 'removed' ? '−' : ''}
+                          </span>
+                          <div
+                            className={clsx(
+                              'flex-1 px-2 py-0.5 min-w-0 font-mono text-[12px] leading-5',
+                              wrapLines
+                                ? 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]'
+                                : 'whitespace-pre overflow-x-auto custom-scrollbar-thin'
+                            )}
+                          >
+                            {row.origText}
+                          </div>
+                        </div>
+
+                        {/* Right Pane (Modified) */}
+                        <div
+                          className={clsx(
+                            'flex items-stretch min-w-0',
+                            row.modType === 'added' && 'bg-emerald-500/[0.10] text-[#bbf7d0] border-l-2 border-emerald-500/80',
+                            row.modType === 'empty' && 'bg-[#090a0f] select-none',
+                            row.modType === 'normal' && 'text-text-secondary'
+                          )}
+                        >
+                          <span className="w-12 text-right pr-2.5 text-[11px] font-mono text-text-dim select-none shrink-0 py-0.5 border-r border-white/5 bg-[#0a0c12]">
+                            {row.modNum ?? ''}
+                          </span>
+                          <span className="w-5 text-center select-none font-bold text-[11px] shrink-0 py-0.5 text-emerald-400">
+                            {row.modType === 'added' ? '+' : ''}
+                          </span>
+                          <div
+                            className={clsx(
+                              'flex-1 px-2 py-0.5 min-w-0 font-mono text-[12px] leading-5',
+                              wrapLines
+                                ? 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]'
+                                : 'whitespace-pre overflow-x-auto custom-scrollbar-thin'
+                            )}
+                          >
+                            {row.modText}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              /* ================= MODERN UNIFIED DIFF VIEW ================= */
+              <div className="min-w-full font-mono text-[12px] leading-5">
+                {diffLines.length === 0 ? (
+                  <div className="text-text-dim text-xs p-10 text-center">No uncommitted changes for this file.</div>
+                ) : (
+                  diffLines.map((line, idx) => {
+                    if (line.type === 'header') return null;
+
+                    if (line.type === 'hunk') {
+                      const parts = line.text.match(/(@@ -?\d+(?:,\d+)? \+?\d+(?:,\d+)? @@)(.*)/);
+                      const hunkRange = parts ? parts[1] : line.text;
+                      const hunkContext = parts ? parts[2]?.trim() : '';
+
+                      return (
+                        <div
+                          key={idx}
+                          className="sticky top-0 z-10 bg-[#121522] border-y border-white/10 px-4 py-1 text-[11px] font-mono flex items-center justify-between select-none shadow-xs my-0.5"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-cyan-400 font-bold tracking-tight">{hunkRange}</span>
+                            {hunkContext && (
+                              <span className="text-text-muted truncate font-normal">{hunkContext}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const isAdded = line.type === 'added';
+                    const isRemoved = line.type === 'removed';
+
+                    return (
+                      <div
+                        key={idx}
+                        className={clsx(
+                          'flex items-stretch group hover:bg-white/[0.02]',
+                          isAdded && 'bg-emerald-500/[0.10] text-[#bbf7d0] border-l-2 border-emerald-500/80',
+                          isRemoved && 'bg-rose-500/[0.10] text-[#fecdd3] border-l-2 border-rose-500/80',
+                          !isAdded && !isRemoved && 'text-text-secondary'
+                        )}
+                      >
+                        {/* Old Line Number */}
+                        <span className="w-12 text-right pr-2 text-[11px] font-mono text-text-dim select-none shrink-0 py-0.5 border-r border-white/5 bg-[#0a0c12]">
+                          {line.oldNum ?? ''}
+                        </span>
+                        {/* New Line Number */}
+                        <span className="w-12 text-right pr-2 text-[11px] font-mono text-text-dim select-none shrink-0 py-0.5 border-r border-white/5 bg-[#0a0c12]">
+                          {line.newNum ?? ''}
+                        </span>
+                        {/* Marker */}
+                        <span
+                          className={clsx(
+                            'w-5 text-center select-none font-bold text-[11px] shrink-0 py-0.5',
+                            isAdded && 'text-emerald-400',
+                            isRemoved && 'text-rose-400',
+                            !isAdded && !isRemoved && 'text-transparent'
+                          )}
+                        >
+                          {isAdded ? '+' : isRemoved ? '−' : ' '}
+                        </span>
+                        {/* Code text */}
+                        <div
+                          className={clsx(
+                            'flex-1 px-2 py-0.5 min-w-0 font-mono text-[12px] leading-5',
+                            wrapLines
+                              ? 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]'
+                              : 'whitespace-pre overflow-x-auto custom-scrollbar-thin'
+                          )}
+                        >
+                          {line.text}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-panel text-[10.5px] text-text-muted shrink-0 font-mono">
-          <div className="flex items-center gap-3">
+        {/* Footer Status Bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-t border-white/10 bg-[#12151f] text-[10.5px] text-text-muted shrink-0 font-mono select-none">
+          <div className="flex items-center gap-4">
             <span>Branch: <strong className="text-text-primary">{gitState?.currentBranch || 'main'}</strong></span>
+            <span className="text-white/20">•</span>
             <span>Mode: <strong className="text-text-primary uppercase">{diffViewMode}</strong></span>
+            {(diffStats.additions > 0 || diffStats.deletions > 0) && (
+              <>
+                <span className="text-white/20">•</span>
+                <span>
+                  <span className="text-emerald-400 font-bold">+{diffStats.additions}</span>,{' '}
+                  <span className="text-rose-400 font-bold">−{diffStats.deletions}</span> lines
+                </span>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <span>Press <kbd className="text-text-primary font-bold px-1 py-0.5 rounded bg-well border border-border">ESC</kbd> to close</span>
+          <div className="flex items-center gap-3 text-text-dim">
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">[</kbd> <kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">]</kbd> Switch</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">B</kbd> Drawer</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">M</kbd> Mode</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">W</kbd> Wrap</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">F</kbd> Maximize</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">S</kbd> Stage</span>
+            <span><kbd className="text-text-primary font-bold px-1 py-0.2 rounded bg-well border border-border text-[9.5px]">ESC</kbd> Close</span>
           </div>
         </div>
+
       </div>
     </div>
   );
 };
-

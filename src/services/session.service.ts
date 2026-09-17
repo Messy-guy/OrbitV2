@@ -5,7 +5,7 @@ import { conversationStore } from './conversation/ConversationStore';
 export interface ISessionService {
   getSessions(workspaceId: string): Promise<Session[]>;
   getSessionById(sessionId: string): Promise<Session | undefined>;
-  getAgentSessions(agentId: string): Promise<Session[]>;
+  getAgentSessions(agentId: string, workspaceId?: string): Promise<Session[]>;
   createSession(agentId: string, workspaceId: string, title?: string): Promise<Session>;
   restoreSession(sessionId: string, agentId?: string, workspaceId?: string, title?: string): Promise<Session>;
   getMessages(sessionId: string): Promise<Message[]>;
@@ -75,7 +75,24 @@ export class HybridSessionService implements ISessionService {
     return undefined;
   }
 
-  async getAgentSessions(agentId: string): Promise<Session[]> {
+  async getAgentSessions(agentId: string, workspaceId?: string): Promise<Session[]> {
+    // If Tauri is available and workspaceId is provided, sync sessions persisted by Rust backend
+    if (isTauriAvailable() && workspaceId) {
+      try {
+        const tauriSessions = await tauriService.getSessions(workspaceId);
+        if (tauriSessions && tauriSessions.length > 0) {
+          for (const s of tauriSessions) {
+            if (!this.fallbackSessions.some(e => e.id === s.id)) {
+              this.fallbackSessions.push(s);
+            }
+          }
+          this.saveToStorage();
+        }
+      } catch (e) {
+        console.warn('Tauri getSessions failed in getAgentSessions', e);
+      }
+    }
+
     const existing = this.fallbackSessions.filter(s => s.agentId === agentId);
     if (existing.length > 0) return existing;
 
@@ -110,6 +127,9 @@ export class HybridSessionService implements ISessionService {
     if (existing) {
       existing.status = 'active';
       existing.updatedAt = Date.now();
+      if (isTauriAvailable()) {
+        tauriService.createSession(existing).catch(() => {});
+      }
       this.saveToStorage();
       return existing;
     }
@@ -128,6 +148,9 @@ export class HybridSessionService implements ISessionService {
     };
 
     this.fallbackSessions.push(restored);
+    if (isTauriAvailable()) {
+      tauriService.createSession(restored).catch(() => {});
+    }
     if (!this.messages[sessionId]) {
       this.messages[sessionId] = [];
     }
@@ -165,6 +188,31 @@ export class HybridSessionService implements ISessionService {
   }
 
   async getMessages(sessionId: string): Promise<Message[]> {
+    const direct = this.messages[sessionId];
+    if (direct && direct.length > 0) return direct;
+
+    // Check canonical ConversationStore if messages aren't cached in sessionService
+    const canonical = conversationStore.getSession(sessionId);
+    if (canonical && canonical.conversation?.turns?.length > 0) {
+      const mapped: Message[] = [];
+      for (const turn of canonical.conversation.turns) {
+        for (const msg of turn.messages) {
+          mapped.push({
+            id: msg.id,
+            sessionId,
+            role: msg.role === 'user' ? 'user' : 'agent',
+            content: msg.content.map((c: any) => c.text || c.markdown || '').join('\n'),
+            timestamp: msg.createdAt,
+          });
+        }
+      }
+      if (mapped.length > 0) {
+        this.messages[sessionId] = mapped;
+        this.saveToStorage();
+        return mapped;
+      }
+    }
+
     return this.messages[sessionId] || [];
   }
 

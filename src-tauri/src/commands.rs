@@ -175,6 +175,22 @@ pub async fn delete_agent(state: State<'_, AppState>, agent_id: String) -> Resul
     Ok(())
 }
 
+// Profiles
+#[tauri::command]
+pub fn get_profiles(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    Ok(state.storage.get_profiles())
+}
+
+#[tauri::command]
+pub fn save_profile(state: State<'_, AppState>, profile: String) -> Result<String, String> {
+    state.storage.save_profile(&profile)
+}
+
+#[tauri::command]
+pub fn delete_profile(state: State<'_, AppState>, profile: String) -> Result<(), String> {
+    state.storage.delete_profile(&profile)
+}
+
 // Sessions
 #[tauri::command]
 pub fn get_sessions(state: State<'_, AppState>, workspace_id: String) -> Vec<Session> {
@@ -206,6 +222,7 @@ pub async fn start_agent_session(
     rows: Option<u16>,
     cols: Option<u16>,
     role: Option<String>,
+    resume: Option<bool>,
 ) -> Result<u32, String> {
     // Keep role state available to the existing MCP/operational-mode paths;
     // the native launcher also applies provider-specific role flags.
@@ -247,6 +264,7 @@ pub async fn start_agent_session(
                 role,
                 profile_id,
                 prompt,
+                resume,
             )
             .map(|info| info.pid)
     })
@@ -411,6 +429,7 @@ pub async fn terminal_v2_start(
     role: Option<String>,
     profile_id: Option<String>,
     prompt: Option<String>,
+    resume: Option<bool>,
 ) -> Result<TerminalSessionInfo, String> {
     let service = state.terminal_service.clone();
     let app_for_worker = app.clone();
@@ -438,6 +457,7 @@ pub async fn terminal_v2_start(
             role,
             profile_id,
             prompt,
+            resume,
         )
     })
     .await
@@ -555,7 +575,43 @@ pub fn get_checkpoints(state: State<'_, AppState>, workspace_id: String) -> Vec<
 
 #[tauri::command]
 pub fn save_checkpoint(state: State<'_, AppState>, checkpoint: Checkpoint) -> Result<(), String> {
-    state.storage.save_checkpoint(checkpoint);
+    state.storage.save_checkpoint(checkpoint.clone());
+
+    // Continuous project memory sync: Append checkpoint to SESSION.md
+    if let Some(workspace) = state.storage.get_workspaces().into_iter().find(|w| w.id == checkpoint.workspace_id) {
+        if !workspace.project_path.is_empty() {
+            let orbit_dir = std::path::Path::new(&workspace.project_path).join(".orbit");
+            let raw_slug = workspace
+                .name
+                .to_lowercase()
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
+                .collect::<String>();
+            let trimmed = raw_slug.trim_matches('-').to_string();
+            let project_slug = if trimmed.is_empty() { "default".to_string() } else { trimmed };
+
+            let project_memory_dir = orbit_dir.join("memory").join("projects").join(&project_slug);
+            let _ = std::fs::create_dir_all(&project_memory_dir);
+            let session_file = project_memory_dir.join("SESSION.md");
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&session_file) {
+                use std::io::Write;
+                let agent_str = checkpoint.agent_name.as_deref().unwrap_or("Active Agent");
+                let entry = format!(
+                    "\n\n### 📌 Checkpoint: {} by {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Touched Files**: {}\n- **Decisions**: {}\n- **Notes**: {}\n",
+                    checkpoint.name,
+                    agent_str,
+                    checkpoint.created_at,
+                    checkpoint.task,
+                    checkpoint.progress,
+                    checkpoint.changed_files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", "),
+                    if checkpoint.decisions.is_empty() { "None".to_string() } else { checkpoint.decisions.join("; ") },
+                    checkpoint.notes.as_deref().unwrap_or("Checkpoint milestone captured.")
+                );
+                let _ = file.write_all(entry.as_bytes());
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -624,71 +680,238 @@ pub fn execute_agent_handoff(
     // 1. Record the handoff
     state.storage.record_handoff(handoff.clone());
 
-    // 2. Persist full handoff manifest & continuous memory in project directory (.orbit/memory/)
+    let relevant_dialogue = handoff
+        .context_package
+        .relevant_history
+        .as_ref()
+        .and_then(|h| h.first())
+        .map(|s| s.as_str())
+        .unwrap_or("");
+
+    let handoff_content = handoff
+        .context_package
+        .formatted_instruction
+        .as_deref()
+        .unwrap_or("");
+
+    // 2. Persist full handoff manifest & continuous project memory in ~/.orbit/memory/projects/<project_slug>/
+    let home = {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(std::path::PathBuf::from)
+        }
+    }.unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let orbit_home_dir = home.join(".orbit");
     let proj_path = &handoff.context_package.project_path;
-    if !proj_path.is_empty() {
-        let orbit_dir = std::path::Path::new(proj_path).join(".orbit");
-        let memory_dir = orbit_dir.join("memory");
-        let _ = std::fs::create_dir_all(&memory_dir);
+    let raw_name = if !handoff.context_package.workspace_name.is_empty() {
+        handoff.context_package.workspace_name.clone()
+    } else if !proj_path.is_empty() {
+        std::path::Path::new(proj_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "project".to_string())
+    } else {
+        "project".to_string()
+    };
+    let slug = raw_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
+        .collect::<String>();
+    let trimmed_slug = slug.trim_matches('-').to_string();
+    let project_slug = if trimmed_slug.is_empty() { "default".to_string() } else { trimmed_slug };
 
-        // 2a. Active Handoff briefing file
-        let handoff_file = orbit_dir.join("HANDOFF.md");
-        let _ = std::fs::write(
-            &handoff_file,
-            handoff
-                .context_package
-                .formatted_instruction
-                .as_deref()
-                .unwrap_or(""),
-        );
+    let project_memory_dir = orbit_home_dir.join("memory").join("projects").join(&project_slug);
+    let _ = std::fs::create_dir_all(&project_memory_dir);
 
-        // 2b. Cumulative SESSION.md memory
+    // 2a. Active Project Handoff briefing file
+    let project_handoff_file = project_memory_dir.join("HANDOFF.md");
+    let _ = std::fs::write(&project_handoff_file, handoff_content);
+
+    // Also mirror to root ~/.orbit/HANDOFF.md so general reference resolves immediately
+    let root_handoff_file = orbit_home_dir.join("HANDOFF.md");
+    let _ = std::fs::write(&root_handoff_file, handoff_content);
+
+        // 2b. Cumulative SESSION.md memory (Rich conversational trajectory)
         let session_log_entry = format!(
-            "\n\n### Session Handoff: {} → {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Files Touched**: {}\n- **Decisions**: {}\n- **Blockers**: {}\n",
+            "\n\n## Session Handoff: {} → {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Files Touched**: {}\n- **Decisions**: {}\n- **Blockers**: {}\n\n### Conversational Trajectory & Accomplishments:\n{}\n",
             handoff.source_agent_name,
             handoff.target_agent_name,
             chrono_now_millis(),
             handoff.context_package.current_task,
             handoff.context_package.progress,
             handoff.context_package.changed_files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", "),
-            handoff.context_package.decisions.join("; "),
-            handoff.context_package.known_issues.join("; ")
+            if handoff.context_package.decisions.is_empty() { "None".to_string() } else { handoff.context_package.decisions.join("; ") },
+            if handoff.context_package.known_issues.is_empty() { "None".to_string() } else { handoff.context_package.known_issues.join("; ") },
+            if relevant_dialogue.is_empty() { "Continuous workflow relay." } else { relevant_dialogue }
         );
-        let session_file = memory_dir.join("SESSION.md");
+        let session_file = project_memory_dir.join("SESSION.md");
         let mut session_content = std::fs::read_to_string(&session_file)
-            .unwrap_or_else(|_| "# Orbit Continuous Project Memory\n".to_string());
+            .unwrap_or_else(|_| format!("# {} Project Memory — Cumulative Sessions\n", raw_name));
         session_content.push_str(&session_log_entry);
         let _ = std::fs::write(&session_file, session_content);
 
         // 2c. Cumulative DECISIONS.md
         if !handoff.context_package.decisions.is_empty() {
-            let decisions_file = memory_dir.join("DECISIONS.md");
+            let decisions_file = project_memory_dir.join("DECISIONS.md");
             let mut decisions_content = std::fs::read_to_string(&decisions_file)
-                .unwrap_or_else(|_| "# Architectural Decisions Record\n".to_string());
+                .unwrap_or_else(|_| format!("# {} Project — Architectural Decisions Record\n", raw_name));
             for dec in &handoff.context_package.decisions {
                 decisions_content
-                    .push_str(&format!("\n- [{}]: {}", handoff.source_agent_name, dec));
+                    .push_str(&format!("\n- [{}] {}", handoff.source_agent_name, dec));
             }
             let _ = std::fs::write(&decisions_file, decisions_content);
         }
 
         // 2d. Cumulative BUGS.md
         if !handoff.context_package.known_issues.is_empty() {
-            let bugs_file = memory_dir.join("BUGS.md");
+            let bugs_file = project_memory_dir.join("BUGS.md");
             let mut bugs_content = std::fs::read_to_string(&bugs_file)
-                .unwrap_or_else(|_| "# Tracked Project Blockers & Issues\n".to_string());
+                .unwrap_or_else(|_| format!("# {} Project — Tracked Blockers & Issues\n", raw_name));
             for bug in &handoff.context_package.known_issues {
                 bugs_content.push_str(&format!("\n- ⚠️ [{}] {}", handoff.source_agent_name, bug));
             }
             let _ = std::fs::write(&bugs_file, bugs_content);
         }
-    }
 
-    // 3. Build a high-signal directive pointing directly to .orbit/HANDOFF.md.
-    //    Explicitly command reading the brief first and adhering to the protocol.
+        // 2e. Discovered PATTERNS.md
+        let patterns_file = project_memory_dir.join("PATTERNS.md");
+        let mut patterns_content = std::fs::read_to_string(&patterns_file)
+            .unwrap_or_else(|_| format!("# {} Project — Discovered Patterns & Conventions\n", raw_name));
+        if let Some(patterns) = &handoff.context_package.patterns {
+            for pat in patterns {
+                patterns_content.push_str(&format!("\n- [{}] {}", handoff.source_agent_name, pat));
+            }
+        } else {
+            patterns_content.push_str(&format!(
+                "\n- [{}] Adhere strictly to project conventions, strict TypeScript typing, and verified test contracts.",
+                handoff.source_agent_name
+            ));
+        }
+        let _ = std::fs::write(&patterns_file, patterns_content);
+
+        // 2f. Project Roadmap & Milestone Tracker (ROADMAP.md)
+        let roadmap_file = project_memory_dir.join("ROADMAP.md");
+        if !roadmap_file.exists() {
+            let roadmap_content = format!(
+                "# Roadmap — {}\n\n> Multi-agent continuous roadmap maintained by Orbit.\n\n## Phase 0 — Foundation & Runtime Architecture\n- [x] Workspace initialized and project memory configured\n- [x] Multi-agent runtime & deterministic context relay operational\n\n## Phase 1 — Active Core Implementation\n- [/] {}\n- [ ] Comprehensive verification across test suites\n\n## Phase 2 — System Hardening & Integration\n- [ ] Cross-module error bounds and performance audits\n- [ ] Edge-case handling and state resilience\n\n## Phase 3 — Production Readiness\n- [ ] Clean production build (0 errors, 0 warnings)\n- [ ] Multi-platform validation and release closure\n",
+                raw_name,
+                handoff.context_package.current_task
+            );
+            let _ = std::fs::write(&roadmap_file, roadmap_content);
+        }
+
+        // 2g. Granular File Changes & Live Unified Diffs (CHANGES.md)
+        let changes_file = project_memory_dir.join("CHANGES.md");
+        let mut changes_content = format!(
+            "# {} Project — File Edit Summaries & Unified Diffs\n\n*Relay from {} to {}*\n\n",
+            raw_name, handoff.source_agent_name, handoff.target_agent_name
+        );
+        let mut handled_files = std::collections::HashSet::new();
+
+        if let Some(summaries) = &handoff.context_package.file_summaries {
+            for s in summaries {
+                handled_files.insert(s.file_path.clone());
+                changes_content.push_str(&format!(
+                    "### `{}` ({}, +{}/-{} lines)\n**Summary**: {}\n\n",
+                    s.file_path, s.status, s.additions, s.deletions, s.summary
+                ));
+                let diff = if let Some(d) = &s.diff_snippet {
+                    if !d.trim().is_empty() {
+                        d.clone()
+                    } else {
+                        crate::git::get_git_file_diff(proj_path, &s.file_path)
+                    }
+                } else {
+                    crate::git::get_git_file_diff(proj_path, &s.file_path)
+                };
+                if !diff.trim().is_empty() && diff != "No changes detected for this file." {
+                    changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
+                }
+            }
+        }
+
+        // Include any modified files from gitState not already covered
+        for f in &handoff.context_package.changed_files {
+            if !handled_files.contains(&f.path) {
+                let diff = crate::git::get_git_file_diff(proj_path, &f.path);
+                changes_content.push_str(&format!(
+                    "### `{}` ({})\n\n",
+                    f.path, f.status
+                ));
+                if !diff.trim().is_empty() && diff != "No changes detected for this file." {
+                    changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
+                }
+            }
+        }
+        let _ = std::fs::write(&changes_file, changes_content);
+
+    // 3. Build a dense, self-contained executive handoff prompt for Agent B.
+    let summary_excerpt = if !relevant_dialogue.is_empty() {
+        let clean_snippet = relevant_dialogue
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let truncated = if clean_snippet.len() > 250 {
+            format!("{}...", &clean_snippet[..250])
+        } else {
+            clean_snippet
+        };
+        if !truncated.is_empty() {
+            format!(" Context from {}: \"{}\".", handoff.context_package.source_agent, truncated)
+        } else {
+            String::new()
+        }
+    } else if !handoff.context_package.current_task.is_empty() {
+        format!(" Active task: {}.", handoff.context_package.current_task)
+    } else {
+        String::new()
+    };
+
+    let touched_files_str = if !handoff.context_package.changed_files.is_empty() {
+        let files = handoff.context_package.changed_files
+            .iter()
+            .take(4)
+            .map(|f| f.path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(" Active touchpoints: [{}].", files)
+    } else {
+        String::new()
+    };
+
+    let decisions_str = if !handoff.context_package.decisions.is_empty() {
+        let d = handoff.context_package.decisions.iter().take(2).cloned().collect::<Vec<_>>().join("; ");
+        format!(" Key rules: [{}].", d)
+    } else {
+        String::new()
+    };
+
+    let intent_prefix = if handoff_content.contains("BRAHMA TO MAHESH") || handoff_content.contains("PLAN ➔ CODE") {
+        "ORBIT CODE RELAY (Plan ➔ Code)"
+    } else if handoff_content.contains("VISHNU 15-DIMENSION") || handoff_content.contains("SECURITY AUDIT") {
+        "ORBIT SECURITY AUDIT (Vishnu 15-Dim)"
+    } else {
+        "ORBIT CONTEXT RELAY (Resume Chat)"
+    };
+
     let concise_prompt = format!(
-        "Please read .orbit/HANDOFF.md first and follow the ingestion protocol inside. (Handoff from {})",
-        handoff.context_package.source_agent
+        "{}: Continuing from {}. Mission: {}.{}{}{} Read ~/.orbit/memory/projects/{}/ (HANDOFF.md, SESSION.md, DECISIONS.md, ROADMAP.md, BUGS.md, PATTERNS.md, CHANGES.md) for full deep memory. Ingest context and resume work.",
+        intent_prefix,
+        handoff.context_package.source_agent,
+        handoff.context_package.current_task,
+        summary_excerpt,
+        decisions_str,
+        touched_files_str,
+        project_slug
     );
 
     // 4. If the target agent session is ALREADY running — write directly to its stdin.
@@ -734,6 +957,7 @@ pub fn execute_agent_handoff(
         None,
         None,
         Some(concise_prompt),
+        None,
     )?;
 
     Ok(info.pid)
@@ -1215,14 +1439,24 @@ pub struct WorkspaceFileContent {
     pub is_external: bool,
 }
 
+fn sanitize_clean_file_path(input_path: &str) -> String {
+    let mut s = input_path.trim();
+    if let Some(stripped) = s.strip_prefix("file://") {
+        s = stripped;
+    }
+    // Trim leading formatting/quotes/brackets
+    let s = s.trim_start_matches(|c| matches!(c, '*' | '_' | '`' | '\'' | '"' | '<' | '(' | '[' | '{' | '\\'));
+    // Trim trailing formatting/quotes/brackets/punctuation
+    let s = s.trim_end_matches(|c| matches!(c, '*' | '_' | '`' | '\'' | '"' | '>' | ')' | ']' | '}' | ';' | ',' | '.' | '!' | '?' | ':'));
+    s.trim().to_string()
+}
+
 fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::PathBuf {
-    let clean = relative_path
-        .trim()
-        .trim_start_matches("file://")
-        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+    let clean_str = sanitize_clean_file_path(relative_path);
+    let clean = clean_str.as_str();
 
     // Expand tilde (~) if present
-    if clean.starts_with("~/") || clean == "~" {
+    if clean.starts_with('~') {
         let home = {
             #[cfg(windows)]
             {
@@ -1235,7 +1469,7 @@ fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::Path
         };
         if let Some(h) = home {
             let sub = clean.trim_start_matches('~').trim_start_matches('/');
-            return h.join(sub);
+            return if sub.is_empty() { h } else { h.join(sub) };
         }
     }
 
@@ -1252,10 +1486,8 @@ fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::Path
 /// Looks up an agent-generated artifact (e.g. implementation_plan.md, walkthrough.md)
 /// in known agent stores, prioritizing active sessions matching the current project_path.
 fn find_agent_artifact_path(project_path: &str, input_path: &str) -> Option<std::path::PathBuf> {
-    let clean = input_path
-        .trim()
-        .trim_start_matches("file://")
-        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+    let clean_str = sanitize_clean_file_path(input_path);
+    let clean = clean_str.as_str();
 
     let file_name = std::path::Path::new(clean)
         .file_name()
@@ -1340,7 +1572,13 @@ fn find_agent_artifact_path(project_path: &str, input_path: &str) -> Option<std:
         home.join(".claude/artifacts"),
         home.join(".claude/projects"),
         home.join(".orbit/artifacts"),
+        home.join(".orbit/memory"),
+        home.join(".orbit/handoff"),
         home.join(".local/share/orbit/artifacts"),
+        home.join(".gemini/antigravity-cli/artifacts"),
+        home.join(".aider"),
+        home.join(".codex"),
+        home.join(".cursor"),
     ];
     for dir in agent_dirs {
         if dir.is_dir() {
@@ -1396,10 +1634,8 @@ fn find_file_in_project_tree(project_path: &str, file_name: &str, max_depth: usi
 }
 
 fn find_real_file_path(project_path: &str, input_path: &str) -> std::path::PathBuf {
-    let clean = input_path
-        .trim()
-        .trim_start_matches("file://")
-        .trim_matches(|c| c == '\'' || c == '"' || c == '`');
+    let clean_str = sanitize_clean_file_path(input_path);
+    let clean = clean_str.as_str();
 
     // 1. Direct candidate
     let candidate = resolve_file_path(project_path, clean);
@@ -1434,12 +1670,12 @@ fn find_real_file_path(project_path: &str, input_path: &str) -> std::path::PathB
         }
     }
 
-    // 4. Check if file exists inside project tree (e.g. docs/, src/, .gemini/)
+    // 4. Check if file exists inside project tree (e.g. docs/, src/, .gemini/, .orbit/)
     let bare_name = std::path::Path::new(clean)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(clean);
-    if let Some(in_tree) = find_file_in_project_tree(project_path, bare_name, 4) {
+    if let Some(in_tree) = find_file_in_project_tree(project_path, bare_name, 6) {
         return in_tree;
     }
 

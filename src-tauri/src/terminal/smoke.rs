@@ -19,6 +19,7 @@ pub fn run() -> Result<(), String> {
         None,
         None,
         None,
+        None,
     )?;
     let session = service
         .session_for_agent("release-smoke-agent")
@@ -52,6 +53,7 @@ pub fn run() -> Result<(), String> {
         "/tmp",
         8,
         80,
+        None,
         None,
         None,
         None,
@@ -107,7 +109,7 @@ pub fn run_provider_matrix() -> Result<(), String> {
         .filter(|value| !value.is_empty())
     {
         let service = TerminalService::new();
-        if let Err(error) = launcher::resolve(provider, "/tmp", 24, 80, None, None, None) {
+        if let Err(error) = launcher::resolve(provider, "/tmp", 24, 80, None, None, None, None) {
             if strict {
                 return Err(format!(
                     "provider matrix could not resolve {provider}: {error}"
@@ -128,6 +130,7 @@ pub fn run_provider_matrix() -> Result<(), String> {
             "/tmp".to_string(),
             24,
             80,
+            None,
             None,
             None,
             None,

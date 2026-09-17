@@ -43,6 +43,7 @@ export class UniversalSessionExtractor {
    * Strips ANSI escape sequences, color codes, CSI sequences, and terminal cursor repositioning
    */
   public static stripAnsi(text: string): string {
+    if (!text) return '';
     return text
       .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
       .replace(/\x1b\([a-zA-Z]/g, '')         // Character set
@@ -67,6 +68,13 @@ export class UniversalSessionExtractor {
       // Skip common progress spinner noise
       if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\-\|\/\\]\s+/.test(line)) continue;
       if (/^\[\s*\d+%\s*\]/.test(line) && line === prevLine) continue;
+
+      // Skip TUI menu / interactive dialog navigation footers
+      if (/Keyboard:\s+enter\s+Select/i.test(line)) continue;
+      if (/\(tab to cycle\)/i.test(line)) continue;
+      if (/\bf[0-9]\s+(?:Rename|Delete|Help)/i.test(line)) continue;
+      if (/\besc\s+Go back/i.test(line)) continue;
+      if (/Conversations;\s+Keyboard:/i.test(line)) continue;
 
       // Skip duplicate consecutive lines
       if (line === prevLine) continue;
@@ -186,7 +194,11 @@ export class UniversalSessionExtractor {
             });
           } else {
             const firstLine = turn.content.split('\n')[0].trim();
-            if (firstLine && firstLine.length > 5) {
+            if (
+              firstLine &&
+              firstLine.length > 5 &&
+              !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Working|CLI\s+Other|Conversations;/i.test(firstLine)
+            ) {
               accomplishments.push({ step: firstLine });
             }
           }
@@ -206,12 +218,21 @@ export class UniversalSessionExtractor {
     let nextStepDirective = 'Inspect active touched files and continue implementation without repeating completed steps.';
 
     if (lastAgentTurn) {
-      const lines = lastAgentTurn.content.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+      const lines = lastAgentTurn.content
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 10 && !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Conversations;/i.test(l));
       if (lines.length > 0) {
         currentExecutionState = lines[lines.length - 1];
         nextStepDirective = lines.length > 1 ? lines.slice(-2).join('; ') : currentExecutionState;
       }
     }
+
+    const patterns = [
+      'Maintain strict TypeScript typing and preserve existing test contracts.',
+      'Single shared PTY delivery funnel via ptyDelivery module with direct TUI pass-through.',
+      'All cross-agent memory synchronized in local machine storage (~/.orbit/memory/projects/).',
+    ];
 
     const narrativeLines: string[] = [
       `### 🎯 Session Objectives & Directives:`,
@@ -246,6 +267,7 @@ export class UniversalSessionExtractor {
       workAccomplished: accomplishments,
       decisionsFormulated: decisions,
       blockersAndErrors,
+      patterns,
       currentExecutionState,
       nextStepDirective,
       narrativeSummary,
@@ -455,6 +477,10 @@ export class UniversalSessionExtractor {
         finalizeTurn();
         const promptText = userMatch[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
         if (promptText && !promptText.startsWith('Orbit Handoff')) {
+          // Skip CLI control / meta commands (e.g. /res, /resume, /clear, /clean, /model, /help)
+          if (/^\/(?:res|resume|clear|clean|model|help|reset|exit|quit|compact|cost|history)\b/i.test(promptText)) {
+            continue;
+          }
           if (!primaryGoal) {
             primaryGoal = promptText;
           }

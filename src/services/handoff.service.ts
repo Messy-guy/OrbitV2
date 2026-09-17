@@ -9,6 +9,7 @@ import {
   ChangedFileItem,
   FileEditSummary,
   ConversationSynthesis,
+  HandoffPreviewSummary,
 } from '../types/orbit';
 import { isTauriAvailable, tauriService } from './tauri.service';
 
@@ -26,6 +27,7 @@ export interface IHandoffService {
     decisions: string[];
     changedFiles: ChangedFileItem[];
     fileSummaries?: FileEditSummary[];
+    patterns?: string[];
     knownIssues: string[];
     gitState?: GitState;
     relevantHistory?: string[];
@@ -40,18 +42,7 @@ export interface IHandoffService {
     selection: HandoffSelection,
     gitState?: GitState,
     distilledBrief?: any
-  ): {
-    task: string;
-    progress: string;
-    currentIssue: string;
-    relevantFiles: string[];
-    fileSummaries?: FileEditSummary[];
-    conversationSynthesis?: ConversationSynthesis;
-    previousAgent: string;
-    nextStep: string;
-    estimatedTokens: number;
-    formattedInstruction?: string;
-  };
+  ): HandoffPreviewSummary;
 
   executeHandoff(
     workspaceId: string,
@@ -86,6 +77,7 @@ export class HybridHandoffService implements IHandoffService {
     decisions: string[];
     changedFiles: ChangedFileItem[];
     fileSummaries?: FileEditSummary[];
+    patterns?: string[];
     knownIssues: string[];
     gitState?: GitState;
     relevantHistory?: string[];
@@ -113,6 +105,7 @@ export class HybridHandoffService implements IHandoffService {
       decisions: params.decisions,
       changedFiles: params.changedFiles,
       fileSummaries: params.fileSummaries,
+      patterns: params.patterns,
       knownIssues: params.knownIssues,
       gitState: params.gitState,
       relevantHistory: params.relevantHistory,
@@ -162,18 +155,28 @@ export class HybridHandoffService implements IHandoffService {
 
     const requireConfirm = selection.requireConfirmation !== false;
 
-    // High-signal, uncompromising execution protocol
+    const projectSlug = (context.workspaceName || 'orbitv2')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'default';
+
+    // High-signal, natural continuity protocol
     const executionGuidance = requireConfirm
-      ? `## 🛑 MANDATORY INGESTION PROTOCOL (DO NOT EDIT FILES YET)
-1. DO NOT write code, edit files, or execute build/test commands yet.
-2. Ingest this handoff brief completely.
-3. Respond to the user with a crisp 3-part recap:
-   - **Mission Understood**: 1 sentence summary of the active objective.
-   - **Past Context & Decisions Ingested**: Key constraints from ${sourceAgentName}.
-   - **Proposed Next Action**: Exact step 1 and step 2 you intend to execute.
-4. End your message with: *"I am ready. Shall I proceed with Step 1?"* and WAIT for user confirmation.`
+      ? `## 🚀 INGESTION & CONTINUITY PROTOCOL
+1. Ingest this handoff brief and reference the connected project memory in \`~/.orbit/memory/projects/${projectSlug}/\`.
+2. Acknowledge the brief in 1-2 concise sentences summarizing the active mission and your immediate next action.
+3. Seamlessly proceed with implementation without repeating completed work.`
       : `## 🚀 DIRECT EXECUTION PROTOCOL
 Acknowledge this brief in 1 sentence and immediately proceed with the Next Step without repeating completed work.`;
+
+    const memoryIndexSection = `## 📚 Connected Project Memory Files
+• **Session Trajectory & Past Conversations**: \`~/.orbit/memory/projects/${projectSlug}/SESSION.md\`
+• **Architectural Decisions & Invariants**: \`~/.orbit/memory/projects/${projectSlug}/DECISIONS.md\`
+• **Project Roadmap & Milestone Phases**: \`~/.orbit/memory/projects/${projectSlug}/ROADMAP.md\`
+• **Known Bugs, Errors & Blockers**: \`~/.orbit/memory/projects/${projectSlug}/BUGS.md\`
+• **Codebase Patterns & Conventions**: \`~/.orbit/memory/projects/${projectSlug}/PATTERNS.md\`
+• **Detailed File Diffs & Edit Summaries**: \`~/.orbit/memory/projects/${projectSlug}/CHANGES.md\`\n\n`;
 
     const narrative = distilledBrief?.conversationSynthesis?.narrativeSummary 
       || distilledBrief?.summaryNarrative 
@@ -190,6 +193,13 @@ Acknowledge this brief in 1 sentence and immediately proceed with the Next Step 
     const blockersSection = allBlockers.length > 0 && allBlockers[0] !== 'None specified.'
       ? `## ⚠️ Encountered Blockers & Errors (Avoid repeating these!)\n${allBlockers.map(b => `• ⚠️ ${b}`).join('\n')}\n\n`
       : '';
+
+    const patterns = distilledBrief?.conversationSynthesis?.patterns || [
+      'Maintain strict TypeScript typing and preserve existing test contracts.',
+      'Single shared PTY delivery funnel via ptyDelivery module with direct TUI pass-through.',
+      'All cross-agent memory synchronized in local machine storage (~/.orbit/memory/projects/).',
+    ];
+    const patternsSection = `## 🧬 Discovered Patterns & Repository Conventions\n${patterns.map((p: string) => `• ${p}`).join('\n')}\n\n`;
 
     let filesSection = '';
     if (selection.includeChangedFiles) {
@@ -210,21 +220,49 @@ Acknowledge this brief in 1 sentence and immediately proceed with the Next Step 
       ? `## 🌿 Git State\n• **Branch**: \`${gitState.currentBranch}\`\n• **HEAD**: \`${gitState.headCommit}\`\n\n`
       : '';
 
+    const intent = distilledBrief?.intent || 'chat_continue';
+    let intentSubtitle = '**Workflow Intent**: 🔄 Resuming Conversation (Master Boot)';
+    let intentSection = '';
+    let agentDirective = `*Instructions for ${targetAgentName}: Seamlessly continue this exact discussion as if you generated the prior turns.*`;
+
+    if (intent === 'plan_to_code') {
+      intentSubtitle = '**Workflow Intent**: ⚡ Plan ➔ Code Relay (Brahma to Mahesh)';
+      intentSection = `## 🛑 MAHESH Guardrails (Zero Bloat Invariants)\n• Rule 1: Pass test suite with minimal diff.\n• Rule 2: Zero sequential awaits for independent tasks (use Promise.all).\n• Rule 3: Zero unapproved npm packages or dependency bloat.\n• Rule 4: Absolute file protection (.env, .git, config untouched).\n\n`;
+      agentDirective = `*Instructions for ${targetAgentName}: Begin implementing the code immediately step by step without re-planning.*`;
+    } else if (intent === 'security_audit') {
+      intentSubtitle = '**Workflow Intent**: 🛡️ Vishnu 15-Dimension Security Audit';
+      intentSection = `## 🛡️ VISHNU 15-Dim Invariants & Audit Scope\n1. Race condition detection (atomic transactions for state).\n2. Input validation & sanitize params.\n3. No secrets or environment leakage.\n4. Error boundary & crash recovery.\n\n`;
+      agentDirective = `*Instructions for ${targetAgentName}: Provide a concise bulleted audit report with CRITICAL, WARNING, and CLEAN status.*`;
+    }
+
+    // Include custom user directive note if present
+    let userDirectiveSection = '';
+    if (distilledBrief?.notes && distilledBrief.notes.includes('[USER DIRECTIVE]:')) {
+      const parts = distilledBrief.notes.split('[USER DIRECTIVE]:');
+      if (parts[1]?.trim()) {
+        userDirectiveSection = `## 📌 User Directive\n${parts[1].trim()}\n\n`;
+      }
+    }
+
     const formattedInstruction = `# ORBIT CONTEXT HANDOFF BRIEF
 **From**: ${sourceAgentName}  ➔  **To**: ${targetAgentName}
+${intentSubtitle}
 **Project**: ${context.goal || 'Orbit Workspace'}
 
 ${executionGuidance}
 
 ---
 
+${memoryIndexSection}---
+
 ## 🎯 Active Goal & Mission
 ${distilledBrief?.task || distilledBrief?.goal || context.currentTask || context.goal}
 
-${narrativeSection}${decisionsSection}${blockersSection}${filesSection}${gitSection}## 👉 Immediate Next Action
+${userDirectiveSection}${intentSection}${narrativeSection}${decisionsSection}${blockersSection}${patternsSection}${filesSection}${gitSection}## 👉 Immediate Next Action
 ${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and continue implementation from prior state.'}
 
 ---
+${agentDirective}
 *Generated by Orbit Multi-Agent Mesh Engine. Please adhere strictly to the protocol above.*`;
 
     return {
@@ -234,6 +272,7 @@ ${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touch
       relevantFiles: files,
       fileSummaries: fileSummaries.length > 0 ? fileSummaries : undefined,
       conversationSynthesis: distilledBrief?.conversationSynthesis,
+      summaryNarrative: narrative,
       previousAgent: sourceAgentName,
       nextStep: distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and proceed with next task module.',
       estimatedTokens: tokenBase,
@@ -283,12 +322,18 @@ ${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touch
       this.fallbackHistory[workspaceId].unshift(handoffRecord);
     }
 
-    // System handoff banner message
+    // System handoff banner message with source agent conversation summary
+    const conversationNarrative = previewSummary.summaryNarrative
+      || previewSummary.conversationSynthesis?.narrativeSummary
+      || '';
+
     const targetMessage: Message = {
       id: `msg-handoff-${Date.now()}`,
       sessionId: targetSessionId,
       role: 'system',
-      content: `ORBIT CONTEXT HANDOFF\nContinuing from ${previewSummary.previousAgent}.\n\nCurrent task:\n${previewSummary.task}\n\nProgress:\n${previewSummary.progress}\n\nCurrent issue:\n${previewSummary.currentIssue}\n\nRelevant files:\n${previewSummary.relevantFiles.join('\n')}`,
+      content: `ORBIT CONTEXT HANDOFF\nContinuing from ${previewSummary.previousAgent}.\n\n`
+        + (conversationNarrative ? `### Prior Conversation & Work Trajectory:\n${conversationNarrative}\n\n` : '')
+        + `Current task:\n${previewSummary.task}\n\nProgress:\n${previewSummary.progress}\n\nCurrent issue:\n${previewSummary.currentIssue}\n\nRelevant files:\n${previewSummary.relevantFiles.join('\n')}`,
       isHandoffMessage: true,
       handoffData: {
         fromAgent: previewSummary.previousAgent,
@@ -297,6 +342,7 @@ ${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touch
         progress: previewSummary.progress,
         issues: previewSummary.currentIssue,
         files: previewSummary.relevantFiles,
+        conversationSummary: conversationNarrative,
         tokenCount: previewSummary.estimatedTokens,
       },
       timestamp: Date.now(),
@@ -307,7 +353,7 @@ ${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touch
       id: `msg-reply-${Date.now() + 100}`,
       sessionId: targetSessionId,
       role: 'agent',
-      content: `I have received the context handoff from ${previewSummary.previousAgent}. I have ingested the summary, past architectural decisions, and active files from .orbit/HANDOFF.md and will proceed according to protocol.`,
+      content: `I have received the context handoff from ${previewSummary.previousAgent}. I have ingested the conversation summary, past architectural decisions, and active files from ~/.orbit/HANDOFF.md and will proceed according to protocol.`,
       timestamp: Date.now() + 100,
     };
 

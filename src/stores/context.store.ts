@@ -360,16 +360,23 @@ export const useContextStore = create<ContextState>((set, get) => ({
       fileSummaries: params.selection.includeChangedFiles
         ? params.previewSummary.fileSummaries
         : undefined,
+      patterns: params.previewSummary.conversationSynthesis?.patterns,
       knownIssues: params.selection.includeKnownIssues
         ? (params.previewSummary.currentIssue ? [params.previewSummary.currentIssue] : currentContext?.issues.map((i) => i.title) || [])
         : [],
       gitState: params.selection.includeGitState ? gitState || undefined : undefined,
-      relevantHistory: params.previewSummary.summaryNarrative ? [params.previewSummary.summaryNarrative] : undefined,
+      relevantHistory: (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
+        ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
+        : undefined,
     });
 
     const contextPackage: ContextPackage = {
       ...rawContextPackage,
       fileSummaries: params.previewSummary.fileSummaries || rawContextPackage.fileSummaries,
+      patterns: params.previewSummary.conversationSynthesis?.patterns || rawContextPackage.patterns,
+      relevantHistory: (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
+        ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
+        : rawContextPackage.relevantHistory,
       formattedInstruction: params.previewSummary.formattedInstruction || rawContextPackage.formattedInstruction,
       estimatedTokens: params.previewSummary.estimatedTokens || rawContextPackage.estimatedTokens,
     };

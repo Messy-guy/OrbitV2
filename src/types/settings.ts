@@ -67,6 +67,7 @@ export interface SettingsState {
   updateTerminalSettings: (settings: Partial<SettingsState>) => void;
   addSavedProfile: (profile: string) => void;
   removeSavedProfile: (profile: string) => void;
+  loadSavedProfiles: () => Promise<void>;
   setModeCustomSkills: (mode: string, skills: import('./skills').SkillItem[]) => void;
   setModeCustomDirective: (mode: string, directive: string) => void;
   addSkillToMode: (mode: string, skill: import('./skills').SkillItem) => void;

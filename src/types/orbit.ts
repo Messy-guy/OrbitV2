@@ -116,6 +116,7 @@ export interface Message {
     progress: string;
     issues: string;
     files: string[];
+    conversationSummary?: string;
     tokenCount: number;
   };
 }
@@ -186,6 +187,7 @@ export interface ProjectIssue {
 export interface ProjectContext {
   id: string;
   workspaceId: string;
+  workspaceName?: string;
   currentTask: string;
   goal: string;
   progress: number; // 0 to 100
@@ -197,6 +199,20 @@ export interface ProjectContext {
   relevantFiles: string[];
   lastCheckpointTime?: string;
   updatedAt: number;
+}
+
+export interface HandoffPreviewSummary {
+  task: string;
+  progress: string;
+  currentIssue: string;
+  relevantFiles: string[];
+  fileSummaries?: FileEditSummary[];
+  conversationSynthesis?: ConversationSynthesis;
+  summaryNarrative?: string;
+  previousAgent: string;
+  nextStep: string;
+  estimatedTokens: number;
+  formattedInstruction?: string;
 }
 
 export interface HandoffSelection {
@@ -226,6 +242,7 @@ export interface ConversationSynthesis {
   workAccomplished: Array<{ step: string; detail?: string; tool?: string }>;
   decisionsFormulated: string[];
   blockersAndErrors: Array<{ issue: string; resolution?: string; status: 'resolved' | 'pending' }>;
+  patterns?: string[];
   currentExecutionState: string;
   nextStepDirective: string;
   narrativeSummary: string;
@@ -248,6 +265,7 @@ export interface ContextPackage {
   knownIssues: string[];
   gitState?: GitState;
   relevantHistory?: string[];
+  patterns?: string[];
   notes?: string[];
   generatedAt: number;
   estimatedTokens: number;

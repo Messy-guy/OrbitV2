@@ -156,7 +156,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           // Orbit sessionId; a new session is created ONLY when none exists.
           const restorationPhase = agent.currentSessionId ? 'RESTORING' : 'RESTORING';
 
-          let agentSessions = await sessionService.getAgentSessions(agent.id);
+          let agentSessions = await sessionService.getAgentSessions(agent.id, workspaceId);
           const canonicalSessions = conversationStore.getSessionsForAgent(agent.id);
 
           // INV-2 — select the most recent VALID persisted session (createdAt desc,
@@ -189,7 +189,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             console.log(
               `[SESSION] agent=${agent.id} provider=${agent.provider} reusing sessionId=${activeSess} (phase=${restorationPhase}→REATTACHING)`
             );
-            await sessionService.restoreSession(activeSess, agent.id, workspaceId, agent.name);
+            const restoredSess = await sessionService.restoreSession(activeSess, agent.id, workspaceId, agent.name);
+            if (!agentSessions.some((s) => s.id === activeSess)) {
+              agentSessions = [restoredSess, ...agentSessions];
+            }
           } else {
             // Case C — process and provider session unrecoverable, and NO persisted
             // session exists: create a fresh session with an empty conversation.
@@ -538,7 +541,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         ...state.activeSessionIdByAgent,
         [agentId]: sessionId,
       },
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, currentSessionId: sessionId } : a)),
     }));
+    const agent = get().agents.find((a) => a.id === agentId);
+    if (agent) {
+      agent.currentSessionId = sessionId;
+      void agentService.saveAgent({ ...agent, currentSessionId: sessionId });
+    }
     get().loadMessagesForSession(sessionId);
   },
 
@@ -560,6 +569,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           newSession.title
         );
       } catch {}
+      agent.currentSessionId = newSession.id;
+      void agentService.saveAgent({ ...agent, currentSessionId: newSession.id });
     }
 
     set((state) => ({
@@ -571,6 +582,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         ...state.activeSessionIdByAgent,
         [agentId]: newSession.id,
       },
+      agents: state.agents.map((a) => (a.id === agentId ? { ...a, currentSessionId: newSession.id } : a)),
       messages: {
         ...state.messages,
         [newSession.id]: [],
@@ -808,6 +820,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   addDirectMessage: (sessionId: string, message: Message) => {
+    void sessionService.addMessage(message);
     set((state) => ({
       messages: {
         ...state.messages,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileCode, ExternalLink, CheckSquare, Square } from 'lucide-react';
 import { useFileEditorStore } from '../../stores/fileEditor.store';
+import { tauriService } from '../../services/tauri.service';
 import { clsx } from 'clsx';
 
 interface MarkdownViewerProps {
@@ -130,7 +131,11 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ content }) => {
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-0.5 font-medium transition-colors"
+              onClick={(e) => {
+                e.preventDefault();
+                void tauriService.openExternalUrl(url);
+              }}
+              className="text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-0.5 font-medium transition-colors cursor-pointer"
             >
               <span>{label}</span>
               <ExternalLink size={10} />

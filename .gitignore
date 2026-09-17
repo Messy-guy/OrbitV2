@@ -39,3 +39,6 @@ build_artifacts/
 *.aab
 release-assets/
 
+# Orbit local runtime & memory
+.orbit/
+

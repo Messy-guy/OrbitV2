@@ -13,6 +13,8 @@ pub struct OrbitState {
     pub checkpoints: Vec<Checkpoint>,
     pub project_contexts: Vec<ProjectContext>,
     pub handoffs: Vec<HandoffRecord>,
+    #[serde(default)]
+    pub profiles: Vec<String>,
 }
 
 pub struct StorageManager {
@@ -95,6 +97,7 @@ impl StorageManager {
             checkpoints: vec![],
             project_contexts: vec![default_context],
             handoffs: vec![],
+            profiles: vec!["default".to_string()],
         }
     }
 
@@ -279,6 +282,93 @@ impl StorageManager {
             state.handoffs.insert(0, handoff);
         }
         self.save();
+    }
+
+    // Profiles
+    pub fn get_profiles(&self) -> Vec<String> {
+        let mut set = std::collections::BTreeSet::new();
+        set.insert("default".to_string());
+
+        // 1. Stored profiles & active agent profiles
+        {
+            let state = self.state.lock().unwrap();
+            for p in &state.profiles {
+                let clean = p.trim().to_lowercase();
+                if !clean.is_empty() {
+                    set.insert(clean);
+                }
+            }
+            for a in &state.agents {
+                if let Some(ref prof) = a.profile_id {
+                    let clean = prof.trim().to_lowercase();
+                    if !clean.is_empty() {
+                        set.insert(clean);
+                    }
+                }
+            }
+        }
+
+        // 2. Discover existing profile directories on host filesystem (~/.orbit/profiles/*)
+        if let Ok(home) = std::env::var("HOME") {
+            let profiles_dir = PathBuf::from(home).join(".orbit").join("profiles");
+            if let Ok(entries) = fs::read_dir(&profiles_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(ft) = entry.file_type() {
+                        if ft.is_dir() {
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            if !name.starts_with('.') && !name.starts_with("agent-") {
+                                set.insert(name.to_lowercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        set.into_iter().collect()
+    }
+
+    pub fn save_profile(&self, profile: &str) -> Result<String, String> {
+        let clean = profile.trim().to_lowercase();
+        if clean.is_empty() {
+            return Err("Profile name cannot be empty".to_string());
+        }
+        if !clean.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err("Profile name can only contain alphanumeric characters, hyphens, and underscores".to_string());
+        }
+
+        // Prepare directory structure under ~/.orbit/profiles/<clean>
+        if let Ok(home) = std::env::var("HOME") {
+            let profile_root = PathBuf::from(home).join(".orbit").join("profiles").join(&clean);
+            let gemini_dir = profile_root.join(".gemini");
+            let config_dir = profile_root.join(".config");
+            let data_dir = profile_root.join(".local").join("share");
+            for directory in [&profile_root, &gemini_dir, &config_dir, &data_dir] {
+                let _ = fs::create_dir_all(directory);
+            }
+        }
+
+        {
+            let mut state = self.state.lock().unwrap();
+            if !state.profiles.iter().any(|p| p.eq_ignore_ascii_case(&clean)) {
+                state.profiles.push(clean.clone());
+            }
+        }
+        self.save();
+        Ok(clean)
+    }
+
+    pub fn delete_profile(&self, profile: &str) -> Result<(), String> {
+        let clean = profile.trim().to_lowercase();
+        if clean == "default" {
+            return Err("Cannot delete default profile".to_string());
+        }
+        {
+            let mut state = self.state.lock().unwrap();
+            state.profiles.retain(|p| !p.eq_ignore_ascii_case(&clean));
+        }
+        self.save();
+        Ok(())
     }
 }
 

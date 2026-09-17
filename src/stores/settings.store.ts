@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { SettingsState, ThemeId, AccentId, CanvasGridStyle, TerminalCursorStyle, AgentSettingsConfig } from '../types/settings';
 import { SkillItem } from '../types/skills';
+import { isTauriAvailable, tauriService } from '../services/tauri.service';
 
 const STORAGE_KEY = 'orbit_user_settings_v1';
 
@@ -175,6 +176,7 @@ export const DEFAULT_SETTINGS: Omit<SettingsState,
   | 'updateTerminalSettings'
   | 'addSavedProfile'
   | 'removeSavedProfile'
+  | 'loadSavedProfiles'
   | 'setModeCustomSkills'
   | 'setModeCustomDirective'
   | 'addSkillToMode'
@@ -341,26 +343,59 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch {}
   },
 
-  addSavedProfile: (profile: string) => {
-    const clean = profile.trim().toLowerCase();
-    if (!clean) return;
-    const current = get().savedProfiles || ['default'];
-    if (!current.includes(clean)) {
-      const updated = [...current, clean];
-      set({ savedProfiles: updated });
+  loadSavedProfiles: async () => {
+    if (isTauriAvailable()) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
-      } catch {}
+        const diskProfiles = await tauriService.getProfiles();
+        if (diskProfiles && diskProfiles.length > 0) {
+          const current = get().savedProfiles || ['default'];
+          const cleanDisk = diskProfiles
+            .map((p) => (p.includes(':') ? p.split(':')[1] : p).trim().toLowerCase())
+            .filter(Boolean);
+          const cleanCurrent = current
+            .map((p) => (p.includes(':') ? p.split(':')[1] : p).trim().toLowerCase())
+            .filter(Boolean);
+          const merged = Array.from(new Set(['default', ...cleanCurrent, ...cleanDisk]));
+          set({ savedProfiles: merged });
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: merged }));
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('Failed to load profiles from disk', err);
+      }
     }
   },
 
-  removeSavedProfile: (profile: string) => {
-    if (profile === 'default') return;
-    const updated = get().savedProfiles.filter((p) => p !== profile);
+  addSavedProfile: (profile: string) => {
+    const clean = (profile.includes(':') ? profile.split(':')[1] : profile).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (!clean) return;
+    const current = (get().savedProfiles || ['default'])
+      .map((p) => (p.includes(':') ? p.split(':')[1] : p).trim().toLowerCase())
+      .filter(Boolean);
+    const updated = Array.from(new Set([...current, clean]));
     set({ savedProfiles: updated });
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
     } catch {}
+    if (isTauriAvailable()) {
+      tauriService.saveProfile(clean).catch((err) => console.warn('Failed to save profile to disk', err));
+    }
+  },
+
+  removeSavedProfile: (profile: string) => {
+    const clean = (profile.includes(':') ? profile.split(':')[1] : profile).trim().toLowerCase();
+    if (clean === 'default') return;
+    const updated = (get().savedProfiles || ['default'])
+      .map((p) => (p.includes(':') ? p.split(':')[1] : p).trim().toLowerCase())
+      .filter((p) => p !== clean && p !== profile);
+    set({ savedProfiles: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...get(), savedProfiles: updated }));
+    } catch {}
+    if (isTauriAvailable()) {
+      tauriService.deleteProfile(clean).catch((err) => console.warn('Failed to delete profile from disk', err));
+    }
   },
 
   setModeCustomSkills: (mode: string, skills: SkillItem[]) => {
@@ -455,3 +490,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch {}
   },
 }));
+
+// Initialize disk profiles immediately
+void useSettingsStore.getState().loadSavedProfiles();
+

@@ -15,7 +15,11 @@ import {
   Clock,
   FileCode,
   FileText,
-  ListFilter
+  ListFilter,
+  FolderTree,
+  Loader2,
+  BookOpen,
+  Compass
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { Modal } from '../ui/Modal';
@@ -45,9 +49,19 @@ export const ShareContextModal: React.FC = () => {
   const [intent, setIntent] = useState<ContinuityIntent>('chat_continue');
   const [customNote, setCustomNote] = useState('');
   const [isTransferring, setIsTransferring] = useState(false);
+  const [transferStep, setTransferStep] = useState<string>('');
   const [distilledBrief, setDistilledBrief] = useState<DistilledSessionBrief | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [activeTab, setActiveTab] = useState<'conversation' | 'files' | 'manifest'>('conversation');
+  const [activeTab, setActiveTab] = useState<'conversation' | 'files' | 'memory' | 'manifest'>('conversation');
+
+  const projectSlug = (activeWorkspace?.name || 'project')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'default';
+  const memoryDirPath = `~/.orbit/memory/projects/${projectSlug}/`;
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const validTarget = targetAgents.find(a => a.id === targetAgentId) || targetAgents[0];
   const sourceSessionId = (sourceAgent && activeSessionIdByAgent[sourceAgent.id]) || `sess-${sourceAgent?.id || 'src'}-1`;
@@ -163,6 +177,7 @@ export const ShareContextModal: React.FC = () => {
         selection,
         gitState || undefined,
         distilledBrief ? {
+          intent: distilledBrief.intent,
           task: distilledBrief.goal || effectiveContext.currentTask,
           progress: `${effectiveContext.progress}%`,
           nextStep: distilledBrief.nextSteps || effectiveContext.activeWork,
@@ -181,6 +196,13 @@ export const ShareContextModal: React.FC = () => {
     if (!activeWorkspaceId || !sourceAgent || !validTarget || !previewData) return;
     setIsTransferring(true);
     try {
+      setTransferStep('Synthesizing conversation trajectory & user directives...');
+      await sleep(350);
+
+      setTransferStep('Extracting file diffs, architectural decisions & patterns...');
+      await sleep(350);
+
+      setTransferStep(`Writing project memory files to ${memoryDirPath}...`);
       await executeHandoff({
         workspaceId: activeWorkspaceId,
         workspaceName: activeWorkspace?.name || 'Workspace',
@@ -195,12 +217,17 @@ export const ShareContextModal: React.FC = () => {
         selection,
         previewSummary: previewData,
       });
+
+      setTransferStep(`Relaying handoff brief to ${validTarget.name}...`);
+      await sleep(300);
+
       setCustomNote('');
       setShareContextOpen(false);
     } catch (e) {
       console.error('Continuity transfer error:', e);
     } finally {
       setIsTransferring(false);
+      setTransferStep('');
     }
   };
 
@@ -429,6 +456,18 @@ export const ShareContextModal: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setActiveTab('memory')}
+                    className={clsx(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-mono transition-colors cursor-pointer",
+                      activeTab === 'memory'
+                        ? "bg-text-primary text-background font-bold"
+                        : "text-text-muted hover:text-text-primary hover:bg-panel"
+                    )}
+                  >
+                    📁 Project Memory (7 MDs)
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveTab('manifest')}
                     className={clsx(
                       "px-2.5 py-1 rounded-lg text-[10px] font-mono transition-colors cursor-pointer",
@@ -485,6 +524,80 @@ export const ShareContextModal: React.FC = () => {
                     </div>
                   )}
 
+                  {activeTab === 'memory' && (
+                    <div className="space-y-2.5 font-sans">
+                      <div className="p-2 rounded-lg bg-well border border-border-subtle flex items-start gap-2">
+                        <FolderTree size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <div className="font-bold text-text-primary text-[11px] font-mono truncate">
+                            {memoryDirPath}
+                          </div>
+                          <p className="text-[10px] text-text-muted leading-tight">
+                            Autonomous multi-document project memory in local machine storage (<code className="text-emerald-400">~/.orbit/</code>). All companion files are indexed inside <code className="text-emerald-400">HANDOFF.md</code>.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 text-[10.5px]">
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-emerald-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <FileText size={11} />
+                            <span>HANDOFF.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Master brief, mission recap, next actions & memory index links.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-sky-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <BookOpen size={11} />
+                            <span>SESSION.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Full conversational trajectory, past turns & agent execution log.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-amber-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <Zap size={11} />
+                            <span>DECISIONS.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Architectural decisions record & immutable technical rules.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-indigo-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <Compass size={11} />
+                            <span>ROADMAP.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Multi-phase milestones, cross-session roadmap & checkpoints.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-red-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <ShieldCheck size={11} />
+                            <span>BUGS.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Tracked blockers, runtime exceptions & errors to avoid repeating.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5">
+                          <div className="font-bold text-purple-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <Layers size={11} />
+                            <span>PATTERNS.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Repository conventions, coding idioms & discovered patterns.</div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-well/60 border border-border-subtle space-y-0.5 col-span-2">
+                          <div className="font-bold text-teal-400 font-mono flex items-center gap-1.5 text-[10.5px]">
+                            <FileCode size={11} />
+                            <span>CHANGES.md</span>
+                          </div>
+                          <div className="text-text-muted text-[9.5px] leading-tight">Granular file changes and unified diff blocks with +/- line diff snippets.</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {activeTab === 'manifest' && (
                     <div className="text-text-secondary font-mono text-[10px]">
                       {previewData?.formattedInstruction || distilledBrief.formattedEnvelope}
@@ -495,6 +608,15 @@ export const ShareContextModal: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Project-Scoped Memory Destination Banner */}
+        <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-well border border-border font-mono text-[10.5px]">
+          <div className="flex items-center gap-2 text-text-muted truncate">
+            <FolderTree size={13} className="text-amber-400 shrink-0" />
+            <span className="truncate">Memory Directory: <strong className="text-text-primary">{memoryDirPath}</strong></span>
+          </div>
+          <span className="text-[10px] text-emerald-400 font-bold shrink-0 ml-2">7 Connected Files</span>
+        </div>
 
         {/* Directive / Note Input */}
         <div className="flex flex-col gap-1.5">
@@ -535,11 +657,26 @@ export const ShareContextModal: React.FC = () => {
               disabled={!validTarget || isTransferring || targetAgents.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-text-primary text-background font-mono font-bold text-xs transition-all hover:opacity-90 cursor-pointer disabled:opacity-40 shadow-sm active:scale-95"
             >
-              <span>{isTransferring ? 'Transferring...' : `Continue with ${validTarget?.name || 'Agent'}`}</span>
+              <span>{isTransferring ? 'Synthesizing...' : `Continue with ${validTarget?.name || 'Agent'}`}</span>
               <ArrowRight size={13} strokeWidth={2.5} />
             </button>
           </div>
         </div>
+
+        {/* Transferring / Synthesizing Progress Modal Overlay */}
+        {isTransferring && (
+          <div className="absolute inset-0 bg-background/90 backdrop-blur-xs flex flex-col items-center justify-center gap-3 z-50 rounded-2xl p-6 text-center animate-in fade-in-50 duration-150">
+            <Loader2 size={28} className="text-text-primary animate-spin" />
+            <div className="flex flex-col gap-1.5 max-w-sm">
+              <span className="font-mono font-bold text-xs text-text-primary">
+                Synthesizing & Generating Project Memory
+              </span>
+              <span className="font-mono text-[11px] text-text-muted animate-pulse">
+                {transferStep || 'Preparing handoff package...'}
+              </span>
+            </div>
+          </div>
+        )}
 
       </div>
     </Modal>

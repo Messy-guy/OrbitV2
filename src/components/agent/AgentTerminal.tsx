@@ -108,8 +108,21 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       if (projectPath && assignedSkills.length > 0) {
         await ProviderSkillAdapterService.mountSkillsForProvider(projectPath, agentProvider, assignedSkills);
       }
+      const isNewAgent = (Date.now() - (agent.createdAt || 0)) < 3500;
+      const isResume = !!agentSessionId && !isNewAgent;
       setActiveSession(agentId, sessionRef.current);
-      await tauriService.startNativeTerminal(sessionRef.current, agentId, provider, projectPath, rows, columns, agentRole, agentDirective, agentProfileId);
+      await tauriService.startNativeTerminal(
+        sessionRef.current,
+        agentId,
+        provider,
+        projectPath,
+        rows,
+        columns,
+        agentRole,
+        agentDirective,
+        agentProfileId,
+        isResume
+      );
       await reattach();
       if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
       snapshotPollRef.current = setInterval(() => {

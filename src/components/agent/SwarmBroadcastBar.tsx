@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Users, Check, ChevronRight, Minimize2, Terminal, Image as ImageIcon, Camera, X, Eye, Send, Mic, MicOff, Loader2 } from 'lucide-react';
+import { Users, Check, ChevronRight, Minimize2, Terminal, Image as ImageIcon, Camera, X, Eye, Send, Mic, MicOff, Loader2, Radio } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -130,6 +130,140 @@ export const SwarmBroadcastBar: React.FC = () => {
   const hasDetectedSpeechRef = useRef<boolean>(false);
   const lastSpeechTimeRef = useRef<number>(0);
   const stopVoiceModeRef = useRef<(autoSend?: boolean) => void>(() => {});
+
+  // Messenger-Style Draggable Floating Bubble State & Persistence
+  const BUBBLE_POS_STORAGE_KEY = 'orbit_broadcast_bubble_pos';
+  const [bubblePos, setBubblePos] = useState<{ x: number; y: number }>(() => {
+    if (typeof window === 'undefined') return { x: 100, y: 100 };
+    try {
+      const saved = localStorage.getItem('orbit_broadcast_bubble_pos');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+          const clampedX = Math.max(16, Math.min(window.innerWidth - 72, parsed.x));
+          const clampedY = Math.max(16, Math.min(window.innerHeight - 72, parsed.y));
+          return { x: clampedX, y: clampedY };
+        }
+      }
+    } catch {}
+    return {
+      x: Math.max(16, window.innerWidth - 80),
+      y: Math.max(16, window.innerHeight - 110),
+    };
+  });
+  const [isDraggingBubble, setIsDraggingBubble] = useState(false);
+
+  const bubbleDragRef = useRef<{
+    isDragging: boolean;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    hasMoved: boolean;
+  }>({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    origX: 0,
+    origY: 0,
+    hasMoved: false,
+  });
+
+  // Clamp bubble position within viewport if window is resized
+  useEffect(() => {
+    const handleResize = () => {
+      setBubblePos((prev) => {
+        const clampedX = Math.max(16, Math.min(window.innerWidth - 72, prev.x));
+        const clampedY = Math.max(16, Math.min(window.innerHeight - 72, prev.y));
+        if (clampedX !== prev.x || clampedY !== prev.y) {
+          return { x: clampedX, y: clampedY };
+        }
+        return prev;
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Global Ctrl+K / Cmd+K toggle
+  useEffect(() => {
+    const handleGlobalShortcut = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        toggleBroadcastCollapsed();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, [toggleBroadcastCollapsed]);
+
+  // Focus input when expanding broadcast bar
+  useEffect(() => {
+    if (!isBroadcastCollapsed) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }
+  }, [isBroadcastCollapsed]);
+
+  // Draggable Messenger Bubble pointer handler (differentiates clean click vs drag)
+  const handleBubblePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+
+    bubbleDragRef.current = {
+      isDragging: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: bubblePos.x,
+      origY: bubblePos.y,
+      hasMoved: false,
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const drag = bubbleDragRef.current;
+      if (!drag.isDragging) return;
+      const dx = moveEvent.clientX - drag.startX;
+      const dy = moveEvent.clientY - drag.startY;
+
+      if (!drag.hasMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        drag.hasMoved = true;
+        setIsDraggingBubble(true);
+      }
+
+      if (drag.hasMoved) {
+        const newX = Math.max(12, Math.min(window.innerWidth - 68, drag.origX + dx));
+        const newY = Math.max(12, Math.min(window.innerHeight - 68, drag.origY + dy));
+        setBubblePos({ x: newX, y: newY });
+      }
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+
+      const drag = bubbleDragRef.current;
+      drag.isDragging = false;
+      setIsDraggingBubble(false);
+
+      if (!drag.hasMoved) {
+        // Clean tap/click -> Expand bottom broadcast bar
+        toggleBroadcastCollapsed();
+      } else {
+        // Drag finished -> Persist dropped coordinate
+        const dx = upEvent.clientX - drag.startX;
+        const dy = upEvent.clientY - drag.startY;
+        const finalX = Math.max(12, Math.min(window.innerWidth - 68, drag.origX + dx));
+        const finalY = Math.max(12, Math.min(window.innerHeight - 68, drag.origY + dy));
+        try {
+          localStorage.setItem('orbit_broadcast_bubble_pos', JSON.stringify({ x: finalX, y: finalY }));
+        } catch {}
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
 
   const activeWorkspace = getActiveWorkspace();
   const activeSpaceId = (activeWorkspace && activeSpaceIdByProject[activeWorkspace.id]) || activeWorkspace?.spaces?.[0]?.id || `space-${activeWorkspace?.id}-1`;
@@ -969,6 +1103,12 @@ export const SwarmBroadcastBar: React.FC = () => {
   handleSendRef.current = handleSend;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleBroadcastCollapsed();
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isListening) {
@@ -1054,19 +1194,71 @@ export const SwarmBroadcastBar: React.FC = () => {
     return `${selectedAgentIds.length} Agents`;
   };
 
-  // Collapsed View (Ultra-Minimal Floating Launcher Pill)
+  // Collapsed View (Clean Draggable Messenger Bubble)
   if (isBroadcastCollapsed) {
+    const hasPendingContent = Boolean(input.trim() || attachedImages.length > 0);
+
     return (
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 select-none no-drag pointer-events-auto">
-        <button
-          onClick={toggleBroadcastCollapsed}
-          className="h-8 px-3 rounded-full bg-panel-elevated/90 hover:bg-panel-elevated backdrop-blur-2xl border border-border hover:border-border-hover text-text-secondary hover:text-text-primary text-xs font-mono font-medium flex items-center gap-2 shadow-lg transition-all cursor-pointer group active:scale-95"
-          title="Open Swarm Broadcast Bar (Ctrl+K)"
+      <div
+        style={{
+          left: `${bubblePos.x}px`,
+          top: `${bubblePos.y}px`,
+          touchAction: 'none',
+        }}
+        onPointerDown={handleBubblePointerDown}
+        className={clsx(
+          "fixed z-50 select-none no-drag pointer-events-auto",
+          "group flex items-center justify-center",
+          isDraggingBubble
+            ? "cursor-grabbing scale-105"
+            : "cursor-grab hover:scale-105 active:scale-95 transition-transform duration-150"
+        )}
+        title="Broadcast (Ctrl+K) • Drag to move"
+        data-tauri-drag-region="false"
+      >
+        {/* Messenger Bubble Main Body */}
+        <div
+          className={clsx(
+            "relative w-[48px] h-[48px] rounded-full flex items-center justify-center",
+            "bg-[#161924] hover:bg-[#1a1d2b] border border-white/20 group-hover:border-white/40",
+            "shadow-[0_8px_24px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.15)]",
+            "group-hover:shadow-[0_12px_32px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.25)]",
+            "transition-all duration-200"
+          )}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Broadcast ({spaceAgents.length})</span>
-          <Terminal size={11} className="text-text-muted group-hover:text-text-primary transition-colors" />
-        </button>
+          {/* Clean Monochrome Icon */}
+          <Radio size={19} className="text-text-primary group-hover:scale-105 transition-transform" />
+
+          {/* High-Contrast Monochrome Agent Count Badge */}
+          <div
+            className="absolute -top-1 -right-1 px-1.5 h-4.5 min-w-[18px] rounded-full bg-text-primary text-background font-mono font-bold text-[10px] flex items-center justify-center shadow-md border-2 border-[#161924]"
+            title={`${spaceAgents.length} agents active`}
+          >
+            {spaceAgents.length}
+          </div>
+
+          {/* Staged Draft Dot */}
+          {hasPendingContent && (
+            <div
+              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-text-primary border-2 border-[#161924] shadow-xs"
+              title="Draft or screenshot attached"
+            />
+          )}
+        </div>
+
+        {/* Crisp Tooltip on Hover */}
+        <div
+          className={clsx(
+            "absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap px-2.5 py-0.5 rounded-md",
+            "bg-[#161924] border border-white/15 shadow-xl",
+            "text-[10px] font-mono text-text-secondary flex items-center gap-1.5",
+            "opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none z-30"
+          )}
+        >
+          <span className="text-text-primary font-medium">Broadcast</span>
+          <span className="text-text-dim font-sans">•</span>
+          <span className="text-text-muted">{spaceAgents.length}</span>
+        </div>
       </div>
     );
   }
@@ -1084,7 +1276,7 @@ export const SwarmBroadcastBar: React.FC = () => {
       {isDropdownOpen && (
         <div 
           ref={dropdownRef}
-          className="absolute bottom-full left-4 mb-2 w-64 p-1.5 bg-panel-elevated/95 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl flex flex-col gap-1 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
+          className="absolute bottom-full left-4 mb-2 w-64 p-1.5 bg-[#141721] bg-panel-elevated backdrop-blur-2xl border border-border rounded-2xl shadow-2xl flex flex-col gap-1 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
         >
           <div className="px-2.5 py-1 text-[10px] font-mono uppercase tracking-widest text-text-dim font-bold">
             Target Agents
@@ -1104,7 +1296,7 @@ export const SwarmBroadcastBar: React.FC = () => {
               <Users size={12} className="text-text-muted" />
               <span>All Active Agents</span>
             </div>
-            {isBroadcastingToAll && <Check size={12} strokeWidth={3} className="text-emerald-500" />}
+            {isBroadcastingToAll && <Check size={12} strokeWidth={3} className="text-text-primary" />}
           </button>
 
           {spaceAgents.map((agent) => {
@@ -1119,15 +1311,15 @@ export const SwarmBroadcastBar: React.FC = () => {
                 )}
               >
                 <div className="flex items-center gap-2 truncate">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-text-dim shrink-0" />
                   <span className="truncate">@{agent.name.toLowerCase()}</span>
                   {agent.profileId && agent.profileId !== 'default' && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-400 font-bold uppercase">
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-white/10 text-text-secondary font-bold uppercase">
                       {agent.profileId}
                     </span>
                   )}
                 </div>
-                {isSelected && <Check size={12} strokeWidth={3} className="text-emerald-500 shrink-0" />}
+                {isSelected && <Check size={12} strokeWidth={3} className="text-text-primary shrink-0" />}
               </button>
             );
           })}
@@ -1136,10 +1328,10 @@ export const SwarmBroadcastBar: React.FC = () => {
 
       {/* Attached Images Preview Tray */}
       {attachedImages.length > 0 && (
-        <div className="mb-2 p-1.5 px-2.5 bg-panel-elevated/95 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-bottom-1 duration-150 max-h-36 overflow-y-auto">
+        <div className="mb-2 p-1.5 px-2.5 bg-[#141721] bg-panel-elevated backdrop-blur-2xl border border-border rounded-2xl shadow-2xl flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-bottom-1 duration-150 max-h-36 overflow-y-auto">
           <div className="text-[10px] font-mono uppercase tracking-wider text-text-dim font-bold flex items-center gap-1.5 pl-1 select-none">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Latest Screenshot:</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-text-muted shrink-0" />
+            <span>Screenshot:</span>
           </div>
 
           {attachedImages.map((filePath, idx) => {
@@ -1149,7 +1341,7 @@ export const SwarmBroadcastBar: React.FC = () => {
             return (
               <div
                 key={`${filePath}-${idx}`}
-                className="flex items-center gap-2 pl-1 pr-1.5 py-1 rounded-xl bg-well border border-border text-[11px] font-mono text-text-secondary group shadow-sm hover:border-emerald-500/40 transition-all max-w-[320px]"
+                className="flex items-center gap-2 pl-1 pr-1.5 py-1 rounded-xl bg-well border border-border text-[11px] font-mono text-text-secondary group shadow-sm hover:border-border-hover transition-all max-w-[320px]"
                 title={filePath}
               >
                 {/* Visual Thumbnail */}
@@ -1184,7 +1376,7 @@ export const SwarmBroadcastBar: React.FC = () => {
                   type="button"
                   onClick={() => handleThrowToAgent(filePath)}
                   disabled={isExecuting}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 hover:text-emerald-300 text-[10px] font-mono font-bold transition-all cursor-pointer shrink-0 active:scale-95"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-text-primary/10 hover:bg-text-primary/20 text-text-primary text-[10px] font-mono font-bold transition-all cursor-pointer shrink-0 active:scale-95"
                   title="Throw screenshot to agent immediately"
                 >
                   <Send size={10} />
@@ -1218,9 +1410,9 @@ export const SwarmBroadcastBar: React.FC = () => {
 
       {/* Voice Mode Status / Notification Pill */}
       {voiceFeedback && (
-        <div className="mb-2 px-3 py-1 bg-panel-elevated/95 backdrop-blur-2xl border border-border rounded-full text-[11px] font-mono text-text-primary flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-bottom-1 duration-150 select-none">
+        <div className="mb-2 px-3 py-1 bg-[#141721] bg-panel-elevated backdrop-blur-2xl border border-border rounded-full text-[11px] font-mono text-text-primary flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-bottom-1 duration-150 select-none">
           <div className="flex items-center gap-2">
-            <span className={clsx("w-1.5 h-1.5 rounded-full", isTranscribing ? "bg-amber-400 animate-ping" : isListening ? "bg-red-500 animate-pulse" : "bg-emerald-400")} />
+            <span className={clsx("w-1.5 h-1.5 rounded-full", isTranscribing ? "bg-amber-400 animate-ping" : isListening ? "bg-red-500 animate-pulse" : "bg-text-primary")} />
             <span>{voiceFeedback}</span>
           </div>
           <button 
@@ -1237,7 +1429,7 @@ export const SwarmBroadcastBar: React.FC = () => {
       <div 
         onClick={() => inputRef.current?.focus()}
         className={clsx(
-          "w-full pl-1.5 pr-2 py-1 bg-panel-elevated/90 hover:bg-panel-elevated backdrop-blur-2xl border flex gap-1.5 shadow-2xl transition-all duration-200 cursor-text",
+          "w-full pl-1.5 pr-2 py-1 bg-[#141721] bg-panel-elevated backdrop-blur-2xl border flex gap-1.5 shadow-2xl transition-all duration-200 cursor-text",
           input && (input.includes('\n') || input.length > 55)
             ? "min-h-[56px] max-h-[220px] rounded-2xl items-end"
             : "h-10 rounded-full items-center",
@@ -1260,7 +1452,7 @@ export const SwarmBroadcastBar: React.FC = () => {
           )}
           title="Select target agents (or type @agent)"
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span className="w-1.5 h-1.5 rounded-full bg-text-dim shrink-0" />
           <span className="truncate max-w-[100px]">{getTargetSummary()}</span>
         </button>
 
@@ -1278,7 +1470,7 @@ export const SwarmBroadcastBar: React.FC = () => {
             isCapturingScreen
               ? "text-amber-400 bg-amber-500/15 animate-pulse"
               : attachedImages.length > 0
-                ? "text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 ring-1 ring-emerald-500/30"
+                ? "text-text-primary bg-panel hover:bg-panel-hover ring-1 ring-border"
                 : "text-text-dim hover:text-text-secondary hover:bg-well active:scale-90"
           )}
           title="Attach latest screenshot (or press Ctrl+V to paste)"
@@ -1297,7 +1489,7 @@ export const SwarmBroadcastBar: React.FC = () => {
             "p-1.5 rounded-full transition-all cursor-pointer shrink-0 flex items-center justify-center",
             input && (input.includes('\n') || input.length > 55) && "mb-0.5",
             attachedImages.length > 0
-              ? "text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 ring-1 ring-emerald-500/30"
+              ? "text-text-primary bg-panel hover:bg-panel-hover ring-1 ring-border"
               : "text-text-dim hover:text-text-secondary hover:bg-well active:scale-90"
           )}
           title="Browse & attach image file"
@@ -1356,23 +1548,23 @@ export const SwarmBroadcastBar: React.FC = () => {
             title="Listening to your voice... (stops automatically after speaking)"
           >
             <span 
-              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-emerald-400" : "bg-red-400")}
+              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-text-primary" : "bg-text-dim")}
               style={{ height: `${Math.max(3, Math.min(16, (audioLevel * 0.16) + 3))}px` }}
             />
             <span 
-              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-emerald-500" : "bg-red-500")}
+              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-text-primary" : "bg-text-dim")}
               style={{ height: `${Math.max(4, Math.min(18, (audioLevel * 0.22) + 4))}px` }}
             />
             <span 
-              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-emerald-400" : "bg-rose-400")}
+              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-text-primary" : "bg-text-dim")}
               style={{ height: `${Math.max(5, Math.min(20, (audioLevel * 0.26) + 5))}px` }}
             />
             <span 
-              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-emerald-500" : "bg-red-500")}
+              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-text-primary" : "bg-text-dim")}
               style={{ height: `${Math.max(4, Math.min(18, (audioLevel * 0.20) + 4))}px` }}
             />
             <span 
-              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-emerald-400" : "bg-red-400")}
+              className={clsx("w-0.5 rounded-full transition-all duration-75", audioLevel > 12 ? "bg-text-primary" : "bg-text-dim")}
               style={{ height: `${Math.max(3, Math.min(15, (audioLevel * 0.15) + 3))}px` }}
             />
           </div>
@@ -1390,9 +1582,9 @@ export const SwarmBroadcastBar: React.FC = () => {
           onPaste={handlePaste}
           placeholder={
             isTranscribing
-              ? "⏳ Transcribing speech to text..."
+              ? "Transcribing audio..."
               : isListening
-                ? "🎙️ Listening... speak instruction..."
+                ? "Listening... speak instruction..."
                 : attachedImages.length > 0
                   ? "Add instruction or press Enter..."
                   : "Broadcast instruction or @agent..."
@@ -1416,7 +1608,7 @@ export const SwarmBroadcastBar: React.FC = () => {
               type="button"
               onClick={() => handleThrowToAgent()}
               disabled={isExecuting}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-mono font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-text-primary hover:opacity-90 text-background text-xs font-mono font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
               title="Throw latest screenshot to agent immediately"
             >
               <Send size={11} strokeWidth={2.5} />
@@ -1464,7 +1656,7 @@ export const SwarmBroadcastBar: React.FC = () => {
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
               <div className="flex items-center gap-2 truncate">
-                <Camera size={15} className="text-emerald-400 shrink-0" />
+                <Camera size={15} className="text-text-secondary shrink-0" />
                 <span className="text-xs font-mono font-bold text-text-primary truncate max-w-md">
                   {previewModalImage.split('/').pop() || previewModalImage}
                 </span>
@@ -1525,7 +1717,7 @@ export const SwarmBroadcastBar: React.FC = () => {
                   type="button"
                   onClick={() => handleThrowToAgent(previewModalImage)}
                   disabled={isExecuting}
-                  className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-mono font-bold shadow-md transition-all cursor-pointer active:scale-95"
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-text-primary hover:opacity-90 text-background text-xs font-mono font-bold shadow-md transition-all cursor-pointer active:scale-95"
                 >
                   <Send size={12} strokeWidth={2.5} />
                   <span>Throw to {getTargetSummary()}</span>

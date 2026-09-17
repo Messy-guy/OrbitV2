@@ -56,7 +56,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isProUpgradeModalOpen: false,
   isPairMobileOpen: false,
   isSidebarCollapsed: false,
-  isBroadcastCollapsed: false,
+  isBroadcastCollapsed: true,
   isMinimapVisible: true,
   isShareContextOpen: false,
   isCreateCheckpointOpen: false,

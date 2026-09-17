@@ -10,13 +10,25 @@ function cleanToken(token: string): string | null {
   let cleaned = token.trim();
   if (!cleaned || cleaned.length < 2) return null;
 
-  // Clean file:// protocol
-  cleaned = cleaned.replace(/^file:\/\//, '');
+  // 1. Clean file:// protocol
+  if (cleaned.startsWith('file://')) {
+    cleaned = cleaned.slice(7);
+  }
 
-  // Strip leading/trailing enclosing quotes, backticks, brackets
+  // 2. Web URLs: http:// or https:// (e.g. login links, web docs, localhost dev servers)
+  if (/^https?:\/\//i.test(cleaned)) {
+    cleaned = cleaned
+      .replace(/^[*_`'"<([{\\]+/, '')
+      .replace(/[*_`'">)\]},;!?]+$/, '');
+    if (/^https?:\/\/[^\s]+$/i.test(cleaned)) {
+      return cleaned;
+    }
+  }
+
+  // 3. File paths / Markdown files: strip markdown formatting (*, _, `), quotes, brackets
   cleaned = cleaned
-    .replace(/^['"`<([{\\]+/, '')
-    .replace(/['"`>)\]},;]+$/, '')
+    .replace(/^[*_`'"<([{\\]+/, '')
+    .replace(/[*_`'">)\]},;!?]+$/, '')
     .replace(/[.,:;!?]+$/, '');
 
   // Strip trailing line/column indicators (e.g. file.md:12:4 or file.md:12)
@@ -25,11 +37,12 @@ function cleanToken(token: string): string | null {
     cleaned = lineMatch[1];
   }
 
+  cleaned = cleaned.trim();
+  if (cleaned.length < 2) return null;
+
   // Check if token looks like a file path or code/markdown file
   if (cleaned.includes('.') || cleaned.includes('/') || cleaned.startsWith('~')) {
-    if (!/^https?:\/\//.test(cleaned)) {
-      return cleaned;
-    }
+    return cleaned;
   }
   return null;
 }
@@ -72,7 +85,19 @@ function extractPathAtPoint(snapshot: TerminalSnapshot, rowIdx: number, colIdx: 
     }
   }
 
-  // 2. Check for explicit file:// URIs on the line
+  // 2. Check for explicit http:// or https:// URLs on the line
+  const httpRegex = /https?:\/\/[^\s"'`<>)]+/gi;
+  let httpMatch: RegExpExecArray | null;
+  while ((httpMatch = httpRegex.exec(lineStr)) !== null) {
+    const start = httpMatch.index;
+    const end = httpMatch.index + httpMatch[0].length;
+    if (colIdx >= start && colIdx <= end) {
+      const cleaned = cleanToken(httpMatch[0]);
+      if (cleaned) return cleaned;
+    }
+  }
+
+  // 3. Check for explicit file:// URIs on the line
   const fileUriRegex = /file:\/\/[^\s"'`<>)]+/g;
   let uriMatch: RegExpExecArray | null;
   while ((uriMatch = fileUriRegex.exec(lineStr)) !== null) {
@@ -84,7 +109,19 @@ function extractPathAtPoint(snapshot: TerminalSnapshot, rowIdx: number, colIdx: 
     }
   }
 
-  // 3. Check for backticked path: `some_file.md` or `src/file.ts`
+  // 4. Check for bold markdown: **some_file.md**
+  const mdBoldRegex = /\*\*([^*]+)\*\*/g;
+  let boldMatch: RegExpExecArray | null;
+  while ((boldMatch = mdBoldRegex.exec(lineStr)) !== null) {
+    const start = boldMatch.index;
+    const end = boldMatch.index + boldMatch[0].length;
+    if (colIdx >= start && colIdx <= end) {
+      const cleaned = cleanToken(boldMatch[1]);
+      if (cleaned) return cleaned;
+    }
+  }
+
+  // 5. Check for backticked path: `some_file.md` or `src/file.ts`
   const backtickRegex = /`([^`\r\n]+)`/g;
   let btMatch: RegExpExecArray | null;
   while ((btMatch = backtickRegex.exec(lineStr)) !== null) {
@@ -96,13 +133,13 @@ function extractPathAtPoint(snapshot: TerminalSnapshot, rowIdx: number, colIdx: 
     }
   }
 
-  // 4. Token boundary expansion around colIdx (without breaking on ':' or '/')
+  // 6. Token boundary expansion around colIdx (without breaking on ':' or '/')
   let start = Math.min(colIdx, lineStr.length - 1);
-  while (start > 0 && !/[\s"'`()<>{}\[\]]/.test(lineStr[start - 1])) {
+  while (start > 0 && !/[\s"'`()<>{}\[\]*]/.test(lineStr[start - 1])) {
     start--;
   }
   let end = Math.min(colIdx, lineStr.length);
-  while (end < lineStr.length && !/[\s"'`()<>{}\[\]]/.test(lineStr[end])) {
+  while (end < lineStr.length && !/[\s"'`()<>{}\[\]*]/.test(lineStr[end])) {
     end++;
   }
   const token = lineStr.substring(start, end).trim();
@@ -280,12 +317,31 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
   };
 
   const handleMouseMove = (event: React.MouseEvent) => {
-    if (!draggingRef.current) return;
-    const point = pointFromEvent(event);
-    if (snapshot?.modes.mouseMotion || snapshot?.modes.mouseDrag) {
-      onInput(encodeMouse('motion', point.column, point.row, { sgr: snapshot.modes.sgrMouse, drag: snapshot.modes.mouseDrag }));
+    if (draggingRef.current) {
+      const point = pointFromEvent(event);
+      if (snapshot?.modes.mouseMotion || snapshot?.modes.mouseDrag) {
+        onInput(encodeMouse('motion', point.column, point.row, { sgr: snapshot.modes.sgrMouse, drag: snapshot.modes.mouseDrag }));
+      }
+      setSelection(previous => previous ? { ...previous, end: point } : previous);
+      return;
     }
-    setSelection(previous => previous ? { ...previous, end: point } : previous);
+
+    if (snapshot && hostRef.current) {
+      const point = pointFromEvent(event);
+      const link = extractPathAtPoint(snapshot, point.row, point.column);
+      const isModifier = event.ctrlKey || event.metaKey;
+      if (link && (isModifier || /^https?:\/\//i.test(link) || link.endsWith('.md') || link.endsWith('.markdown'))) {
+        hostRef.current.style.cursor = 'pointer';
+        hostRef.current.title = isModifier
+          ? `Click to open ${link}`
+          : /^https?:\/\//i.test(link)
+            ? `Click to open link in browser (or Ctrl+Click)`
+            : `Click to open ${link} (or Ctrl+Click)`;
+      } else {
+        hostRef.current.style.cursor = 'text';
+        hostRef.current.removeAttribute('title');
+      }
+    }
   };
 
   const handleMouseUp = (event: React.MouseEvent) => {
@@ -296,12 +352,32 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     (event.currentTarget as HTMLDivElement).focus();
-    if ((event.ctrlKey || event.metaKey) && snapshot) {
-      const point = pointFromEvent(event);
-      const clickedPath = extractPathAtPoint(snapshot, point.row, point.column);
-      if (clickedPath) {
-        event.preventDefault();
-        event.stopPropagation();
+    if (!snapshot) return;
+
+    // Ignore clicks if user just finished dragging a text selection
+    if (selection && (selection.start.row !== selection.end.row || selection.start.column !== selection.end.column)) {
+      return;
+    }
+
+    const point = pointFromEvent(event);
+    const clickedPath = extractPathAtPoint(snapshot, point.row, point.column);
+    if (!clickedPath) return;
+
+    const isWebUrl = /^https?:\/\//i.test(clickedPath);
+    const isModifier = event.ctrlKey || event.metaKey;
+    const isFormattedTarget =
+      clickedPath.endsWith('.md') ||
+      clickedPath.endsWith('.markdown') ||
+      clickedPath.startsWith('file://') ||
+      clickedPath.startsWith('~') ||
+      clickedPath.includes('/');
+
+    if (isModifier || isWebUrl || (!snapshot.modes.mouseClick && isFormattedTarget)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isWebUrl) {
+        void tauriService.openExternalUrl(clickedPath);
+      } else {
         void useFileEditorStore.getState().openFile(clickedPath, projectPath);
       }
     }

@@ -630,7 +630,7 @@ export const AgentCanvas: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Orchestrator Swarm Multi-Input Bar */}
+      {/* Floating Broadcast Bar */}
       <SwarmBroadcastBar />
     </div>
   );

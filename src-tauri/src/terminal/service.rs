@@ -34,6 +34,7 @@ impl TerminalService {
         role: Option<String>,
         profile_id: Option<String>,
         prompt: Option<String>,
+        resume: Option<bool>,
     ) -> Result<TerminalSessionInfo, String> {
         // Normal startup and AgentTerminal attachment can enter through two
         // Tauri commands during the same React commit. Serialize the
@@ -63,6 +64,7 @@ impl TerminalService {
             role.as_deref(),
             profile_id.as_deref(),
             prompt,
+            resume,
         )?;
         // Only replace an existing session after the new provider has been
         // resolved successfully. A missing executable must not destroy a
@@ -203,6 +205,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect("first native session should start");
         let second = service
@@ -214,6 +217,7 @@ mod tests {
                 "/tmp".to_string(),
                 8,
                 40,
+                None,
                 None,
                 None,
                 None,
@@ -239,6 +243,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect("first native session should start");
         let second = service
@@ -250,6 +255,7 @@ mod tests {
                 "/tmp".to_string(),
                 8,
                 40,
+                None,
                 None,
                 None,
                 None,
@@ -283,6 +289,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect("initial native session should start");
 
@@ -294,6 +301,7 @@ mod tests {
             "/tmp".to_string(),
             8,
             40,
+            None,
             None,
             None,
             None,
@@ -318,6 +326,7 @@ mod tests {
                 "/tmp".to_string(),
                 8,
                 40,
+                None,
                 None,
                 None,
                 None,
@@ -355,6 +364,7 @@ mod tests {
                 "/tmp".to_string(),
                 8,
                 80,
+                None,
                 None,
                 None,
                 None,
