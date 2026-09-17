@@ -206,6 +206,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -236,12 +241,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.release-info.outputs.tag }}"
-          echo "Publishing release for tag: $TAG"
+          REPO="${{ github.repository }}"
+          echo "Publishing release for tag: $TAG in $REPO"
 
           # Create release if it does not already exist
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
             echo "Creating release $TAG..."
-            gh release create "$TAG" --title "$TAG" --generate-notes
+            gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes
           else
             echo "Release $TAG already exists, updating assets..."
           fi
@@ -253,7 +259,7 @@ jobs:
                 echo "Uploading: $file"
                 success=0
                 for attempt in 1 2 3; do
-                  if gh release upload "$TAG" "$file" --clobber; then
+                  if gh release upload "$TAG" "$file" -R "$REPO" --clobber; then
                     echo "✅ Successfully uploaded $file"
                     success=1
                     break
