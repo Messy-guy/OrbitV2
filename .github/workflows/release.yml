@@ -232,10 +232,40 @@ jobs:
           fi
 
       - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.release-info.outputs.tag }}
-          files: dist-release/*
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release-info.outputs.tag }}"
+          echo "Publishing release for tag: $TAG"
+
+          # Create release if it does not already exist
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Creating release $TAG..."
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          else
+            echo "Release $TAG already exists, updating assets..."
+          fi
+
+          # Upload release assets sequentially with retry and clobber
+          if compgen -G "dist-release/*" > /dev/null; then
+            for file in dist-release/*; do
+              if [ -f "$file" ]; then
+                echo "Uploading: $file"
+                success=0
+                for attempt in 1 2 3; do
+                  if gh release upload "$TAG" "$file" --clobber; then
+                    echo "✅ Successfully uploaded $file"
+                    success=1
+                    break
+                  else
+                    echo "⚠️ Attempt $attempt failed for $file, retrying in 5s..."
+                    sleep 5
+                  fi
+                done
+                if [ "$success" -ne 1 ]; then
+                  echo "❌ Failed to upload $file after 3 attempts"
+                  exit 1
+                fi
+              fi
+            done
+          fi
