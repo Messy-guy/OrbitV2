@@ -215,5 +215,6 @@ pub fn build_context_package(
         generated_at: now,
         estimated_tokens,
         formatted_instruction: Some(instruction),
+        handoff_package: None,
     }
 }

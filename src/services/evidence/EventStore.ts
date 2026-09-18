@@ -25,6 +25,40 @@ export class EventStore {
   }
 
   /**
+   * Constructs a typed OrbitEvent with unique eventId and timestamp
+   */
+  static createEvent<T = unknown>(
+    type: OrbitEventType,
+    sessionId: string,
+    payload: T,
+    provenance: {
+      sourceType: OrbitEvent['provenance']['sourceType'];
+      sourceId: string;
+      confidence: OrbitEvent['provenance']['confidence'];
+      verificationLevel?: OrbitEvent['provenance']['verificationLevel'];
+      evidence?: OrbitEvent['provenance']['evidence'];
+    },
+    projectId: string = 'default'
+  ): OrbitEvent<T> {
+    return {
+      eventId: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      type,
+      projectId,
+      sessionId,
+      timestamp: Date.now(),
+      payload,
+      provenance: {
+        sourceType: provenance.sourceType,
+        sourceId: provenance.sourceId,
+        timestamp: Date.now(),
+        confidence: provenance.confidence,
+        verificationLevel: provenance.verificationLevel || 'observed',
+        evidence: provenance.evidence,
+      },
+    };
+  }
+
+  /**
    * Parse and validate raw JSONL content with crash recovery for partial trailing lines.
    * If the final line is incomplete, it is quarantined and omitted from returned events.
    */

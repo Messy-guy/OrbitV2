@@ -34,6 +34,7 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
   const { executeHandoff, gitState } = useContextStore();
   const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
   const [isTransferring, setIsTransferring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
 
   const activeWorkspace = getActiveWorkspace();
@@ -45,6 +46,7 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
   const handleExecute = async () => {
     if (!activeWorkspaceId || !activeWorkspace?.projectPath) return;
     setIsTransferring(true);
+    setError(null);
     try {
       await executeHandoff({
         workspaceId: activeWorkspaceId,
@@ -63,6 +65,7 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
       onCompleted();
     } catch (e) {
       console.error(e);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsTransferring(false);
     }
@@ -187,6 +190,13 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
             <span>Target: <strong className="text-text-primary font-bold">{targetAgent.name}</strong></span>
           </div>
         </div>
+
+        {error && (
+          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono text-[11px] leading-relaxed">
+            <span className="font-bold uppercase tracking-wider block mb-0.5">Handoff Execution Failed</span>
+            {error}
+          </div>
+        )}
 
         {/* Action Controls */}
         <div className="flex items-center justify-between pt-1 border-t border-border">

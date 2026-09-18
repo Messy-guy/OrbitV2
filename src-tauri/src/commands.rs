@@ -1331,10 +1331,18 @@ pub fn execute_agent_handoff(
 
     let canonical_handoff_md = canonical_views_dir.join("HANDOFF.md");
     let _ = std::fs::write(&canonical_handoff_md, handoff_content);
+    let root_canonical_handoff_md = canonical_proj_dir.join("HANDOFF.md");
+    let _ = std::fs::write(&root_canonical_handoff_md, handoff_content);
 
     let canonical_handoff_json = canonical_proj_dir.join("HANDOFF.json");
-    if let Ok(serialized) = serde_json::to_string_pretty(&handoff) {
-        let _ = std::fs::write(&canonical_handoff_json, serialized);
+    let handoff_json_str = if let Some(pkg) = &handoff.context_package.handoff_package {
+        serde_json::to_string_pretty(pkg).ok()
+    } else {
+        serde_json::to_string_pretty(&handoff).ok()
+    };
+    if let Some(json_content) = handoff_json_str {
+        let _ = std::fs::write(&canonical_handoff_json, &json_content);
+        let _ = std::fs::write(project_memory_dir.join("HANDOFF.json"), &json_content);
     }
 
     // 2a. Active Project Handoff briefing file (legacy mirror)

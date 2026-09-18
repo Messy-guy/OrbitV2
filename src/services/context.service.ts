@@ -1,6 +1,7 @@
-import { ProjectContext, Checkpoint, ProjectDecision, ProjectIssue, GitState } from '../types/orbit';
+import { ProjectContext, Checkpoint, ProjectDecision, ProjectIssue, GitState, ProjectHealthSnapshot } from '../types/orbit';
 import { INITIAL_CONTEXT, INITIAL_CHECKPOINTS } from '../mock/context';
 import { isTauriAvailable, tauriService } from './tauri.service';
+import { projectHealthService } from './projectHealth.service';
 
 export interface IContextService {
   getContext(workspaceId: string): Promise<ProjectContext | undefined>;
@@ -11,6 +12,7 @@ export interface IContextService {
   saveCheckpoint(checkpoint: Checkpoint): Promise<Checkpoint>;
   deleteCheckpoint(id: string): Promise<void>;
   getGitState(projectPath: string): Promise<GitState>;
+  getProjectHealthSnapshot(projectPath?: string, workspaceId?: string): Promise<ProjectHealthSnapshot>;
 }
 
 export class HybridContextService implements IContextService {
@@ -143,5 +145,9 @@ export class HybridContextService implements IContextService {
 
   async getGitState(projectPath: string): Promise<GitState> {
     return await tauriService.getGitState(projectPath);
+  }
+
+  async getProjectHealthSnapshot(projectPath?: string, workspaceId?: string): Promise<ProjectHealthSnapshot> {
+    return await projectHealthService.generateSnapshot({ projectPath, workspaceName: workspaceId });
   }
 }

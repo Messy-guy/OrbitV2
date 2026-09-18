@@ -81,6 +81,10 @@ pub struct ChangedFileItem {
     pub unstaged: bool,
     #[serde(default)]
     pub is_untracked: bool,
+    #[serde(default)]
+    pub diff_snippet: Option<String>,
+    #[serde(default)]
+    pub verification_level: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,12 +112,19 @@ pub struct GitBranchItem {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitState {
+    #[serde(default)]
     pub current_branch: String,
+    #[serde(default)]
     pub head_commit: String,
+    #[serde(default)]
     pub modified_files: Vec<ChangedFileItem>,
+    #[serde(default)]
     pub staged_files: Vec<ChangedFileItem>,
+    #[serde(default)]
     pub unstaged_files: Vec<ChangedFileItem>,
+    #[serde(default)]
     pub untracked_files: Vec<ChangedFileItem>,
+    #[serde(default)]
     pub recent_commits: Vec<String>,
 }
 
@@ -185,6 +196,7 @@ pub struct ProjectContext {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextPackage {
+    #[serde(default)]
     pub schema_version: u32,
     pub source_agent: String,
     pub source_session_id: String,
@@ -192,22 +204,40 @@ pub struct ContextPackage {
     pub workspace_id: String,
     pub workspace_name: String,
     pub project_path: String,
+    #[serde(default)]
     pub checkpoint_id: Option<String>,
+    #[serde(default)]
     pub current_task: String,
+    #[serde(default)]
     pub progress: String,
+    #[serde(default)]
     pub decisions: Vec<String>,
+    #[serde(default)]
     pub changed_files: Vec<ChangedFileItem>,
     #[serde(default)]
     pub file_summaries: Option<Vec<FileEditSummary>>,
+    #[serde(default)]
     pub known_issues: Vec<String>,
+    #[serde(default)]
     pub git_state: Option<GitState>,
+    #[serde(default)]
     pub relevant_history: Option<Vec<String>>,
     #[serde(default)]
     pub patterns: Option<Vec<String>>,
+    #[serde(default)]
     pub notes: Option<Vec<String>>,
+    #[serde(default)]
     pub generated_at: i64,
+    #[serde(default)]
     pub estimated_tokens: usize,
+    #[serde(default)]
     pub formatted_instruction: Option<String>,
+    #[serde(default)]
+    pub handoff_package: Option<serde_json::Value>,
+}
+
+fn default_handoff_status() -> String {
+    "created".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,11 +250,16 @@ pub struct HandoffRecord {
     pub target_agent_id: String,
     pub target_agent_name: String,
     pub source_session_id: String,
+    #[serde(default)]
     pub target_session_id: Option<String>,
+    #[serde(default)]
     pub checkpoint_id: Option<String>,
+    #[serde(default)]
     pub task: String,
     pub context_package: ContextPackage,
+    #[serde(default = "default_handoff_status")]
     pub status: String, // "created", "sent", "accepted", "failed"
+    #[serde(default)]
     pub created_at: i64,
 }
 
@@ -249,4 +284,50 @@ pub struct AgentStatusEvent {
     pub pid: Option<u32>,
     pub exit_code: Option<i32>,
     pub message: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handoff_record_deserialization_with_omitted_collections() {
+        let json_str = r#"{
+            "id": "rec-123",
+            "workspaceId": "ws-123",
+            "sourceAgentId": "agent-a",
+            "sourceAgentName": "Agent A",
+            "targetAgentId": "agent-b",
+            "targetAgentName": "Agent B",
+            "sourceSessionId": "sess-a",
+            "task": "Dogfood test",
+            "contextPackage": {
+                "sourceAgent": "agent-a",
+                "sourceSessionId": "sess-a",
+                "targetAgent": "agent-b",
+                "workspaceId": "ws-123",
+                "workspaceName": "OrbitV2",
+                "projectPath": "/path/to/project",
+                "currentTask": "Dogfood test",
+                "progress": "50%",
+                "gitState": {
+                    "currentBranch": "main",
+                    "headCommit": "abc1234"
+                }
+            }
+        }"#;
+
+        let record: Result<HandoffRecord, _> = serde_json::from_str(json_str);
+        assert!(record.is_ok(), "Failed to deserialize HandoffRecord: {:?}", record.err());
+        let r = record.unwrap();
+        assert_eq!(r.id, "rec-123");
+        assert_eq!(r.status, "created");
+        let git_state = r.context_package.git_state.expect("git_state should be present");
+        assert_eq!(git_state.current_branch, "main");
+        assert_eq!(git_state.head_commit, "abc1234");
+        assert!(git_state.staged_files.is_empty());
+        assert!(git_state.unstaged_files.is_empty());
+        assert!(git_state.untracked_files.is_empty());
+        assert!(git_state.recent_commits.is_empty());
+    }
 }

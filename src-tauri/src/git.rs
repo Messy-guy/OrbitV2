@@ -94,6 +94,8 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                         staged: false,
                         unstaged: true,
                         is_untracked: true,
+                        diff_snippet: None,
+                        verification_level: None,
                     };
                     untracked_files.push(item.clone());
                     modified_files.push(item);
@@ -114,6 +116,8 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                             staged: true,
                             unstaged: false,
                             is_untracked: false,
+                            diff_snippet: None,
+                            verification_level: None,
                         });
                     }
 
@@ -130,6 +134,8 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                             staged: false,
                             unstaged: true,
                             is_untracked: false,
+                            diff_snippet: None,
+                            verification_level: None,
                         });
                     }
 
@@ -147,6 +153,8 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                         staged: x != ' ' && x != '?',
                         unstaged: y != ' ' && y != '?',
                         is_untracked: false,
+                        diff_snippet: None,
+                        verification_level: None,
                     });
                 }
             }

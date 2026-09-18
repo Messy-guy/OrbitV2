@@ -50,6 +50,7 @@ export const ShareContextModal: React.FC = () => {
   const [customNote, setCustomNote] = useState('');
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferStep, setTransferStep] = useState<string>('');
+  const [transferError, setTransferError] = useState<string | null>(null);
   const [distilledBrief, setDistilledBrief] = useState<DistilledSessionBrief | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<'conversation' | 'files' | 'memory' | 'manifest'>('conversation');
@@ -197,6 +198,7 @@ export const ShareContextModal: React.FC = () => {
   const handleExecuteHandoff = async () => {
     if (!activeWorkspaceId || !sourceAgent || !validTarget || !previewData || !activeWorkspace?.projectPath) return;
     setIsTransferring(true);
+    setTransferError(null);
     try {
       setTransferStep('Synthesizing conversation trajectory & user directives...');
       await sleep(350);
@@ -227,6 +229,7 @@ export const ShareContextModal: React.FC = () => {
       setShareContextOpen(false, validTarget.id);
     } catch (e) {
       console.error('Continuity transfer error:', e);
+      setTransferError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsTransferring(false);
       setTransferStep('');
@@ -640,6 +643,13 @@ export const ShareContextModal: React.FC = () => {
             className="w-full h-9 px-3 rounded-xl bg-well border border-border text-text-primary font-mono text-xs placeholder:text-text-dim focus:outline-none focus:border-border-hover transition-all"
           />
         </div>
+
+        {transferError && (
+          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono text-[11px] leading-relaxed">
+            <span className="font-bold uppercase tracking-wider block mb-0.5">Handoff Failed</span>
+            {transferError}
+          </div>
+        )}
 
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-2 border-t border-border">

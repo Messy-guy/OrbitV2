@@ -202,3 +202,11 @@ remote-control GUI coverage remains the final acceptance step.
 - Persistence: `src-tauri/src/storage.rs`.
 - PTY runtime: `src-tauri/src/runtime/pty_manager.rs`.
 - Context engine: `src-tauri/src/context.rs`.
+
+## Project Health Snapshot & Cross-Agent Continuity (2026-09-19)
+
+- **Architectural Decision (DEC-002)**: Project Health Snapshot is designed as a deterministic projection over Orbit's existing `EventReplayEngine` and `EventStore` (`~/.orbit/projects/<slug>/`) combined with live Git working-tree inspection. It reuses the authoritative `repository.scanned` tech stack, active task directives, unresolved issues, and active architectural decisions, ensuring provider-agnostic consistency without introducing a second project-memory system.
+- **Error/Debugging Diagnosis**: An initial implementation attempted to extract architectural decisions and unresolved issues from the legacy `readProjectMemory` helper (`cwd/.orbit/DECISIONS.md`), which produced empty collections because Orbit's canonical state lives in the event ledger (`EventStore`). The implementation was corrected to replay from `EventStore` via `EventReplayEngine`, verifying 100% data recovery.
+- **Rejected Approach**: Parsing ad-hoc markdown files from `cwd/.orbit/` was rejected because it fragments project memory, bypasses event-sourced verification levels and provenance attribution, and fails when `.orbit/` markdown files are absent or out of sync.
+- **Unresolved Issue (ISSUE-042)**: Monorepo multi-target sub-package health isolation. The root `ProjectHealthSnapshot` evaluates root-level manifests (`package.json`, `Cargo.toml`) and directories, but does not yet recursively evaluate independent sub-package git submodules or manifest health graphs in nested monorepo packages (e.g. `apps/mobile`). Safe to defer to future monorepo workspace enhancement.
+

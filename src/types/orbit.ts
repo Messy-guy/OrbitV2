@@ -271,6 +271,7 @@ export interface ContextPackage {
   generatedAt: number;
   estimatedTokens: number;
   formattedInstruction?: string;
+  handoffPackage?: HandoffPackage;
 }
 
 export type HandoffStatus = 'created' | 'sent' | 'accepted' | 'failed';
@@ -476,6 +477,50 @@ export interface HandoffPackage {
     targetFiles: string[];
   };
   provenance: import('./provenance').Provenance[];
+  generatedAt: number;
+}
+
+export interface ProjectHealthTechItem {
+  name: string;
+  category: string;
+  verificationLevel: import('./provenance').VerificationLevel;
+  source: string;
+}
+
+export interface ProjectHealthWorkingTreeStatus {
+  isClean: boolean;
+  modifiedFiles: string[];
+  untrackedFiles: string[];
+  diffSummary: string;
+}
+
+export interface ProjectHealthUnresolvedIssue {
+  id: string;
+  issue: string;
+  status: 'open' | 'investigating';
+  verificationLevel: import('./provenance').VerificationLevel;
+}
+
+export interface ProjectHealthArchitecturalDecision {
+  id: string;
+  decision: string;
+  rationale?: string;
+  status: string;
+  effectiveLevel: import('./provenance').VerificationLevel;
+}
+
+export interface ProjectHealthSnapshot {
+  schemaVersion: 1;
+  projectName: string;
+  projectPath: string;
+  techStack: ProjectHealthTechItem[];
+  gitBranch: string;
+  gitHead: string;
+  workingTreeStatus: ProjectHealthWorkingTreeStatus;
+  relevantDirectories: string[];
+  activeTask: string;
+  unresolvedIssues: ProjectHealthUnresolvedIssue[];
+  architecturalDecisions: ProjectHealthArchitecturalDecision[];
   generatedAt: number;
 }
 

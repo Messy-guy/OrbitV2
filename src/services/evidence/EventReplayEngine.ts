@@ -337,6 +337,10 @@ export class EventReplayEngine {
           const payload = evt.payload as any;
           const filePath = payload?.path || '';
           if (filePath) {
+            const initialLevel: VerificationLevel =
+              (evt.provenance?.verificationLevel as VerificationLevel) ||
+              (payload?.verificationLevel as VerificationLevel) ||
+              'claimed';
             const existing = state.changes.find((c) => c.path === filePath);
             if (existing) {
               if (!existing.updatedByEventIds.includes(evt.eventId)) {
@@ -344,11 +348,14 @@ export class EventReplayEngine {
               }
               if (payload.status) existing.status = payload.status;
               if (payload.diffSnippet) existing.diffSnippet = payload.diffSnippet;
+              if (initialLevel !== 'claimed') {
+                existing.verificationLevel = initialLevel;
+              }
             } else {
               state.changes.push({
                 path: filePath,
                 status: payload.status || 'modified',
-                verificationLevel: 'claimed',
+                verificationLevel: initialLevel,
                 additions: payload.additions,
                 deletions: payload.deletions,
                 diffSnippet: payload.diffSnippet,
@@ -373,9 +380,12 @@ export class EventReplayEngine {
               evidence: evidenceItems,
             };
 
+            let matchedEntity = false;
+
             // Check if claim applies to a decision
             const dec = state.decisions.find((d) => d.id === claimId || d.decision === payload.target);
             if (dec) {
+              matchedEntity = true;
               dec.verificationRecords.push(record);
               dec.effectiveLevel = this.calculateEffectiveLevel(dec.verificationRecords);
               if (!dec.updatedByEventIds.includes(evt.eventId)) {
@@ -386,10 +396,23 @@ export class EventReplayEngine {
             // Check if claim applies to an invariant
             const inv = state.invariants.find((i) => i.id === claimId || i.statement === payload.target);
             if (inv) {
+              matchedEntity = true;
               inv.verificationRecords.push(record);
               inv.effectiveLevel = this.calculateEffectiveLevel(inv.verificationRecords);
               if (!inv.updatedByEventIds.includes(evt.eventId)) {
                 inv.updatedByEventIds.push(evt.eventId);
+              }
+            }
+
+            // Check if claim applies to an issue
+            const iss = state.issues.find((i) => i.id === claimId || i.issue === payload.target);
+            if (iss) {
+              matchedEntity = true;
+              iss.verificationRecords.push(record);
+              iss.verificationLevel = this.calculateEffectiveLevel(iss.verificationRecords);
+              if (payload.status) iss.status = payload.status;
+              if (!iss.updatedByEventIds.includes(evt.eventId)) {
+                iss.updatedByEventIds.push(evt.eventId);
               }
             }
 
@@ -401,27 +424,35 @@ export class EventReplayEngine {
               if (!change.updatedByEventIds.includes(evt.eventId)) {
                 change.updatedByEventIds.push(evt.eventId);
               }
-            } else if (payload.path || payload.target) {
-              state.changes.push({
-                path: payload.path || payload.target,
-                status: 'modified',
-                verificationLevel: level,
-                createdByEventId: evt.eventId,
-                updatedByEventIds: [evt.eventId],
-              });
-            }
+            } else {
+              // Only create a new file change entry if payload.path was explicit,
+              // or if payload.target looks like a genuine file path and didn't match a decision/invariant/issue.
+              const targetPath =
+                payload.path ||
+                (!matchedEntity &&
+                typeof payload.target === 'string' &&
+                (payload.target.includes('/') || /\.[a-zA-Z0-9_-]+$/.test(payload.target)) &&
+                !payload.target.includes(' ') &&
+                !payload.target.includes('\n')
+                  ? payload.target
+                  : undefined);
 
-            // Check if claim applies to an issue
-            const iss = state.issues.find((i) => i.id === claimId || i.issue === payload.target);
-            if (iss) {
-              iss.verificationRecords.push(record);
-              iss.verificationLevel = this.calculateEffectiveLevel(iss.verificationRecords);
-              if (payload.status) iss.status = payload.status;
-              if (!iss.updatedByEventIds.includes(evt.eventId)) {
-                iss.updatedByEventIds.push(evt.eventId);
+              if (targetPath) {
+                state.changes.push({
+                  path: targetPath,
+                  status: 'modified',
+                  verificationLevel: level,
+                  createdByEventId: evt.eventId,
+                  updatedByEventIds: [evt.eventId],
+                });
               }
             }
           }
+          break;
+        }
+
+        case 'handoff.generated': {
+          // Handled as an immutable audit event; no mutated state required in static projection
           break;
         }
 

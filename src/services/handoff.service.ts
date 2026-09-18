@@ -25,6 +25,8 @@ import { isTauriAvailable, tauriService } from './tauri.service';
 import { EvidenceGate } from './evidence/EvidenceGate';
 import { EventReplayEngine } from './evidence/EventReplayEngine';
 import { EventStore, getCanonicalProjectSlug } from './evidence/EventStore';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export function buildHandoffPackage(params: {
   project: {
@@ -796,10 +798,65 @@ ${agentDirective}
 
     const canonicalMarkdown = materializeHandoffMarkdown(authoritativePkg, sourceAgentName, targetAgentName);
     contextPackage.formattedInstruction = canonicalMarkdown;
+    contextPackage.handoffPackage = authoritativePkg;
     previewSummary.handoffPackage = authoritativePkg;
 
+    // Persist canonical HANDOFF.json & views/HANDOFF.md directly to ~/.orbit/projects/<slug>/
+    const projectDir = EventStore.getProjectDir(projectSlug);
+    const viewsDir = path.join(projectDir, 'views');
+    const handoffJsonStr = JSON.stringify(authoritativePkg, null, 2);
+
+    if (typeof fs !== 'undefined' && fs.promises) {
+      try {
+        await fs.promises.mkdir(viewsDir, { recursive: true });
+        await fs.promises.writeFile(path.join(projectDir, 'HANDOFF.json'), handoffJsonStr, 'utf8');
+        await fs.promises.writeFile(path.join(viewsDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
+        await fs.promises.writeFile(path.join(projectDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
+      } catch (err) {
+        console.warn('[HandoffService] Direct fs write warning:', err);
+      }
+    }
+    if (isTauriAvailable()) {
+      try {
+        await tauriService.writeWorkspaceFile(projectDir, 'HANDOFF.json', handoffJsonStr);
+        await tauriService.writeWorkspaceFile(viewsDir, 'HANDOFF.md', canonicalMarkdown);
+        await tauriService.writeWorkspaceFile(projectDir, 'HANDOFF.md', canonicalMarkdown);
+      } catch (err) {
+        console.warn('[HandoffService] Tauri writeWorkspaceFile warning:', err);
+      }
+    }
+
+    const handoffId = `handoff-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    // Append canonical handoff.generated event to EventStore
+    try {
+      const handoffEvt = EventStore.createEvent(
+        'handoff.generated',
+        sourceSessionId,
+        {
+          handoffId,
+          sourceAgent: sourceAgentName,
+          targetAgent: targetAgentName,
+          targetSessionId,
+          packageHash: `${projectSlug}-${Date.now()}`,
+          verifiedChangesCount: verifiedChanges.length,
+          decisionsCount: authoritativePkg.decisions.length,
+          task: previewSummary.task,
+        },
+        {
+          sourceType: 'agent_observation',
+          sourceId: sourceAgentId,
+          confidence: 'observed',
+          verificationLevel: 'behavior_verified',
+        }
+      );
+      await EventStore.appendEvent(projectSlug, handoffEvt);
+    } catch (err) {
+      console.warn('[HandoffService] Failed to append handoff.generated event to EventStore:', err);
+    }
+
     const handoffRecord: HandoffRecord = {
-      id: `handoff-${Date.now()}`,
+      id: handoffId,
       workspaceId,
       sourceAgentId,
       sourceAgentName,
@@ -818,7 +875,11 @@ ${agentDirective}
       try {
         await tauriService.executeAgentHandoff(handoffRecord, targetProvider);
       } catch (e) {
-        console.warn('Tauri executeAgentHandoff error', e);
+        handoffRecord.status = 'failed';
+        console.error('[HandoffService] Tauri executeAgentHandoff failed:', e);
+        throw new Error(
+          `Desktop handoff execution failed: ${e instanceof Error ? e.message : String(e)}`
+        );
       }
     } else {
       if (!this.fallbackHistory[workspaceId]) {

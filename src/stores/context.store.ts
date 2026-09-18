@@ -385,54 +385,58 @@ export const useContextStore = create<ContextState>((set, get) => ({
       estimatedTokens: params.previewSummary.estimatedTokens || rawContextPackage.estimatedTokens,
     };
 
-    // 2. Execute Handoff
-    const { handoffRecord, targetMessage, agentReply } = await handoffService.executeHandoff(
-      params.workspaceId,
-      params.sourceAgentId,
-      params.sourceAgentName,
-      params.sourceSessionId,
-      params.targetAgentId,
-      params.targetAgentName,
-      params.targetProvider,
-      params.targetSessionId,
-      params.selection,
-      params.previewSummary,
-      contextPackage
-    );
+    try {
+      // 2. Execute Handoff
+      const { handoffRecord, targetMessage, agentReply } = await handoffService.executeHandoff(
+        params.workspaceId,
+        params.sourceAgentId,
+        params.sourceAgentName,
+        params.sourceSessionId,
+        params.targetAgentId,
+        params.targetAgentName,
+        params.targetProvider,
+        params.targetSessionId,
+        params.selection,
+        params.previewSummary,
+        contextPackage
+      );
 
-    // 3. Inject message into target agent session & UI store
-    const agentStore = useAgentStore.getState();
-    agentStore.setActiveSession(params.targetAgentId, params.targetSessionId);
-    agentStore.addDirectMessage(params.targetSessionId, targetMessage);
-    if (agentReply) {
-      agentStore.addDirectMessage(params.targetSessionId, agentReply);
+      // 3. Inject message into target agent session & UI store
+      const agentStore = useAgentStore.getState();
+      agentStore.setActiveSession(params.targetAgentId, params.targetSessionId);
+      agentStore.addDirectMessage(params.targetSessionId, targetMessage);
+      if (agentReply) {
+        agentStore.addDirectMessage(params.targetSessionId, agentReply);
+      }
+
+      // 4. Update handoff history state
+      set((state) => ({
+        handoffHistory: [handoffRecord, ...state.handoffHistory],
+        isGeneratingHandoff: false,
+        activeHandoffAnimation: {
+          active: true,
+          sourceAgentName: params.sourceAgentName,
+          targetAgentName: params.targetAgentName,
+          tokenCount: contextPackage.estimatedTokens || params.previewSummary.estimatedTokens || 2100,
+          decisionCount: contextPackage.decisions.length,
+          issueCount: contextPackage.knownIssues.length,
+          fileCount: contextPackage.changedFiles.length,
+        },
+      }));
+
+      // Record Activity
+      const desc = `Context shared: ${params.sourceAgentName} → ${params.targetAgentName} (~${((contextPackage.estimatedTokens || 2100) / 1000).toFixed(1)}k tokens)`;
+      useActivityStore.getState().addActivity(params.workspaceId, {
+        type: 'handoff',
+        agentId: params.sourceAgentId,
+        agentName: params.sourceAgentName,
+        description: desc,
+      });
+    } catch (error) {
+      set({ isGeneratingHandoff: false });
+      console.error('[contextStore] executeHandoff failed:', error);
+      throw error;
     }
-
-
-
-    // 4. Update handoff history state
-    set((state) => ({
-      handoffHistory: [handoffRecord, ...state.handoffHistory],
-      isGeneratingHandoff: false,
-      activeHandoffAnimation: {
-        active: true,
-        sourceAgentName: params.sourceAgentName,
-        targetAgentName: params.targetAgentName,
-        tokenCount: contextPackage.estimatedTokens || params.previewSummary.estimatedTokens || 2100,
-        decisionCount: contextPackage.decisions.length,
-        issueCount: contextPackage.knownIssues.length,
-        fileCount: contextPackage.changedFiles.length,
-      },
-    }));
-
-    // Record Activity
-    const desc = `Context shared: ${params.sourceAgentName} → ${params.targetAgentName} (~${((contextPackage.estimatedTokens || 2100) / 1000).toFixed(1)}k tokens)`;
-    useActivityStore.getState().addActivity(params.workspaceId, {
-      type: 'handoff',
-      agentId: params.sourceAgentId,
-      agentName: params.sourceAgentName,
-      description: desc,
-    });
   },
 
   dismissHandoffAnimation: () => {
