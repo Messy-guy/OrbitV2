@@ -48,7 +48,11 @@ export class TerminalCanvasRenderer {
     this.cachedCellSize = null;
   }
 
-  render(snapshot: TerminalSnapshot, selection?: SelectionRange | null): void {
+  render(
+    snapshot: TerminalSnapshot,
+    selection?: SelectionRange | null,
+    viewport?: { scrollTop: number; clientHeight: number } | null
+  ): void {
     const dpr = window.devicePixelRatio || 1;
     const cell = this.cellSize();
     const rows = [...snapshot.scrollback, ...snapshot.cells];
@@ -56,18 +60,33 @@ export class TerminalCanvasRenderer {
     const width = Math.max(1, Math.ceil(snapshot.columns * cell.width));
     const height = Math.max(1, Math.ceil(totalRows * cell.height));
 
-    this.canvas.style.width = `${width}px`;
-    this.canvas.style.height = `${height}px`;
-    this.canvas.width = Math.ceil(width * dpr);
-    this.canvas.height = Math.ceil(height * dpr);
+    const targetW = Math.ceil(width * dpr);
+    const targetH = Math.ceil(height * dpr);
+
+    if (this.canvas.width !== targetW || this.canvas.height !== targetH) {
+      this.canvas.style.width = `${width}px`;
+      this.canvas.style.height = `${height}px`;
+      this.canvas.width = targetW;
+      this.canvas.height = targetH;
+    }
 
     this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.context.textBaseline = 'middle';
-    this.context.clearRect(0, 0, width, height);
+
+    const visibleStartRow = viewport
+      ? Math.max(0, Math.floor(viewport.scrollTop / cell.height) - 4)
+      : 0;
+    const visibleEndRow = viewport
+      ? Math.min(totalRows, Math.ceil((viewport.scrollTop + viewport.clientHeight) / cell.height) + 4)
+      : totalRows;
+
+    const clearY = Math.floor(visibleStartRow * cell.height);
+    const clearH = Math.ceil((visibleEndRow - visibleStartRow) * cell.height);
+    this.context.clearRect(0, clearY, width, clearH);
 
     const fontOffsetY = cell.height / 2;
 
-    for (let displayRow = 0; displayRow < totalRows; displayRow += 1) {
+    for (let displayRow = visibleStartRow; displayRow < visibleEndRow; displayRow += 1) {
       const row = rows[displayRow];
       if (!row) continue;
 
@@ -120,10 +139,17 @@ export class TerminalCanvasRenderer {
       }
     }
 
-    if (snapshot.cursor.visible && snapshot.cursor.row < snapshot.rows && snapshot.cursor.column < snapshot.columns) {
+    const cursorGlobalRow = snapshot.scrollback.length + snapshot.cursor.row;
+    if (
+      snapshot.cursor.visible &&
+      snapshot.cursor.row < snapshot.rows &&
+      snapshot.cursor.column < snapshot.columns &&
+      cursorGlobalRow >= visibleStartRow &&
+      cursorGlobalRow <= visibleEndRow
+    ) {
       drawTerminalCursor(this.context, {
         ...snapshot.cursor,
-        row: snapshot.scrollback.length + snapshot.cursor.row,
+        row: cursorGlobalRow,
       }, cell);
     }
   }

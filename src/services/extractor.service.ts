@@ -9,6 +9,7 @@
 import { conversationStore } from './conversation/ConversationStore';
 import { useAgentStore } from '../stores/agent.store';
 import { isTauriAvailable, tauriService } from './tauri.service';
+import { NativeSourceRegistry } from './sessionGateway/native/NativeSourceRegistry';
 import { FileEditSummary, ConversationSynthesis } from '../types/orbit';
 
 export type { FileEditSummary, ConversationSynthesis };
@@ -46,11 +47,8 @@ export class UniversalSessionExtractor {
   public static stripAnsi(text: string): string {
     if (!text) return '';
     return text
-      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // CSI sequences
-      .replace(/\x1b\([a-zA-Z]/g, '')         // Character set
-      .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '') // OSC sequences
-      .replace(/\x1b[PX^_].*?\x1b\\/g, '')     // DCS, PM, APC
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Non-printable control codes
+      .replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   }
 
   /**
@@ -70,12 +68,18 @@ export class UniversalSessionExtractor {
       if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\-\|\/\\]\s+/.test(line)) continue;
       if (/^\[\s*\d+%\s*\]/.test(line) && line === prevLine) continue;
 
-      // Skip TUI menu / interactive dialog navigation footers
+      // Skip TUI menu / interactive dialog navigation footers & picker rows
       if (/Keyboard:\s+enter\s+Select/i.test(line)) continue;
       if (/\(tab to cycle\)/i.test(line)) continue;
       if (/\bf[0-9]\s+(?:Rename|Delete|Help)/i.test(line)) continue;
       if (/\besc\s+Go back/i.test(line)) continue;
       if (/Conversations;\s+Keyboard:/i.test(line)) continue;
+      if (/Type to search conversations/i.test(line)) continue;
+      if (/\[\s*\d+-\d+\s+of\s+\d+\s+items\s*\]/i.test(line)) continue;
+      if (/\b\d+\s+steps\b/i.test(line) && (/\b\d+[smhdw]\s+ago\b/i.test(line) || /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(line))) continue;
+      if (/▄▀▀▄\s+Antigravity CLI/i.test(line)) continue;
+      if (/^Working\b/i.test(line) && line.length < 15) continue;
+      if (/^CLI\s+Other\b/i.test(line)) continue;
 
       // Skip duplicate consecutive lines
       if (line === prevLine) continue;
@@ -223,11 +227,24 @@ export class UniversalSessionExtractor {
     userDirectives: string[] = [],
     workSteps: Array<{ step: string; detail?: string; tool?: string }> = []
   ): ConversationSynthesis {
-    const objectives = userDirectives.length > 0 
+    const isValidGoal = (g?: string) => {
+      if (!g) return false;
+      const t = g.trim();
+      if (t.length < 5) return false;
+      if (/^\/(?:res|resume|clear|clean|model|help|reset|exit|quit|compact|cost|history)\b/i.test(t)) return false;
+      if (/^Working\b|^CLI\s+Other|^Keyboard:|^Conversations/i.test(t)) return false;
+      if (/\b\d+\s+steps\b/i.test(t)) return false;
+      return true;
+    };
+
+    const rawObjectives = userDirectives.length > 0 
       ? userDirectives 
       : turns.filter(t => t.role === 'user').map(t => t.content.trim()).filter(Boolean);
     
-    const resolvedPrimaryGoal = primaryGoal || objectives[0] || 'Active workspace task';
+    const validObjectives = rawObjectives.filter(isValidGoal);
+    const resolvedPrimaryGoal = isValidGoal(primaryGoal) 
+      ? primaryGoal.trim() 
+      : (validObjectives[0] || 'Active workspace implementation and verification');
 
     // Build work accomplished if not already populated
     const accomplishments = [...workSteps];
@@ -244,7 +261,7 @@ export class UniversalSessionExtractor {
             if (
               firstLine &&
               firstLine.length > 5 &&
-              !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Working|CLI\s+Other|Conversations;/i.test(firstLine)
+              !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Working|CLI\s+Other|Conversations|▄▀▀▄|\b\d+\s+steps\b|Type to search/i.test(firstLine)
             ) {
               accomplishments.push({ step: firstLine });
             }
@@ -268,7 +285,7 @@ export class UniversalSessionExtractor {
       const lines = lastAgentTurn.content
         .split('\n')
         .map(l => l.trim())
-        .filter(l => l.length > 10 && !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Conversations;/i.test(l));
+        .filter(l => l.length > 10 && !/Keyboard:|enter Select|f[0-9] Rename|esc Go back|\(tab to cycle\)|Conversations|▄▀▀▄|\b\d+\s+steps\b|Type to search/i.test(l));
       if (lines.length > 0) {
         currentExecutionState = lines[lines.length - 1];
         nextStepDirective = lines.length > 1 ? lines.slice(-2).join('; ') : currentExecutionState;
@@ -284,7 +301,9 @@ export class UniversalSessionExtractor {
     const narrativeLines: string[] = [
       `### 🎯 Session Objectives & Directives:`,
       `**Goal**: ${resolvedPrimaryGoal}`,
-      ...objectives.map((u, i) => `• Directive ${i + 1}${i === 0 ? ' (Initial)' : i === objectives.length - 1 ? ' (Latest)' : ''}: "${u}"`),
+      ...(validObjectives.length > 0
+        ? validObjectives.map((u, i) => `• Directive ${i + 1}${i === 0 ? ' (Initial)' : i === validObjectives.length - 1 ? ' (Latest)' : ''}: "${u}"`)
+        : [`• Directive 1 (Initial): "${resolvedPrimaryGoal}"`]),
       ``,
       `### 💬 Verbatim Recent Conversation Dialogue (User ⇄ Agent):`,
       this.formatVerbatimTranscript(turns, 50),
@@ -313,7 +332,7 @@ export class UniversalSessionExtractor {
 
     return {
       primaryGoal: resolvedPrimaryGoal,
-      userObjectives: objectives,
+      userObjectives: validObjectives.length > 0 ? validObjectives : [resolvedPrimaryGoal],
       workAccomplished: accomplishments,
       decisionsFormulated: decisions,
       blockersAndErrors,
@@ -525,13 +544,18 @@ export class UniversalSessionExtractor {
       // Check for user prompt turns
       const userMatch = line.match(USER_PROMPT_REGEX);
       if (userMatch && userMatch[1] && userMatch[1].length > 2) {
-        finalizeTurn();
         const promptText = userMatch[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
-        if (promptText && !promptText.startsWith('Orbit Handoff')) {
-          // Skip CLI control / meta commands (e.g. /res, /resume, /clear, /clean, /model, /help)
-          if (/^\/(?:res|resume|clear|clean|model|help|reset|exit|quit|compact|cost|history)\b/i.test(promptText)) {
-            continue;
-          }
+        const isMetaCommand = /^\/(?:res|resume|clear|clean|model|help|reset|exit|quit|compact|cost|history)\b/i.test(promptText);
+        const isTuiItem = /\b\d+\s+steps\b/i.test(promptText) ||
+          /\[\d+-\d+\s+of\s+\d+\s+items\]/i.test(promptText) ||
+          /Type to search conversations/i.test(promptText) ||
+          /^Working\b/i.test(promptText) ||
+          /^CLI\s+Other\b/i.test(promptText) ||
+          /^▄▀▀▄/i.test(promptText) ||
+          promptText.length < 3;
+
+        if (promptText && !promptText.startsWith('Orbit Handoff') && !isMetaCommand && !isTuiItem) {
+          finalizeTurn();
           if (!primaryGoal) {
             primaryGoal = promptText;
           }
@@ -543,6 +567,9 @@ export class UniversalSessionExtractor {
             timestamp: Date.now(),
             filesReferenced: fileMatches || [],
           };
+          continue;
+        } else if (isMetaCommand || isTuiItem) {
+          finalizeTurn();
           continue;
         }
       }
@@ -769,6 +796,22 @@ export class UniversalSessionExtractor {
       console.warn('Error reading chat store messages:', e);
     }
 
+    // 2c. Try native provider transcript discovery (Antigravity Brain & Claude Code)
+    if (!sessionData || sessionData.turns.length === 0) {
+      try {
+        const nativeMessages = await NativeSourceRegistry.getNativeHistory('antigravity', agentId, projectPath, sessionId);
+        if (nativeMessages && nativeMessages.length > 0) {
+          sessionData = this.extractFromChatMessages(agentId, sessionId, nativeMessages.map(m => ({
+            id: m.id,
+            role: m.sender,
+            content: m.content,
+            timestamp: m.timestamp,
+          })));
+        }
+      } catch (e) {
+        console.warn('Native transcript extraction fallback:', e);
+      }
+    }
 
     // 3. If still empty, try PTY terminal history
     if (!sessionData || sessionData.turns.length === 0) {

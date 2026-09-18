@@ -218,6 +218,27 @@ Created src/controllers/auth.controller.ts
   assert(terminalExtracted.conversationSynthesis !== undefined, 'Generated conversation synthesis');
   assert(!terminalExtracted.conversationSynthesis?.workAccomplished.some(w => w.step.includes('Keyboard:') || Boolean(w.detail?.includes('tab to cycle'))), 'TUI keyboard footer noise stripped from accomplishments');
 
+  // --- TEST 6b: Antigravity Interactive Picker Menu Rejection ---
+  console.log('\n--- TEST 6b: Antigravity Interactive Picker Menu Rejection ---');
+  const agyPickerTerminal = `
+> /res
+Type to search conversations...
+[1-10 of 91 items]
+> Execute Local System Script... about 2 hours ago 31836 steps
+  Audit project architecture... 5 hours ago 42 steps
+  Initial codebase setup... 2 days ago 120 steps
+Keyboard: enter Select | f2 Rename | f4 Delete | esc Back
+> Refactor AST parser to handle async generators
+Updated src/parser/ast.ts to support async generator yield expressions.
+`;
+  const pickerExtracted = UniversalSessionExtractor.extractFromTerminalHistory('ag-test-agy', 'sess-term-agy', agyPickerTerminal);
+  assert(Boolean(!pickerExtracted.primaryGoal?.includes('/res')), 'Primary goal is not /res');
+  assert(Boolean(!pickerExtracted.primaryGoal?.includes('Execute Local System Script')), 'TUI picker option not treated as goal');
+  assert(Boolean(!pickerExtracted.primaryGoal?.includes('31836 steps')), 'TUI picker step count not treated as goal');
+  assert(Boolean(pickerExtracted.primaryGoal?.includes('Refactor AST parser')), 'Real user instruction extracted as primary goal');
+  assert(!pickerExtracted.recentUserInstructions.some(u => u.includes('Execute Local System Script') || u.includes('31836 steps')), 'Recent user instructions do not contain picker menu items');
+  assert(pickerExtracted.recentUserInstructions.some(u => u.includes('Refactor AST parser')), 'Recent user instructions contain real directive');
+
   // --- TEST 7: Full Trajectory Multi-Turn Session Preservation (Turn 1 to Latest) ---
   console.log('\n--- TEST 7: Full Trajectory Multi-Turn Session Preservation ---');
   const multiTurnSessionId = `multi-sess-${Date.now()}`;

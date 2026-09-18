@@ -365,6 +365,11 @@ export const tauriService = {
     return invoke<boolean>('is_agent_process_running', { agentId });
   },
 
+  async getRecentAntigravityTranscript(workspacePath?: string): Promise<string | null> {
+    if (!isTauriAvailable()) return null;
+    return invoke<string | null>('get_recent_antigravity_transcript', { workspacePath });
+  },
+
   // Phase 3: Git State
   async getGitState(projectPath: string): Promise<GitState> {
     if (!isTauriAvailable()) {

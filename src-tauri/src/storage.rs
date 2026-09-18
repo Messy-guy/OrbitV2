@@ -104,7 +104,10 @@ impl StorageManager {
     pub fn save(&self) {
         if let Ok(state) = self.state.lock() {
             if let Ok(serialized) = serde_json::to_string_pretty(&*state) {
-                let _ = fs::write(&self.file_path, serialized);
+                let tmp_path = self.file_path.with_extension("json.tmp");
+                if fs::write(&tmp_path, &serialized).is_ok() {
+                    let _ = fs::rename(&tmp_path, &self.file_path);
+                }
             }
         }
     }

@@ -159,15 +159,28 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const draggingRef = useRef(false);
   const stickToBottomRef = useRef(true);
+  const rafIdRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     if (canvasRef.current) rendererRef.current = new TerminalCanvasRenderer(canvasRef.current);
-    return () => { rendererRef.current = null; };
+    return () => {
+      rendererRef.current = null;
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    };
   }, []);
 
-  useLayoutEffect(() => {
-    if (snapshot && canvasRef.current) rendererRef.current?.render(snapshot, selection);
+  const renderCurrent = React.useCallback(() => {
+    if (!snapshot || !canvasRef.current || !rendererRef.current) return;
+    const host = hostRef.current;
+    const viewport = host && host.clientHeight > 0
+      ? { scrollTop: host.scrollTop, clientHeight: host.clientHeight }
+      : null;
+    rendererRef.current.render(snapshot, selection, viewport);
   }, [snapshot, selection]);
+
+  useLayoutEffect(() => {
+    renderCurrent();
+  }, [renderCurrent]);
 
   useEffect(() => {
     let active = true;
@@ -175,11 +188,11 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
       void document.fonts.ready.then(() => {
         if (!active) return;
         rendererRef.current?.invalidateMetrics();
-        if (snapshot && canvasRef.current) rendererRef.current?.render(snapshot, selection);
+        renderCurrent();
       });
     }
     return () => { active = false; };
-  }, [snapshot, selection]);
+  }, [renderCurrent]);
 
   useLayoutEffect(() => {
     if (stickToBottomRef.current && hostRef.current) {
@@ -412,6 +425,10 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
       onScroll={(event) => {
         const host = event.currentTarget;
         stickToBottomRef.current = host.scrollTop + host.clientHeight >= host.scrollHeight - 34;
+        if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = requestAnimationFrame(() => {
+          renderCurrent();
+        });
       }}
       onWheel={handleWheel}
       onMouseLeave={() => { draggingRef.current = false; }}

@@ -95,12 +95,13 @@ pub fn open_folder_dialog() -> Option<String> {
 #[tauri::command]
 pub fn open_file_dialog(title: Option<String>) -> Option<String> {
     let dialog_title = title.unwrap_or_else(|| "Select Executable Binary".to_string());
+    let safe_title = dialog_title.replace(['\'', '"', ';', '$', '`', '\r', '\n'], "");
 
     #[cfg(target_os = "windows")]
     {
         let ps_script = format!(
             "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Title = '{}'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Host $f.FileName }}",
-            dialog_title
+            safe_title
         );
         if let Ok(output) = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_script])
@@ -116,7 +117,7 @@ pub fn open_file_dialog(title: Option<String>) -> Option<String> {
     #[cfg(not(target_os = "windows"))]
     {
         if let Ok(output) = std::process::Command::new("zenity")
-            .args(["--file-selection", &format!("--title={}", dialog_title)])
+            .args(["--file-selection", &format!("--title={}", safe_title)])
             .output()
         {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -126,7 +127,7 @@ pub fn open_file_dialog(title: Option<String>) -> Option<String> {
         }
 
         if let Ok(output) = std::process::Command::new("kdialog")
-            .args(["--getopenfilename", &format!("--title={}", dialog_title)])
+            .args(["--getopenfilename", &format!("--title={}", safe_title)])
             .output()
         {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -228,6 +229,10 @@ pub async fn start_agent_session(
     // the native launcher also applies provider-specific role flags.
     if let Some(r) = role.as_deref() {
         state.pty_manager.set_role(&agent_id, r);
+    }
+
+    if !workspace_path.trim().is_empty() {
+        let _ = boot_project_memory(workspace_path.clone(), None);
     }
 
     let terminal_service = state.terminal_service.clone();
@@ -1424,7 +1429,7 @@ pub fn execute_agent_handoff(
                     "### `{}` ({}, +{}/-{} lines)\n**Summary**: {}\n\n",
                     s.file_path, s.status, s.additions, s.deletions, s.summary
                 ));
-                let is_secret = s.file_path.contains(".env") || s.file_path.ends_with(".pem") || s.file_path.ends_with(".key") || s.file_path.contains("credential") || s.file_path.contains("id_rsa");
+                let is_secret = s.file_path.contains(".env") || s.file_path.ends_with(".pem") || s.file_path.ends_with(".key") || s.file_path.contains("credential") || s.file_path.contains("id_rsa") || s.file_path.contains("id_ed25519") || s.file_path.contains("id_ecdsa") || s.file_path.contains("service-account") || s.file_path.ends_with(".pfx") || s.file_path.ends_with(".p12");
                 if is_secret {
                     changes_content.push_str("```\n--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---\n```\n\n");
                 } else {
@@ -1447,7 +1452,7 @@ pub fn execute_agent_handoff(
         // Include any modified files from gitState not already covered
         for f in &handoff.context_package.changed_files {
             if !handled_files.contains(&f.path) {
-                let is_secret = f.path.contains(".env") || f.path.ends_with(".pem") || f.path.ends_with(".key") || f.path.contains("credential") || f.path.contains("id_rsa");
+                let is_secret = f.path.contains(".env") || f.path.ends_with(".pem") || f.path.ends_with(".key") || f.path.contains("credential") || f.path.contains("id_rsa") || f.path.contains("id_ed25519") || f.path.contains("id_ecdsa") || f.path.contains("service-account") || f.path.ends_with(".pfx") || f.path.ends_with(".p12");
                 changes_content.push_str(&format!(
                     "### `{}` ({})\n\n",
                     f.path, f.status
@@ -1551,33 +1556,71 @@ pub fn execute_agent_handoff(
             user_turns.push(current_user_buf.trim().to_string());
         }
 
-        let first = user_turns.first().cloned().unwrap_or_else(|| {
-            if !handoff.context_package.current_task.is_empty() {
-                handoff.context_package.current_task.clone()
+        fn sanitize_directive_for_prompt(s: &str, max_chars: usize) -> String {
+            let sanitized: String = s
+                .chars()
+                .map(|c| if c == '\r' || c == '\n' || c == '\t' { ' ' } else if c == '"' { '\'' } else { c })
+                .collect();
+            let trimmed = sanitized.trim();
+            if trimmed.chars().count() > max_chars {
+                let truncated: String = trimmed.chars().take(max_chars).collect();
+                format!("{}...", truncated)
             } else {
-                "Active workspace task".to_string()
+                trimmed.to_string()
             }
-        });
+        }
 
-        let last = user_turns.last().cloned().unwrap_or_else(|| first.clone());
-
-        let traj = if user_turns.len() > 1 {
-            format!("{} user directives executed across session", user_turns.len())
-        } else {
-            "Single-turn kick-off".to_string()
+        let is_valid_goal = |s: &str| -> bool {
+            let t = s.trim();
+            if t.len() < 5 { return false; }
+            if t.starts_with('/') { return false; }
+            if t.starts_with("Working") || t.starts_with("CLI Other") || t.starts_with("Keyboard:") || t.starts_with("Conversations") { return false; }
+            if t.contains("steps") && (t.contains("ago") || t.contains("items")) { return false; }
+            true
         };
 
-        let clean_first = if first.len() > 140 { format!("{}...", &first[..140]) } else { first };
-        let clean_last = if last.len() > 140 { format!("{}...", &last[..140]) } else { last };
+        let default_task = if !handoff.context_package.current_task.is_empty() && is_valid_goal(&handoff.context_package.current_task) {
+            handoff.context_package.current_task.clone()
+        } else {
+            "Active workspace implementation and verification".to_string()
+        };
+
+        let valid_user_turns: Vec<String> = user_turns.into_iter().filter(|s| is_valid_goal(s)).collect();
+
+        let first = valid_user_turns.first().cloned().unwrap_or_else(|| default_task.clone());
+        let last = valid_user_turns.last().cloned().unwrap_or_else(|| first.clone());
+
+        let traj = if valid_user_turns.len() > 1 {
+            format!("{} user directives executed across session", valid_user_turns.len())
+        } else {
+            "Active task execution".to_string()
+        };
+
+        let clean_first = sanitize_directive_for_prompt(&first, 140);
+        let clean_last = sanitize_directive_for_prompt(&last, 140);
 
         (clean_first, traj, clean_last)
     } else {
+        fn sanitize_directive_for_prompt(s: &str, max_chars: usize) -> String {
+            let sanitized: String = s
+                .chars()
+                .map(|c| if c == '\r' || c == '\n' || c == '\t' { ' ' } else if c == '"' { '\'' } else { c })
+                .collect();
+            let trimmed = sanitized.trim();
+            if trimmed.chars().count() > max_chars {
+                let truncated: String = trimmed.chars().take(max_chars).collect();
+                format!("{}...", truncated)
+            } else {
+                trimmed.to_string()
+            }
+        }
         let task = if !handoff.context_package.current_task.is_empty() {
             handoff.context_package.current_task.clone()
         } else {
-            "Active workspace task".to_string()
+            "Active workspace implementation and verification".to_string()
         };
-        (task.clone(), "Direct handoff".to_string(), task)
+        let clean_task = sanitize_directive_for_prompt(&task, 140);
+        (clean_task.clone(), "Active task execution".to_string(), clean_task)
     };
 
     let touched_files_str = if !handoff.context_package.changed_files.is_empty() {
@@ -1608,7 +1651,7 @@ pub fn execute_agent_handoff(
     };
 
     let concise_prompt = format!(
-        "ORBIT CONTINUITY ({}): Ingest {} and {}. Source: {}. Initial Goal: \"{}\". Trajectory: {}. Latest Directive: \"{}\".{}{} RULE: Follow DISCUSS protocol. Do NOT modify any files yet. Greet the user, summarize the full trajectory from Turn 1 to present and what was accomplished, and ask for confirmation to proceed with the next step.",
+        "ORBIT CONTINUITY ({}): Ingest {} and {}. Source: {}. Initial Goal: \"{}\". Trajectory: {}. Latest Directive: \"{}\".{}{} RULE: Follow DISCUSS protocol. Do NOT ask the user for background context or project details — you already have complete context in HANDOFF.md and SESSION.md. Do NOT modify any files yet. Greet the user, summarize what was accomplished from Turn 1 to present, state your immediate next work action, and ask for confirmation to proceed with the work.",
         intent_prefix,
         master_abs,
         handoff_abs,
@@ -1628,8 +1671,12 @@ pub fn execute_agent_handoff(
         .session_for_agent(&handoff.target_agent_id)
         .filter(|session| session.is_running())
     {
-        let _ = session.input(format!("{}\r", concise_prompt).into_bytes());
-        return Ok(session.info.pid);
+        match session.input(format!("{}\r", concise_prompt).into_bytes()) {
+            Ok(_) => return Ok(session.info.pid),
+            Err(e) => {
+                eprintln!("[ORBIT HANDOFF] Input to running session failed: {e}. Falling back to fresh start.");
+            }
+        }
     }
     if state.pty_manager.is_running(&handoff.target_agent_id) {
         // Append \r so TUI agents (Ink, readline) submit the input immediately
@@ -2427,6 +2474,18 @@ pub fn read_workspace_file(project_path: String, relative_path: String) -> Resul
 pub fn write_workspace_file(project_path: String, relative_path: String, content: String) -> Result<(), String> {
     let full_path = find_real_file_path(&project_path, &relative_path);
 
+    let full_path_str = full_path.to_string_lossy();
+    if full_path_str.starts_with("/etc")
+        || full_path_str.starts_with("/bin")
+        || full_path_str.starts_with("/usr")
+        || full_path_str.starts_with("/sbin")
+        || full_path_str.starts_with("/var/run")
+        || full_path_str.starts_with("C:\\Windows")
+        || full_path_str.starts_with("C:\\Program Files")
+    {
+        return Err(format!("Access denied: writing to system path {} is prohibited", full_path.display()));
+    }
+
     if let Some(parent) = full_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -2438,6 +2497,96 @@ pub fn write_workspace_file(project_path: String, relative_path: String, content
 #[tauri::command]
 pub fn get_workspace_file_diff(project_path: String, file_path: String) -> Result<String, String> {
     Ok(crate::git::get_git_file_diff(&project_path, &file_path))
+}
+
+#[tauri::command]
+pub fn get_recent_antigravity_transcript(workspace_path: Option<String>) -> Result<Option<String>, String> {
+    let home = {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(std::path::PathBuf::from)
+        }
+    }.unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let brain_dir = home.join(".gemini").join("antigravity-cli").join("brain");
+    if !brain_dir.exists() {
+        return Ok(None);
+    }
+
+    let entries = match std::fs::read_dir(&brain_dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(None),
+    };
+    // (transcript_path, mtime, matches_workspace)
+    let mut transcripts: Vec<(std::path::PathBuf, std::time::SystemTime, bool)> = Vec::new();
+    let ws_needle = workspace_path.as_deref().map(|p| p.trim()).filter(|p| !p.is_empty());
+
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            let transcript_path = entry.path().join(".system_generated").join("logs").join("transcript.jsonl");
+            if transcript_path.exists() {
+                if let Ok(meta) = transcript_path.metadata() {
+                    if let Ok(mtime) = meta.modified() {
+                        let mut matches_ws = false;
+                        if let Some(needle) = ws_needle {
+                            let terminals_dir = entry.path().join(".system_generated").join("terminals");
+                            if let Ok(t_entries) = std::fs::read_dir(&terminals_dir) {
+                                for t_entry in t_entries.flatten() {
+                                    if let Ok(content) = std::fs::read_to_string(t_entry.path()) {
+                                        if content.contains(needle) {
+                                            matches_ws = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if !matches_ws {
+                                use std::io::BufRead;
+                                if let Ok(file) = std::fs::File::open(&transcript_path) {
+                                    let reader = std::io::BufReader::new(file);
+                                    for line in reader.lines().flatten().take(25) {
+                                        if line.contains(needle) {
+                                            matches_ws = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        transcripts.push((transcript_path, mtime, matches_ws));
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort matching workspace sessions first, then by modified time descending
+    transcripts.sort_by(|a, b| {
+        b.2.cmp(&a.2).then_with(|| b.1.cmp(&a.1))
+    });
+
+    if let Some((latest_path, _, _)) = transcripts.first() {
+        use std::collections::VecDeque;
+        use std::io::{BufRead, BufReader};
+        if let Ok(file) = std::fs::File::open(latest_path) {
+            let reader = BufReader::new(file);
+            let mut lines: VecDeque<String> = VecDeque::with_capacity(300);
+            for line in reader.lines().flatten() {
+                if lines.len() >= 300 {
+                    lines.pop_front();
+                }
+                lines.push_back(line);
+            }
+            let result: Vec<String> = lines.into();
+            return Ok(Some(result.join("\n")));
+        }
+    }
+
+    Ok(None)
 }
 
 #[tauri::command]

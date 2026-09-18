@@ -43,13 +43,13 @@ export const HandoffPreviewModal: React.FC<HandoffPreviewModalProps> = ({
   };
 
   const handleExecute = async () => {
-    if (!activeWorkspaceId) return;
+    if (!activeWorkspaceId || !activeWorkspace?.projectPath) return;
     setIsTransferring(true);
     try {
       await executeHandoff({
         workspaceId: activeWorkspaceId,
         workspaceName: activeWorkspace?.name || 'Workspace',
-        projectPath: activeWorkspace?.projectPath || '/tmp',
+        projectPath: activeWorkspace.projectPath,
         sourceAgentId: sourceAgent.id,
         sourceAgentName: sourceAgent.name,
         sourceSessionId,

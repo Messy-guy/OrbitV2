@@ -64,12 +64,19 @@ export class AgyAdapter implements EngineAdapter {
         const timestamp = item.created_at ? new Date(item.created_at).getTime() : Date.now();
 
         if (item.type === 'USER_INPUT' && item.content) {
-          // Clean prompt metadata XML tags
+          // Clean prompt metadata XML tags and checkpoint summaries
           let prompt = String(item.content)
+            .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/g, '')
             .replace(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/g, '$1')
             .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '')
             .replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/g, '')
+            .replace(/^\{\{\s*CHECKPOINT\s*\d+\s*\}\}[\s\S]*?(?=\n\n|$)/gi, '')
             .trim();
+
+          // If the prompt starts with a planning directive like "/plan ", unwrap the real instruction
+          if (prompt.startsWith('/plan ')) {
+            prompt = prompt.slice(6).trim();
+          }
 
           if (prompt) {
             turns.push({

@@ -243,6 +243,9 @@ fn build_spec(
         "opencode" | "opencode-ai" => 2200,
         "mimo" | "mimo-cli" | "mimocode" => 5000,
         "vibe" | "mistral-vibe" | "vibe-cli" => 1800,
+        "antigravity" | "agy" => if initial_prompt.is_some() { 1200 } else { 0 },
+        "claude" => if initial_prompt.is_some() { 1000 } else { 0 },
+        "codex" | "openai-codex" => if initial_prompt.is_some() { 1000 } else { 0 },
         "terminal" | "shell" | "bash" | "sh" | "zsh" | "fish" => 0,
         // Providers without a documented startup handshake must receive
         // input immediately. A generic sleep is indistinguishable from a

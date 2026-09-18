@@ -202,10 +202,23 @@ pub fn get_git_diff_summary(project_path: &str) -> String {
     }
 }
 
+pub fn is_safe_rel_path(file_path: &str) -> bool {
+    let p = std::path::Path::new(file_path);
+    if p.is_absolute() {
+        return false;
+    }
+    for component in p.components() {
+        if matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)) {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn get_git_file_diff(project_path: &str, file_path: &str) -> String {
     let path = Path::new(project_path);
-    if !path.exists() {
-        return "No git repository found at workspace path.".to_string();
+    if !path.exists() || !is_safe_rel_path(file_path) {
+        return "No changes detected for this file.".to_string();
     }
 
     // 1. Try standard working-tree diff against HEAD
@@ -385,6 +398,9 @@ pub fn get_git_file_diff_data(project_path: &str, file_path: &str, is_staged: Op
 }
 
 pub fn stage_file(project_path: &str, file_path: &str) -> Result<(), String> {
+    if !is_safe_rel_path(file_path) {
+        return Err("Invalid file path: path traversal is not permitted".to_string());
+    }
     let path = Path::new(project_path);
     let output = Command::new("git")
         .args(["add", "--", file_path])
@@ -400,6 +416,9 @@ pub fn stage_file(project_path: &str, file_path: &str) -> Result<(), String> {
 }
 
 pub fn unstage_file(project_path: &str, file_path: &str) -> Result<(), String> {
+    if !is_safe_rel_path(file_path) {
+        return Err("Invalid file path: path traversal is not permitted".to_string());
+    }
     let path = Path::new(project_path);
     // Try git restore --staged first
     let res = Command::new("git")
@@ -469,6 +488,9 @@ pub fn unstage_all(project_path: &str) -> Result<(), String> {
 }
 
 pub fn discard_file(project_path: &str, file_path: &str) -> Result<(), String> {
+    if !is_safe_rel_path(file_path) {
+        return Err("Invalid file path: path traversal is not permitted".to_string());
+    }
     let path = Path::new(project_path);
     let full_path = path.join(file_path);
 
@@ -577,6 +599,13 @@ pub struct GitHubCliRepo {
 }
 
 pub fn clone_repository(clone_url: &str, target_path: &str) -> Result<String, String> {
+    if clone_url.trim().starts_with('-') {
+        return Err("Invalid clone URL: cannot start with a dash".to_string());
+    }
+    if target_path.trim().starts_with('-') {
+        return Err("Invalid target path: cannot start with a dash".to_string());
+    }
+
     let target = Path::new(target_path);
     if target.exists() {
         if target.is_dir() {
@@ -595,7 +624,7 @@ pub fn clone_repository(clone_url: &str, target_path: &str) -> Result<String, St
     }
 
     let output = Command::new("git")
-        .args(["clone", "--progress", clone_url, target_path])
+        .args(["clone", "--progress", "--", clone_url, target_path])
         .output()
         .map_err(|e| format!("Failed to run git clone: {}", e))?;
 

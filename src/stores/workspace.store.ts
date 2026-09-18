@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Workspace } from '../types/orbit';
 import { workspaceService } from '../services';
+import { tauriService } from '../services/tauri.service';
 
 interface WorkspaceState {
   workspaces: Workspace[];
@@ -123,6 +124,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
 
       set({ workspaces: enriched, activeWorkspaceId: validActive, isLoading: false });
+      if (validActive) {
+        const activeWs = enriched.find(w => w.id === validActive);
+        if (activeWs?.projectPath) {
+          void tauriService.bootProjectMemory(activeWs.projectPath, activeWs.name);
+        }
+      }
     } catch (e) {
       console.error('Failed to load workspaces', e);
       set({ isLoading: false });
@@ -138,6 +145,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
     } catch {}
     set({ activeWorkspaceId: id });
+    if (id) {
+      const ws = get().workspaces.find(w => w.id === id);
+      if (ws?.projectPath) {
+        void tauriService.bootProjectMemory(ws.projectPath, ws.name);
+      }
+    }
   },
 
   createWorkspace: async (name: string, projectPath: string) => {
@@ -157,6 +170,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         [newWs.id]: defaultSpace.id,
       }
     }));
+    if (newWs.projectPath) {
+      void tauriService.bootProjectMemory(newWs.projectPath, newWs.name);
+    }
     return newWs;
   },
 

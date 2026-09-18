@@ -195,7 +195,7 @@ export const ShareContextModal: React.FC = () => {
     : null;
 
   const handleExecuteHandoff = async () => {
-    if (!activeWorkspaceId || !sourceAgent || !validTarget || !previewData) return;
+    if (!activeWorkspaceId || !sourceAgent || !validTarget || !previewData || !activeWorkspace?.projectPath) return;
     setIsTransferring(true);
     try {
       setTransferStep('Synthesizing conversation trajectory & user directives...');
@@ -208,7 +208,7 @@ export const ShareContextModal: React.FC = () => {
       await executeHandoff({
         workspaceId: activeWorkspaceId,
         workspaceName: activeWorkspace?.name || 'Workspace',
-        projectPath: activeWorkspace?.projectPath || '/tmp',
+        projectPath: activeWorkspace.projectPath,
         sourceAgentId: sourceAgent.id,
         sourceAgentName: sourceAgent.name,
         sourceSessionId,

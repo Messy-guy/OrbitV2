@@ -125,11 +125,13 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       );
       await reattach();
       if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
-      snapshotPollRef.current = setInterval(() => {
+      const pollSnapshot = () => {
+        if (typeof document !== 'undefined' && document.hidden) return;
         void tauriService.getNativeTerminalSnapshot(sessionRef.current)
           .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
           .catch(() => {});
-      }, 120);
+      };
+      snapshotPollRef.current = setInterval(pollSnapshot, 140);
       setPhase('active');
       resizeTerminal(agentId, rows, columns);
 
@@ -151,7 +153,18 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   useEffect(() => {
     if (!projectPath) return;
     void startSession();
+
+    const onVisibility = () => {
+      if (!document.hidden && sessionRef.current) {
+        void tauriService.getNativeTerminalSnapshot(sessionRef.current)
+          .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
+          .catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
       const subscription = subscriptionRef.current;
       subscriptionRef.current = null;
       void subscription?.detach().catch(() => {});
