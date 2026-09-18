@@ -1263,11 +1263,10 @@ pub fn append_project_event(
 
 #[tauri::command]
 pub fn execute_agent_handoff(
-
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     handoff: HandoffRecord,
-    target_provider: String,
+    _target_provider: String,
 ) -> Result<u32, String> {
     // 1. Record the handoff
     state.storage.record_handoff(handoff.clone());
@@ -1689,57 +1688,42 @@ pub fn execute_agent_handoff(
     );
 
 
-    // 4. If the target agent session is ALREADY running — write directly to its stdin.
-    //    Never kill a live session during a handoff.
-    if let Some(session) = state
-        .terminal_service
-        .session_for_agent(&handoff.target_agent_id)
-        .filter(|session| session.is_running())
-    {
-        match session.input(format!("{}\r", concise_prompt).into_bytes()) {
-            Ok(_) => return Ok(session.info.pid),
-            Err(e) => {
-                eprintln!("[ORBIT HANDOFF] Input to running session failed: {e}. Falling back to fresh start.");
-            }
-        }
+    if concise_prompt.trim().is_empty() {
+        return Err("Handoff prompt cannot be empty. Verified engineering state must provide instructions for the target agent.".to_string());
     }
-    if state.pty_manager.is_running(&handoff.target_agent_id) {
-        // Append \r so TUI agents (Ink, readline) submit the input immediately
-        let _ = state
+
+    // 4. Strict Product Contract: Orbit does NOT spawn Agent B as a consequence of handoff.
+    //    Agents are independently spawned by the user first.
+    //    Handoff target must be an existing, already-running session.
+    //    Never kill, restart, or spawn a replacement agent during handoff.
+    let target_session_id_str = handoff.target_session_id.as_deref().unwrap_or("");
+    let running_session = state
+        .terminal_service
+        .session_for_input(&handoff.target_agent_id, target_session_id_str);
+
+    if let Some(session) = running_session {
+        match session.input(format!("{}\r", concise_prompt).into_bytes()) {
+            Ok(_) => Ok(session.info.pid),
+            Err(e) => Err(format!(
+                "Failed to deliver handoff prompt to running target agent session: {e}"
+            )),
+        }
+    } else if state.pty_manager.is_running(&handoff.target_agent_id) {
+        let res = state
             .pty_manager
             .write(&handoff.target_agent_id, &format!("{}\r", concise_prompt));
-        return Ok(0);
+        match res {
+            Ok(_) => Ok(0),
+            Err(e) => Err(format!(
+                "Failed to deliver handoff prompt to running PTY target agent: {e}"
+            )),
+        }
+    } else {
+        Err(format!(
+            "Target agent '{}' is not currently running. Handoff requires an existing, running agent session. Please launch Agent B first, then select it as the handoff target.",
+            handoff.target_agent_id
+        ))
     }
-
-    // 5. Target is NOT running — spawn a fresh interactive session WITHOUT a prompt.
-    //    Passing prompt=None means create_session will NOT kill any existing session
-    //    and the TUI mounts cleanly. We then deliver the prompt via a delayed write,
-    //    giving the TUI time to fully initialize before receiving any input.
-    let target_session_id = handoff.target_session_id.unwrap_or_else(|| {
-        format!(
-            "sess-{}-{}",
-            handoff.target_agent_id,
-            chrono_now_millis() % 10000
-        )
-    });
-
-    // The native session owns the startup delay and prompt write. This keeps
-    // handoff launches on the same PTY/emulator/input path as AgentTerminal.
-    let info = state.terminal_service.start(
-        Some(app),
-        target_session_id,
-        handoff.target_agent_id.clone(),
-        target_provider,
-        handoff.context_package.project_path.clone(),
-        30,
-        100,
-        None,
-        None,
-        Some(concise_prompt),
-        None,
-    )?;
-
-    Ok(info.pid)
 }
 
 // Phase 4 Intelligent Context Commands
@@ -2234,19 +2218,20 @@ fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::Path
     let clean_str = sanitize_clean_file_path(relative_path);
     let clean = clean_str.as_str();
 
-    // Expand tilde (~) if present
+    let get_home = || -> Option<std::path::PathBuf> {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(std::path::PathBuf::from)
+        }
+    };
+
+    // Expand tilde (~) if present in relative_path
     if clean.starts_with('~') {
-        let home = {
-            #[cfg(windows)]
-            {
-                std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
-            }
-            #[cfg(not(windows))]
-            {
-                std::env::var_os("HOME").map(std::path::PathBuf::from)
-            }
-        };
-        if let Some(h) = home {
+        if let Some(h) = get_home() {
             let sub = clean.trim_start_matches('~').trim_start_matches('/');
             return if sub.is_empty() { h } else { h.join(sub) };
         }
@@ -2256,7 +2241,17 @@ fn resolve_file_path(project_path: &str, relative_path: &str) -> std::path::Path
     if p.is_absolute() {
         p.to_path_buf()
     } else if !project_path.is_empty() {
-        std::path::Path::new(project_path).join(clean)
+        let proj_buf = if project_path.starts_with('~') {
+            if let Some(h) = get_home() {
+                let sub = project_path.trim_start_matches('~').trim_start_matches('/');
+                if sub.is_empty() { h } else { h.join(sub) }
+            } else {
+                std::path::PathBuf::from(project_path)
+            }
+        } else {
+            std::path::PathBuf::from(project_path)
+        };
+        proj_buf.join(clean)
     } else {
         p.to_path_buf()
     }

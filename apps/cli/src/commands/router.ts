@@ -4,6 +4,7 @@ import { SkillProjector } from '../skills/projector.js';
 import { HandoffEngine } from '../handoff/engine.js';
 import { getGitContext } from '../context/git.js';
 import { readProjectMemory } from '../context/memory.js';
+import { getProjectHealthSnapshot } from '../context/health.js';
 import { AgentProvider, OrbitSession } from '../types.js';
 
 export interface CommandResult {
@@ -38,6 +39,7 @@ export class CommandRouter {
       'switch',
       'skills',
       'context',
+      'health',
       'handoff',
       'status',
       'detach',
@@ -148,6 +150,49 @@ export class CommandRouter {
             out += `      • ${d}\n`;
           });
         }
+        return { handled: true, message: out };
+      }
+
+      case 'health': {
+        const snap = getProjectHealthSnapshot(this.cwd);
+        let out = `\n  ======================================================\n`;
+        out += `  ORBIT PROJECT HEALTH SNAPSHOT\n`;
+        out += `  ======================================================\n`;
+        out += `  • Project: ${snap.projectName} (${snap.projectPath})\n`;
+        out += `  • Git Branch: ${snap.gitBranch} @ ${snap.gitHead}\n`;
+        out += `  • Working Tree: ${snap.workingTreeStatus.diffSummary}\n`;
+        if (snap.techStack.length > 0) {
+          out += `  • Tech Stack: ${snap.techStack.map((t) => `${t.name} (${t.category})`).join(', ')}\n`;
+        }
+        if (snap.relevantDirectories.length > 0) {
+          out += `  • Directories: ${snap.relevantDirectories.join(', ')}\n`;
+        }
+        out += `  • Active Task: ${snap.activeTask}\n`;
+        if (snap.completedWork.length > 0) {
+          out += `  • Completed Work:\n`;
+          snap.completedWork.forEach((w) => {
+            out += `      ✓ ${w}\n`;
+          });
+        }
+        if (snap.architecturalDecisions.length > 0) {
+          out += `  • Architectural Decisions:\n`;
+          snap.architecturalDecisions.forEach((d) => {
+            out += `      • [${d.id}] ${d.decision}\n`;
+          });
+        }
+        if (snap.unresolvedIssues.length > 0) {
+          out += `  • Unresolved Issues:\n`;
+          snap.unresolvedIssues.forEach((i) => {
+            out += `      ⚠ [${i.id}] ${i.issue}\n`;
+          });
+        }
+        if (snap.verifiedChangedFiles.length > 0) {
+          out += `  • Verified Changed Files: ${snap.verifiedChangedFiles.length} file(s)\n`;
+          snap.verifiedChangedFiles.slice(0, 5).forEach((f) => {
+            out += `      📄 ${f.path} [${f.verificationLevel}]\n`;
+          });
+        }
+        out += `  ======================================================\n`;
         return { handled: true, message: out };
       }
 

@@ -36,7 +36,7 @@ import { clsx } from 'clsx';
 
 export const ShareContextModal: React.FC = () => {
   const { isShareContextOpen, setShareContextOpen, selectedAgentForModal } = useUIStore();
-  const { agents, activeSessionIdByAgent } = useAgentStore();
+  const { agents, activeSessionIdByAgent, sessions } = useAgentStore();
   const { currentContext, gitState, executeHandoff } = useContextStore();
   const { activeWorkspaceId, getActiveWorkspace } = useWorkspaceStore();
   const settings = useSettingsStore();
@@ -65,8 +65,8 @@ export const ShareContextModal: React.FC = () => {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const validTarget = targetAgents.find(a => a.id === targetAgentId) || targetAgents[0];
-  const sourceSessionId = (sourceAgent && (activeSessionIdByAgent[sourceAgent.id] || sourceAgent.currentSessionId)) || `sess-${sourceAgent?.id || 'src'}`;
-  const targetSessionId = (validTarget && (activeSessionIdByAgent[validTarget.id] || validTarget.currentSessionId)) || `sess-${validTarget?.id || 'tgt'}`;
+  const sourceSessionId = (sourceAgent && (activeSessionIdByAgent[sourceAgent.id] || sourceAgent.currentSessionId || sessions[sourceAgent.id]?.[0]?.id)) || `sess-${sourceAgent?.id || 'src'}`;
+  const targetSessionId: string = (validTarget && (activeSessionIdByAgent[validTarget.id] || validTarget.currentSessionId || sessions[validTarget.id]?.[0]?.id)) || (validTarget ? `sess-${validTarget.id}` : '');
 
 
   // Auto-align default intent based on source agent role
@@ -196,7 +196,11 @@ export const ShareContextModal: React.FC = () => {
     : null;
 
   const handleExecuteHandoff = async () => {
-    if (!activeWorkspaceId || !sourceAgent || !validTarget || !previewData || !activeWorkspace?.projectPath) return;
+    if (!validTarget) {
+      setTransferError("No target agent available. Launch an existing target agent first, then select it for handoff.");
+      return;
+    }
+    if (!activeWorkspaceId || !sourceAgent || !previewData || !activeWorkspace?.projectPath) return;
     setIsTransferring(true);
     setTransferError(null);
     try {

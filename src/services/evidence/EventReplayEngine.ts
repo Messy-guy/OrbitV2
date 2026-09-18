@@ -8,8 +8,7 @@ import {
 } from '../../types/provenance';
 import { EventStore } from './EventStore';
 import { isTauriAvailable, tauriService } from '../tauri.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { pathJoin, getNodeFs } from '../../utils/pathUtils';
 
 export interface ProjectedProjectState {
   project: {
@@ -447,6 +446,30 @@ export class EventReplayEngine {
                 });
               }
             }
+            if (payload.target && (level === 'behavior_verified' || level === 'file_verified')) {
+              const summary = typeof payload.target === 'string' ? payload.target : '';
+              if (summary && summary.length > 5 && !state.mission.progress.completed.includes(summary)) {
+                state.mission.progress.completed.push(summary);
+              }
+            }
+          }
+          break;
+        }
+
+        case 'agent.activity': {
+          const payload = evt.payload as any;
+          const completedItem = payload?.completed || (payload?.status === 'completed' ? payload?.summary : undefined);
+          if (completedItem && typeof completedItem === 'string' && completedItem.trim()) {
+            const item = completedItem.trim();
+            if (!state.mission.progress.completed.includes(item)) {
+              state.mission.progress.completed.push(item);
+            }
+            state.mission.progress.active = state.mission.progress.active.filter((a) => a !== item);
+          } else if (payload?.active && typeof payload.active === 'string') {
+            const act = payload.active.trim();
+            if (act && !state.mission.progress.active.includes(act)) {
+              state.mission.progress.active.push(act);
+            }
           }
           break;
         }
@@ -469,15 +492,16 @@ export class EventReplayEngine {
    */
   static async persistProjections(projectSlug: string, state: ProjectedProjectState): Promise<void> {
     const projectDir = EventStore.getProjectDir(projectSlug);
-    const viewsDir = path.join(projectDir, 'views');
+    const viewsDir = pathJoin(projectDir, 'views');
+    const nodeFs = await getNodeFs();
 
     const writeJson = async (filename: string, data: any) => {
       const content = JSON.stringify(data, null, 2);
-      const p = path.join(projectDir, filename);
-      if (typeof fs !== 'undefined' && fs.promises) {
+      const p = pathJoin(projectDir, filename);
+      if (nodeFs && nodeFs.promises) {
         try {
-          await fs.promises.mkdir(projectDir, { recursive: true });
-          await fs.promises.writeFile(p, content, 'utf8');
+          await nodeFs.promises.mkdir(projectDir, { recursive: true });
+          await nodeFs.promises.writeFile(p, content, 'utf8');
           return;
         } catch {}
       }
@@ -491,13 +515,13 @@ export class EventReplayEngine {
     };
 
     const writeMd = async (filename: string, content: string) => {
-      const p = path.join(viewsDir, filename);
+      const p = pathJoin(viewsDir, filename);
       const header = `<!-- Generated view maintained by Orbit. Direct edits should be made via Orbit or will be overwritten during view projection. -->\n\n`;
       const full = header + content;
-      if (typeof fs !== 'undefined' && fs.promises) {
+      if (nodeFs && nodeFs.promises) {
         try {
-          await fs.promises.mkdir(viewsDir, { recursive: true });
-          await fs.promises.writeFile(p, full, 'utf8');
+          await nodeFs.promises.mkdir(viewsDir, { recursive: true });
+          await nodeFs.promises.writeFile(p, full, 'utf8');
           return;
         } catch {}
       }
@@ -510,9 +534,9 @@ export class EventReplayEngine {
       }
     };
 
-    if (typeof fs !== 'undefined' && fs.mkdirSync) {
+    if (nodeFs && nodeFs.mkdirSync) {
       try {
-        fs.mkdirSync(viewsDir, { recursive: true });
+        nodeFs.mkdirSync(viewsDir, { recursive: true });
       } catch {}
     }
 

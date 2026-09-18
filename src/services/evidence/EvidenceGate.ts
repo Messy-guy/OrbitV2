@@ -2,8 +2,7 @@ import { VerificationEvidence, VerificationLevel, Provenance } from '../../types
 import { OrbitEvent } from '../../types/events';
 import { EventStore } from './EventStore';
 import { isTauriAvailable, tauriService } from '../tauri.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { isAbsolutePath, pathJoin, pathDirname, getNodeFs } from '../../utils/pathUtils';
 
 export class EvidenceGate {
   /**
@@ -20,13 +19,14 @@ export class EvidenceGate {
 
     // 1. File existence check
     let fileExists = false;
-    const absPath = path.isAbsolute(filePath) ? filePath : path.join(projectPath, filePath);
+    const absPath = isAbsolutePath(filePath) ? filePath : pathJoin(projectPath, filePath);
 
-    if (typeof fs !== 'undefined' && fs.existsSync) {
-      fileExists = fs.existsSync(absPath);
+    const nodeFs = await getNodeFs();
+    if (nodeFs && nodeFs.existsSync) {
+      fileExists = nodeFs.existsSync(absPath);
     } else if (isTauriAvailable()) {
       try {
-        const res = await tauriService.readWorkspaceFile(projectPath || path.dirname(absPath), filePath);
+        const res = await tauriService.readWorkspaceFile(projectPath || pathDirname(absPath), filePath);
         fileExists = !!res && typeof res.content === 'string';
       } catch {}
     }

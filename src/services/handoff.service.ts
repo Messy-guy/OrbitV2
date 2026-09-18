@@ -25,8 +25,7 @@ import { isTauriAvailable, tauriService } from './tauri.service';
 import { EvidenceGate } from './evidence/EvidenceGate';
 import { EventReplayEngine } from './evidence/EventReplayEngine';
 import { EventStore, getCanonicalProjectSlug } from './evidence/EventStore';
-import * as fs from 'fs';
-import * as path from 'path';
+import { pathJoin, getNodeFs } from '../utils/pathUtils';
 
 export function buildHandoffPackage(params: {
   project: {
@@ -803,15 +802,16 @@ ${agentDirective}
 
     // Persist canonical HANDOFF.json & views/HANDOFF.md directly to ~/.orbit/projects/<slug>/
     const projectDir = EventStore.getProjectDir(projectSlug);
-    const viewsDir = path.join(projectDir, 'views');
+    const viewsDir = pathJoin(projectDir, 'views');
     const handoffJsonStr = JSON.stringify(authoritativePkg, null, 2);
 
-    if (typeof fs !== 'undefined' && fs.promises) {
+    const nodeFs = await getNodeFs();
+    if (nodeFs && nodeFs.promises) {
       try {
-        await fs.promises.mkdir(viewsDir, { recursive: true });
-        await fs.promises.writeFile(path.join(projectDir, 'HANDOFF.json'), handoffJsonStr, 'utf8');
-        await fs.promises.writeFile(path.join(viewsDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
-        await fs.promises.writeFile(path.join(projectDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
+        await nodeFs.promises.mkdir(viewsDir, { recursive: true });
+        await nodeFs.promises.writeFile(pathJoin(projectDir, 'HANDOFF.json'), handoffJsonStr, 'utf8');
+        await nodeFs.promises.writeFile(pathJoin(viewsDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
+        await nodeFs.promises.writeFile(pathJoin(projectDir, 'HANDOFF.md'), canonicalMarkdown, 'utf8');
       } catch (err) {
         console.warn('[HandoffService] Direct fs write warning:', err);
       }

@@ -89,6 +89,23 @@ async function runProjectHealthSnapshotTests() {
   assert(snapshot.architecturalDecisions.length > 0, `Architectural decisions detected (${snapshot.architecturalDecisions.length} found)`);
   assert(snapshot.architecturalDecisions.some((d) => d.id === 'DEC-002' || d.decision.includes('Project Health Snapshot')), 'Architectural decision DEC-002 recovered from project memory');
 
+  // 10. Completed work
+  assert(Array.isArray(snapshot.completedWork), 'Completed work array present');
+  assert(snapshot.completedWork.length > 0, `Completed work detected (${snapshot.completedWork.length} found)`);
+
+  // 11. Verified changed files
+  assert(Array.isArray(snapshot.verifiedChangedFiles), 'Verified changed files array present');
+  assert(snapshot.verifiedChangedFiles.length > 0, `Verified changed files detected (${snapshot.verifiedChangedFiles.length} found)`);
+  assert(
+    snapshot.verifiedChangedFiles.every(
+      (f) =>
+        f.verificationLevel === 'file_verified' ||
+        f.verificationLevel === 'git_verified' ||
+        f.verificationLevel === 'behavior_verified'
+    ),
+    'All verified changed files have verified provenance'
+  );
+
   // -------------------------------------------------------------------------
   // TEST 2: Deterministic In-Memory Event Replay
   // -------------------------------------------------------------------------
@@ -176,6 +193,59 @@ async function runProjectHealthSnapshotTests() {
         verificationLevel: 'observed',
       },
     },
+    {
+      eventId: 'evt_act_syn',
+      type: 'agent.activity',
+      projectId: syntheticSlug,
+      sessionId: 'test_session',
+      timestamp: Date.now() + 4,
+      payload: {
+        completed: 'Configured Redis cluster connection topology',
+      },
+      provenance: {
+        sourceType: 'agent_observation',
+        sourceId: 'claude',
+        timestamp: Date.now() + 4,
+        confidence: 'verified',
+        verificationLevel: 'observed',
+      },
+    },
+    {
+      eventId: 'evt_file_syn_verified',
+      type: 'agent.claimed_file_change',
+      projectId: syntheticSlug,
+      sessionId: 'test_session',
+      timestamp: Date.now() + 5,
+      payload: {
+        path: 'src/services/cache.service.ts',
+        status: 'added',
+      },
+      provenance: {
+        sourceType: 'repository',
+        sourceId: 'git',
+        timestamp: Date.now() + 5,
+        confidence: 'verified',
+        verificationLevel: 'file_verified',
+      },
+    },
+    {
+      eventId: 'evt_file_syn_phantom',
+      type: 'agent.claimed_file_change',
+      projectId: syntheticSlug,
+      sessionId: 'test_session',
+      timestamp: Date.now() + 6,
+      payload: {
+        path: 'src/phantom/unverified.ts',
+        status: 'added',
+      },
+      provenance: {
+        sourceType: 'agent_observation',
+        sourceId: 'claude',
+        timestamp: Date.now() + 6,
+        confidence: 'inferred',
+        verificationLevel: 'claimed',
+      },
+    },
   ];
 
   const synSnapshot1 = await projectHealthService.generateSnapshot({
@@ -196,6 +266,9 @@ async function runProjectHealthSnapshotTests() {
   assert(synSnapshot1.activeTask === synSnapshot2.activeTask, 'Active tasks match across runs');
   assert(synSnapshot1.architecturalDecisions.length === synSnapshot2.architecturalDecisions.length, 'Decisions match deterministically');
   assert(synSnapshot1.unresolvedIssues.length === synSnapshot2.unresolvedIssues.length, 'Issues match deterministically');
+  assert(synSnapshot1.completedWork.length === synSnapshot2.completedWork.length, 'Completed work matches deterministically');
+  assert(synSnapshot1.verifiedChangedFiles.length === synSnapshot2.verifiedChangedFiles.length, 'Verified changed files match deterministically');
+  assert(synSnapshot1.completedWork.includes('Configured Redis cluster connection topology'), 'Recovered completed milestone from agent.activity event');
 
   // -------------------------------------------------------------------------
   // TEST 3: ContextService Delegation Parity
@@ -204,16 +277,15 @@ async function runProjectHealthSnapshotTests() {
   const delegatedSnapshot = await contextService.getProjectHealthSnapshot(orbitRepoPath, 'orbitv2');
   assert(delegatedSnapshot.schemaVersion === 1, 'Delegated snapshot schemaVersion is 1');
   assert(delegatedSnapshot.projectName === snapshot.projectName, 'Delegated snapshot matches projectHealthService directly');
+  assert(delegatedSnapshot.completedWork.length === snapshot.completedWork.length, 'Delegated completed work matches');
+  assert(delegatedSnapshot.verifiedChangedFiles.length === snapshot.verifiedChangedFiles.length, 'Delegated verified changed files match');
 
   // -------------------------------------------------------------------------
   // TEST 4: Authoritative Event Projection vs Legacy Source Isolation
   // -------------------------------------------------------------------------
   console.log('\n--- TEST 4: Authoritative Event Projection vs Legacy Source Isolation ---');
-  // Verify that even if a workspace has an empty or nonexistent local .orbit/DECISIONS.md,
-  // ProjectHealthSnapshot does not suffer data loss because it is derived from EventStore & EventReplayEngine
   const emptyOrbitTmp = path.join(os.tmpdir(), `orbit_isolated_${Date.now()}`);
   fs.mkdirSync(path.join(emptyOrbitTmp, '.orbit'), { recursive: true });
-  // local .orbit is completely empty
   const isolatedSnapshot = await projectHealthService.generateSnapshot({
     projectPath: emptyOrbitTmp,
     projectSlug: syntheticSlug,
@@ -222,6 +294,43 @@ async function runProjectHealthSnapshotTests() {
   assert(isolatedSnapshot.architecturalDecisions.length === 1, 'Recovered decision from EventStore even when local .orbit/DECISIONS.md is absent');
   assert(isolatedSnapshot.unresolvedIssues.length === 1, 'Recovered unresolved issue from EventStore even when local .orbit/BUGS.md is absent');
   fs.rmSync(emptyOrbitTmp, { recursive: true, force: true });
+
+  // -------------------------------------------------------------------------
+  // TEST 5: Rejection of Phantom Files in ProjectHealthSnapshot
+  // -------------------------------------------------------------------------
+  console.log('\n--- TEST 5: Rejection of Phantom File Changes ---');
+  const verifiedPaths = synSnapshot1.verifiedChangedFiles.map((f) => f.path);
+  assert(verifiedPaths.includes('src/services/cache.service.ts'), 'File-verified change included in snapshot');
+  assert(!verifiedPaths.includes('src/phantom/unverified.ts'), 'Unverified phantom file excluded from verifiedChangedFiles');
+
+  // -------------------------------------------------------------------------
+  // TEST 6: Dual-Layer Reconciliation of Working-Tree Modifications
+  // -------------------------------------------------------------------------
+  console.log('\n--- TEST 6: Dual-Layer Working-Tree Reconciliation ---');
+  const reconTmpDir = path.join(os.tmpdir(), `orbit_recon_${Date.now()}`);
+  fs.mkdirSync(path.join(reconTmpDir, 'src'), { recursive: true });
+  const realModifiedFile = path.join(reconTmpDir, 'src', 'real.ts');
+  fs.writeFileSync(realModifiedFile, 'export const x = 1;');
+
+  const reconSnapshot = await projectHealthService.generateSnapshot({
+    projectPath: reconTmpDir,
+    projectSlug: `recon_${Date.now()}`,
+    events: syntheticEvents,
+    gitState: {
+      currentBranch: 'feature/recon',
+      headCommit: 'c0ffee1',
+      modifiedFiles: [{ path: 'src/real.ts', status: 'modified', staged: false, unstaged: true, isUntracked: false }],
+      stagedFiles: [],
+      unstagedFiles: [{ path: 'src/real.ts', status: 'modified', staged: false, unstaged: true, isUntracked: false }],
+      untrackedFiles: [{ path: 'src/phantom.ts', status: 'untracked', staged: false, unstaged: false, isUntracked: true }],
+      recentCommits: ['Initial commit'],
+    },
+  });
+
+  const reconPaths = reconSnapshot.verifiedChangedFiles.map((f) => f.path);
+  assert(reconPaths.includes('src/real.ts'), 'Real modified file on disk reconciled into verifiedChangedFiles as git_verified');
+  assert(!reconPaths.includes('src/phantom.ts'), 'Phantom untracked file not existing on disk is excluded from verifiedChangedFiles');
+  fs.rmSync(reconTmpDir, { recursive: true, force: true });
 
   console.log('\n========================================================================');
   console.log(' 🎉 ALL PROJECT HEALTH SNAPSHOT TESTS PASSED CLEANLY');
@@ -232,3 +341,4 @@ runProjectHealthSnapshotTests().catch((err) => {
   console.error('\n❌ TEST SUITE FAILED:', err);
   process.exit(1);
 });
+

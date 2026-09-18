@@ -509,6 +509,15 @@ export interface ProjectHealthArchitecturalDecision {
   effectiveLevel: import('./provenance').VerificationLevel;
 }
 
+export interface ProjectHealthVerifiedFileChange {
+  path: string;
+  status: string;
+  verificationLevel: import('./provenance').VerificationLevel;
+  additions?: number;
+  deletions?: number;
+  diffSnippet?: string;
+}
+
 export interface ProjectHealthSnapshot {
   schemaVersion: 1;
   projectName: string;
@@ -519,8 +528,11 @@ export interface ProjectHealthSnapshot {
   workingTreeStatus: ProjectHealthWorkingTreeStatus;
   relevantDirectories: string[];
   activeTask: string;
+  completedWork: string[];
   unresolvedIssues: ProjectHealthUnresolvedIssue[];
   architecturalDecisions: ProjectHealthArchitecturalDecision[];
+  verifiedChangedFiles: ProjectHealthVerifiedFileChange[];
   generatedAt: number;
 }
+
 

@@ -1,8 +1,6 @@
 import { OrbitEvent, OrbitEventType } from '../../types/events';
 import { isTauriAvailable, tauriService } from '../tauri.service';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { pathJoin, pathDirname, pathBasename, getOrbitHomeDir, getNodeFs } from '../../utils/pathUtils';
 
 export { slugifyProjectName, getCanonicalProjectSlug, resolveProjectSlug } from './projectSlug';
 
@@ -12,16 +10,15 @@ export class EventStore {
    * ~/.orbit/projects/<projectSlug>/
    */
   static getProjectDir(projectSlug: string): string {
-    const home = process.env.HOME || process.env.USERPROFILE || os.homedir() || '.';
-    return path.join(home, '.orbit', 'projects', projectSlug);
+    return pathJoin(getOrbitHomeDir(), '.orbit', 'projects', projectSlug);
   }
 
   static getEventsFilePath(projectSlug: string): string {
-    return path.join(this.getProjectDir(projectSlug), 'events.jsonl');
+    return pathJoin(this.getProjectDir(projectSlug), 'events.jsonl');
   }
 
   static getQuarantineDir(projectSlug: string): string {
-    return path.join(this.getProjectDir(projectSlug), '.corrupted_events');
+    return pathJoin(this.getProjectDir(projectSlug), '.corrupted_events');
   }
 
   /**
@@ -99,26 +96,28 @@ export class EventStore {
   static async appendEvent<T = unknown>(projectSlug: string, event: OrbitEvent<T>): Promise<void> {
     const line = JSON.stringify(event) + '\n';
     const filePath = this.getEventsFilePath(projectSlug);
-    const dir = path.dirname(filePath);
+    const dir = pathDirname(filePath);
 
-    // 1. In Tauri environment, execute atomic ledger append in Rust
+    // 1. In Node runtime (test runner / CLI scripts), use atomic appendFile.
+    //    Checked first so that test environments where window is mocked still use real fs.
+    const nodeFs = await getNodeFs();
+    if (nodeFs && nodeFs.promises) {
+      try {
+        await nodeFs.promises.mkdir(dir, { recursive: true });
+        await nodeFs.promises.appendFile(filePath, line, 'utf8');
+        return;
+      } catch (e) {
+        console.error(`[EventStore] Failed to append event via fs:`, e);
+      }
+    }
+
+    // 2. In Tauri environment, execute atomic ledger append in Rust
     if (isTauriAvailable()) {
       try {
         const ok = await tauriService.appendProjectEvent(projectSlug, line);
         if (ok) return;
       } catch (e) {
         console.error(`[EventStore] Failed to append event ${event.eventId} via Tauri appendProjectEvent:`, e);
-      }
-    }
-
-    // 2. In Node runtime (test runner / CLI scripts), use atomic appendFile
-    if (typeof fs !== 'undefined' && fs.promises) {
-      try {
-        await fs.promises.mkdir(dir, { recursive: true });
-        await fs.promises.appendFile(filePath, line, 'utf8');
-        return;
-      } catch (e) {
-        console.error(`[EventStore] Failed to append event via fs:`, e);
       }
     }
   }
@@ -130,16 +129,18 @@ export class EventStore {
     const filePath = this.getEventsFilePath(projectSlug);
     let raw = '';
 
-    if (typeof fs !== 'undefined' && fs.existsSync && fs.existsSync(filePath)) {
+    const nodeFs = await getNodeFs();
+    if (nodeFs && nodeFs.existsSync && nodeFs.existsSync(filePath)) {
       try {
-        raw = fs.readFileSync(filePath, 'utf8');
+        raw = nodeFs.readFileSync(filePath, 'utf8');
       } catch {}
     } else if (isTauriAvailable()) {
       try {
-        const res = await tauriService.readWorkspaceFile(path.dirname(filePath), path.basename(filePath));
+        const res = await tauriService.readWorkspaceFile(pathDirname(filePath), pathBasename(filePath));
         raw = res.content || '';
       } catch {}
     }
+
 
     if (!raw.trim()) return [];
 
@@ -156,10 +157,10 @@ export class EventStore {
     if (hasCorrupted && corruptedLineText) {
       try {
         const quarantineDir = this.getQuarantineDir(projectSlug);
-        const quarantineFile = path.join(quarantineDir, `corrupt_${Date.now()}.jsonl`);
-        if (typeof fs !== 'undefined' && fs.promises) {
-          await fs.promises.mkdir(quarantineDir, { recursive: true });
-          await fs.promises.writeFile(quarantineFile, corruptedLineText, 'utf8');
+        const quarantineFile = pathJoin(quarantineDir, `corrupt_${Date.now()}.jsonl`);
+        if (nodeFs && nodeFs.promises) {
+          await nodeFs.promises.mkdir(quarantineDir, { recursive: true });
+          await nodeFs.promises.writeFile(quarantineFile, corruptedLineText, 'utf8');
         }
       } catch {}
     }
