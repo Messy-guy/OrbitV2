@@ -161,16 +161,25 @@ export class HybridHandoffService implements IHandoffService {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '') || 'default';
 
-    // High-signal, natural continuity protocol
-    const executionGuidance = requireConfirm
-      ? `## 🚀 INGESTION & CONTINUITY PROTOCOL
-1. Ingest this handoff brief and reference the connected project memory in \`~/.orbit/memory/projects/${projectSlug}/\`.
-2. Acknowledge the brief in 1-2 concise sentences summarizing the active mission and your immediate next action.
-3. Seamlessly proceed with implementation without repeating completed work.`
-      : `## 🚀 DIRECT EXECUTION PROTOCOL
-Acknowledge this brief in 1 sentence and immediately proceed with the Next Step without repeating completed work.`;
+    // High-signal, DISCUSS Ready Gate continuity protocol (inspired by leo-Agent MASTER.md & DISCUSS.md)
+    const executionGuidance = `## 🛡️ INGESTION & CONTINUITY PROTOCOL (DISCUSS READY GATE)
+You are inheriting this session from ${sourceAgentName}.
 
-    const memoryIndexSection = `## 📚 Connected Project Memory Files
+⚠️ CRITICAL INVARIANT: DO NOT MODIFY ANY FILES OR RUN DESTRUCTIVE COMMANDS YET.
+
+Follow this exact sequence:
+1. Ingest this handoff brief and verify the project state in \`~/.orbit/memory/projects/${projectSlug}/\` (SESSION.md, DECISIONS.md, CHANGES.md).
+2. Formulate a crisp, conversational response to the user containing:
+   • 🎯 Inherited Mission: 1-2 sentences summarizing what ${sourceAgentName} accomplished.
+   • 💬 Last User Interaction: What you and ${sourceAgentName} were actively discussing.
+   • 📋 Proposed Immediate Action: What you plan to do next.
+3. Conclude by explicitly asking the user:
+   "I have loaded the full session context from ${sourceAgentName} and am ready. Shall I proceed with [Proposed Action], or would you like to direct me otherwise?"
+4. STOP and WAIT for user confirmation before making code modifications.`;
+
+    const memoryIndexSection = `## 📚 Connected Project Memory Files (System & Workspace)
+• **Master Continuity Protocol**: \`~/.orbit/system/MASTER.md\`
+• **Conversational Orchestrator & Ready Gate**: \`~/.orbit/system/DISCUSS.md\`
 • **Session Trajectory & Past Conversations**: \`~/.orbit/memory/projects/${projectSlug}/SESSION.md\`
 • **Architectural Decisions & Invariants**: \`~/.orbit/memory/projects/${projectSlug}/DECISIONS.md\`
 • **Project Roadmap & Milestone Phases**: \`~/.orbit/memory/projects/${projectSlug}/ROADMAP.md\`
@@ -223,12 +232,12 @@ Acknowledge this brief in 1 sentence and immediately proceed with the Next Step 
     const intent = distilledBrief?.intent || 'chat_continue';
     let intentSubtitle = '**Workflow Intent**: 🔄 Resuming Conversation (Master Boot)';
     let intentSection = '';
-    let agentDirective = `*Instructions for ${targetAgentName}: Seamlessly continue this exact discussion as if you generated the prior turns.*`;
+    let agentDirective = `*Instructions for ${targetAgentName}: Ingest this brief and recent conversation trajectory. Follow DISCUSS Ready Gate protocol: Do NOT edit files yet. Greet the user, summarize the inherited mission and last user directive, and confirm the next action before proceeding.*`;
 
     if (intent === 'plan_to_code') {
       intentSubtitle = '**Workflow Intent**: ⚡ Plan ➔ Code Relay (Brahma to Mahesh)';
       intentSection = `## 🛑 MAHESH Guardrails (Zero Bloat Invariants)\n• Rule 1: Pass test suite with minimal diff.\n• Rule 2: Zero sequential awaits for independent tasks (use Promise.all).\n• Rule 3: Zero unapproved npm packages or dependency bloat.\n• Rule 4: Absolute file protection (.env, .git, config untouched).\n\n`;
-      agentDirective = `*Instructions for ${targetAgentName}: Begin implementing the code immediately step by step without re-planning.*`;
+      agentDirective = `*Instructions for ${targetAgentName}: Ingest Brahma's specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
     } else if (intent === 'security_audit') {
       intentSubtitle = '**Workflow Intent**: 🛡️ Vishnu 15-Dimension Security Audit';
       intentSection = `## 🛡️ VISHNU 15-Dim Invariants & Audit Scope\n1. Race condition detection (atomic transactions for state).\n2. Input validation & sanitize params.\n3. No secrets or environment leakage.\n4. Error boundary & crash recovery.\n\n`;

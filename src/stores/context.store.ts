@@ -365,18 +365,22 @@ export const useContextStore = create<ContextState>((set, get) => ({
         ? (params.previewSummary.currentIssue ? [params.previewSummary.currentIssue] : currentContext?.issues.map((i) => i.title) || [])
         : [],
       gitState: params.selection.includeGitState ? gitState || undefined : undefined,
-      relevantHistory: (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
-        ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
-        : undefined,
+      relevantHistory: params.previewSummary.verbatimTranscript
+        ? [params.previewSummary.verbatimTranscript, params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative || '']
+        : (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
+          ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
+          : undefined,
     });
 
     const contextPackage: ContextPackage = {
       ...rawContextPackage,
       fileSummaries: params.previewSummary.fileSummaries || rawContextPackage.fileSummaries,
       patterns: params.previewSummary.conversationSynthesis?.patterns || rawContextPackage.patterns,
-      relevantHistory: (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
-        ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
-        : rawContextPackage.relevantHistory,
+      relevantHistory: params.previewSummary.verbatimTranscript
+        ? [params.previewSummary.verbatimTranscript, params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative || '']
+        : (params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative)
+          ? [params.previewSummary.conversationSynthesis?.narrativeSummary || params.previewSummary.summaryNarrative!]
+          : rawContextPackage.relevantHistory,
       formattedInstruction: params.previewSummary.formattedInstruction || rawContextPackage.formattedInstruction,
       estimatedTokens: params.previewSummary.estimatedTokens || rawContextPackage.estimatedTokens,
     };
@@ -398,7 +402,13 @@ export const useContextStore = create<ContextState>((set, get) => ({
 
     // 3. Inject message into target agent session & UI store
     const agentStore = useAgentStore.getState();
+    agentStore.setActiveSession(params.targetAgentId, params.targetSessionId);
     agentStore.addDirectMessage(params.targetSessionId, targetMessage);
+    if (agentReply) {
+      agentStore.addDirectMessage(params.targetSessionId, agentReply);
+    }
+
+
 
     // 4. Update handoff history state
     set((state) => ({

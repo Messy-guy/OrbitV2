@@ -10,8 +10,9 @@ mod storage;
 mod terminal;
 
 use commands::{
-    apply_context_draft, create_session, create_workspace, delete_agent, delete_checkpoint,
+    apply_context_draft, boot_project_memory, create_session, create_workspace, delete_agent, delete_checkpoint,
     delete_workspace, detect_agents, execute_agent_handoff, generate_context_draft,
+
     generate_context_package, get_agent_mcp_tools, get_agent_terminal_history,
     get_agent_usage_stats, get_checkpoints, get_git_state, get_handoff_history,
     get_project_activity, get_project_context, get_sessions, get_workspace_agents, get_workspaces,
@@ -164,7 +165,9 @@ pub fn run() {
             get_handoff_history,
             record_handoff,
             execute_agent_handoff,
+            boot_project_memory,
             get_project_activity,
+
             generate_context_draft,
             apply_context_draft,
             record_user_decision,

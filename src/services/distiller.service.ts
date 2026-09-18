@@ -16,6 +16,7 @@ export interface DistilledSessionBrief {
   blockers: string[];
   decisions: string[];
   nextSteps: string;
+  verbatimTranscript?: string;
   estimatedTokens: number;
   originalTokensEstimated: number;
   compressionRatioPercent: number;
@@ -181,7 +182,7 @@ ${timeLensReport}
 ## 👉 Immediate Next Action
 ${nextStep}
 
-*Instructions for ${targetAgentName}: Seamlessly continue this exact discussion as if you generated the prior turns.*`;
+*Instructions for ${targetAgentName}: Ingest this brief and recent conversation trajectory. Follow DISCUSS Ready Gate protocol: Do NOT edit files yet. Greet the user, summarize the inherited mission and last user directive, and confirm the next action before proceeding.*`;
     } else if (intent === 'plan_to_code') {
       formattedEnvelope = `# ⚡ ORBIT CONTINUITY: BRAHMA TO MAHESH CODE RELAY
 **From**: ${sourceAgentName} (Plan Architect)  ➔  **To**: ${targetAgentName} (TDD Builder)
@@ -205,7 +206,7 @@ ${timeLensReport}
 ## 👉 Immediate Action: Step 1
 ${nextStep}
 
-*Instructions for ${targetAgentName}: Begin implementing the code immediately step by step without re-planning.*`;
+*Instructions for ${targetAgentName}: Ingest Brahma's specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
     } else {
       // Security & AST Audit (Vishnu)
       formattedEnvelope = `# 🛡️ ORBIT CONTINUITY: VISHNU 15-DIMENSION SECURITY AUDIT
@@ -235,6 +236,7 @@ ${timeLensReport}
       filesTouched: chosenFiles.length > 0 ? chosenFiles : sessionData.filesTouched,
       fileSummaries: sessionData.fileSummaries,
       conversationSynthesis: sessionData.conversationSynthesis,
+      verbatimTranscript: sessionData.verbatimTranscript,
       timeLensReport,
       blockers: chosenBlockers.length > 0 ? chosenBlockers : sessionData.blockersFound,
       decisions: chosenDecisions.length > 0 ? chosenDecisions : sessionData.decisionsFormulated,

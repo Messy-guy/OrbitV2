@@ -451,6 +451,12 @@ export const tauriService = {
     return invoke<number>('execute_agent_handoff', { handoff, targetProvider });
   },
 
+  async bootProjectMemory(projectPath: string, workspaceName?: string): Promise<string> {
+    if (!isTauriAvailable()) return 'default';
+    return invoke<string>('boot_project_memory', { projectPath, workspaceName });
+  },
+
+
   // Phase 4: Intelligent Context Engine
   async getProjectActivity(workspaceId: string): Promise<import('../types/orbit').ProjectActivityState | null> {
     if (!isTauriAvailable()) return null;

@@ -32,12 +32,14 @@ export const AgentCanvas: React.FC = () => {
   const setShareContextOpen = useUIStore(s => s.setShareContextOpen);
   const setAddAgentOpen = useUIStore(s => s.setAddAgentOpen);
   const maximizedAgentId = useUIStore(s => s.maximizedAgentId);
+  const selectedAgentForModal = useUIStore(s => s.selectedAgentForModal);
   const isMinimapVisible = useUIStore(s => s.isMinimapVisible);
   const checkpoints = useContextStore(s => s.checkpoints);
   const currentContext = useContextStore(s => s.currentContext);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+
   const [topZIndex, setTopZIndex] = useState<number>(10);
   const [windowBounds, setWindowBounds] = useState<Record<string, WindowBounds>>({});
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
@@ -197,6 +199,13 @@ export const AgentCanvas: React.FC = () => {
       return nextZ;
     });
   };
+
+  useEffect(() => {
+    if (selectedAgentForModal) {
+      bringToFront(selectedAgentForModal);
+    }
+  }, [selectedAgentForModal]);
+
 
   const handlePositionChange = (agentId: string, bounds: { x: number; y: number; width: number; height: number }) => {
     setWindowBounds(prev => ({

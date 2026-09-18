@@ -36,6 +36,7 @@ export interface ExtractedSessionData {
   lastUnfinishedStep?: string;
   detailedConversationLog?: string;
   conversationSynthesis?: ConversationSynthesis;
+  verbatimTranscript?: string;
 }
 
 export class UniversalSessionExtractor {
@@ -87,10 +88,43 @@ export class UniversalSessionExtractor {
   }
 
   /**
+   * Formats clean chronological conversation dialogue between user and agent
+   */
+  public static formatVerbatimTranscript(turns: ExtractedTurn[], maxTurns = 10): string {
+    const recent = turns.slice(-maxTurns);
+    if (recent.length === 0) return 'No prior conversation turns recorded for this session.';
+
+    return recent.map((turn, index) => {
+      const speaker = turn.role === 'user' ? '👤 User' : '🤖 Agent';
+      const cleanContent = turn.content.trim();
+      let block = `#### Turn ${index + 1} — ${speaker}\n> ${cleanContent.replace(/\n/g, '\n> ')}`;
+      if (turn.toolsExecuted && turn.toolsExecuted.length > 0) {
+        block += `\n> *Tools run: ${turn.toolsExecuted.map(t => `${t.name}${t.target ? ` (${t.target})` : ''}`).join(', ')}*`;
+      }
+      return block;
+    }).join('\n\n');
+  }
+
+  /**
    * Analyzes a unified file diff and produces a concise, human-readable summary
    * and clean truncated diff snippet.
    */
   public static summarizeFileDiff(filePath: string, diffText: string, status = 'modified'): FileEditSummary {
+    // VISHNU 15-Dim Security & FILE-KEEPER: Absolute redaction for environment & secret files
+    const isSecretFile = 
+      /(?:^|\/)\.env(?:\.[^/]+)?$/i.test(filePath) ||
+      /(?:id_rsa|id_ecdsa|id_ed25519|\.pem$|\.key$|service-account.*\.json$)/i.test(filePath);
+    if (isSecretFile) {
+      return {
+        filePath,
+        status,
+        additions: 0,
+        deletions: 0,
+        summary: `Protected environment/secret file (${filePath}). Content redacted for security.`,
+        diffSnippet: '--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---',
+      };
+    }
+
     if (!diffText || diffText.trim().length === 0) {
       return {
         filePath,
@@ -238,6 +272,9 @@ export class UniversalSessionExtractor {
       `### 🎯 Session Objectives & Directives:`,
       `**Goal**: ${resolvedPrimaryGoal}`,
       ...objectives.slice(-4).map((u, i) => `• Directive ${i + 1}: "${u}"`),
+      ``,
+      `### 💬 Verbatim Recent Conversation Dialogue (User ⇄ Agent):`,
+      this.formatVerbatimTranscript(turns, 8),
       ``,
       `### 🛠️ Work Accomplished (${accomplishments.length} Steps Executed):`,
       ...(accomplishments.length > 0 
@@ -421,6 +458,7 @@ export class UniversalSessionExtractor {
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
     };
   }
 
@@ -558,6 +596,7 @@ export class UniversalSessionExtractor {
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
     };
   }
 
@@ -658,6 +697,7 @@ export class UniversalSessionExtractor {
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
     };
   }
 
@@ -673,17 +713,38 @@ export class UniversalSessionExtractor {
     // 1. Try canonical ConversationStore first (most authoritative)
     let sessionData = this.extractFromCanonicalSession(agentId, sessionId);
 
-    // 2. If no canonical turns, try agentStore chat messages
+    // 1b. If direct sessionId has no canonical turns, search all canonical sessions for this agent
     if (!sessionData || sessionData.turns.length === 0) {
-      try {
-        const chatMessages = useAgentStore.getState().messages[sessionId] || [];
-        if (chatMessages.length > 0) {
-          sessionData = this.extractFromChatMessages(agentId, sessionId, chatMessages);
-        }
-      } catch (e) {
-        console.warn('Error reading chat store messages:', e);
+      const agentSession = conversationStore.getAllSessions().find((s) => s.engine?.id === agentId);
+      if (agentSession && agentSession.conversation?.turns.length > 0) {
+        sessionData = this.extractFromCanonicalSession(agentId, agentSession.id);
       }
     }
+
+    // 2. If no canonical turns or if agentStore has more/fresher chat messages, prioritize chat messages
+    try {
+      const allStoreMessages = useAgentStore.getState().messages;
+      let chatMessages = allStoreMessages[sessionId] || [];
+      let activeChatSessionId = sessionId;
+
+      // 2b. Cascade search if direct sessionId has no messages in agent store
+      if (chatMessages.length === 0) {
+        const matchedKey = Object.keys(allStoreMessages).find(
+          (k) => (k === agentId || k.includes(agentId)) && allStoreMessages[k].length > 0
+        );
+        if (matchedKey) {
+          chatMessages = allStoreMessages[matchedKey];
+          activeChatSessionId = matchedKey;
+        }
+      }
+
+      if (chatMessages.length > 0 && (!sessionData || sessionData.turns.length < chatMessages.length)) {
+        sessionData = this.extractFromChatMessages(agentId, activeChatSessionId, chatMessages);
+      }
+    } catch (e) {
+      console.warn('Error reading chat store messages:', e);
+    }
+
 
     // 3. If still empty, try PTY terminal history
     if (!sessionData || sessionData.turns.length === 0) {
@@ -721,28 +782,31 @@ export class UniversalSessionExtractor {
         lastUnfinishedStep: synthesis.nextStepDirective,
         detailedConversationLog: synthesis.narrativeSummary,
         conversationSynthesis: synthesis,
+        verbatimTranscript: 'No prior conversation turns recorded for this session.',
       };
     }
 
-    // 5. Gather all files touched and generate FileEditSummary with diffs
-    const fileSummaries: FileEditSummary[] = [];
+    // 5. Gather all files touched and generate FileEditSummary with diffs (parallel Promise.all)
+    let fileSummaries: FileEditSummary[] = [];
     if (projectPath && isTauriAvailable() && sessionData.filesTouched.length > 0) {
-      for (const filePath of sessionData.filesTouched.slice(0, 15)) {
-        try {
-          const diff = await tauriService.getWorkspaceFileDiff(projectPath, filePath);
-          const summary = this.summarizeFileDiff(filePath, diff);
-          fileSummaries.push(summary);
-        } catch (err) {
-          console.warn(`Failed to fetch diff for ${filePath}:`, err);
-          fileSummaries.push({
-            filePath,
-            status: 'modified',
-            additions: 0,
-            deletions: 0,
-            summary: `Active workspace touchpoint: ${filePath}`,
-          });
-        }
-      }
+      const touchpoints = sessionData.filesTouched.slice(0, 15);
+      fileSummaries = await Promise.all(
+        touchpoints.map(async (filePath) => {
+          try {
+            const diff = await tauriService.getWorkspaceFileDiff(projectPath, filePath);
+            return this.summarizeFileDiff(filePath, diff);
+          } catch (err) {
+            console.warn(`Failed to fetch diff for ${filePath}:`, err);
+            return {
+              filePath,
+              status: 'modified',
+              additions: 0,
+              deletions: 0,
+              summary: `Active workspace touchpoint: ${filePath}`,
+            };
+          }
+        })
+      );
     }
     sessionData.fileSummaries = fileSummaries;
 

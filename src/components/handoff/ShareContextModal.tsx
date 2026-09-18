@@ -64,8 +64,9 @@ export const ShareContextModal: React.FC = () => {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const validTarget = targetAgents.find(a => a.id === targetAgentId) || targetAgents[0];
-  const sourceSessionId = (sourceAgent && activeSessionIdByAgent[sourceAgent.id]) || `sess-${sourceAgent?.id || 'src'}-1`;
-  const targetSessionId = (validTarget && activeSessionIdByAgent[validTarget.id]) || `sess-${validTarget?.id || 'tgt'}-1`;
+  const sourceSessionId = (sourceAgent && (activeSessionIdByAgent[sourceAgent.id] || sourceAgent.currentSessionId)) || `sess-${sourceAgent?.id || 'src'}`;
+  const targetSessionId = (validTarget && (activeSessionIdByAgent[validTarget.id] || validTarget.currentSessionId)) || `sess-${validTarget?.id || 'tgt'}`;
+
 
   // Auto-align default intent based on source agent role
   useEffect(() => {
@@ -185,6 +186,7 @@ export const ShareContextModal: React.FC = () => {
           issues: distilledBrief.blockers,
           fileSummaries: distilledBrief.fileSummaries,
           conversationSynthesis: distilledBrief.conversationSynthesis,
+          verbatimTranscript: distilledBrief.verbatimTranscript,
           notes: customNote 
             ? `${distilledBrief.formattedEnvelope}\n\n[USER DIRECTIVE]: ${customNote}`
             : distilledBrief.formattedEnvelope
@@ -222,7 +224,7 @@ export const ShareContextModal: React.FC = () => {
       await sleep(300);
 
       setCustomNote('');
-      setShareContextOpen(false);
+      setShareContextOpen(false, validTarget.id);
     } catch (e) {
       console.error('Continuity transfer error:', e);
     } finally {

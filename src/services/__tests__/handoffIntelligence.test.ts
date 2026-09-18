@@ -71,6 +71,12 @@ async function runHandoffIntelligenceTests() {
   assert(extracted.conversationSynthesis !== undefined, 'Generated ConversationSynthesis object');
   assert(extracted.conversationSynthesis?.workAccomplished.length! > 0, 'Populated work accomplishments');
   assert(!!extracted.conversationSynthesis?.narrativeSummary.includes('Session Objectives'), 'Generated Markdown narrative summary');
+  assert(extracted.verbatimTranscript !== undefined, 'Extracted verbatimTranscript');
+  assert(extracted.verbatimTranscript!.includes('User') && extracted.verbatimTranscript!.includes('Implement token refresh rotation'), 'Verbatim transcript contains User turn 1');
+  assert(extracted.verbatimTranscript!.includes('Also add unit tests'), 'Verbatim transcript contains User turn 2');
+  assert(extracted.verbatimTranscript!.includes('Agent') && extracted.verbatimTranscript!.includes('Analyzing authentication requirements'), 'Verbatim transcript contains Agent turn 1');
+
+
 
   // --- TEST 2: File Diff Analysis & Edit Summarization ---
   console.log('\n--- TEST 2: File Diff Analysis & Edit Summarization ---');
@@ -108,9 +114,11 @@ async function runHandoffIntelligenceTests() {
   );
 
   assert(distilled.fileSummaries?.length === 1, 'Distilled brief includes file summaries');
+  assert(distilled.verbatimTranscript !== undefined, 'Distilled brief contains verbatim transcript');
   assert(distilled.formattedEnvelope.includes('Conversation Summary & Trajectory'), 'Envelope contains conversation trajectory');
   assert(distilled.formattedEnvelope.includes('File Edit Summaries & Diffs'), 'Envelope contains file edit summaries');
   assert(distilled.formattedEnvelope.includes('rotateRefreshToken'), 'Envelope includes diff details');
+  assert(distilled.formattedEnvelope.includes('DISCUSS Ready Gate') || distilled.formattedEnvelope.includes('DISCUSS protocol'), 'Envelope enforces DISCUSS protocol');
   assert(distilled.estimatedTokens > 0, `Estimated tokens calculated (${distilled.estimatedTokens})`);
 
   // --- TEST 4: Full Handoff Preview & HANDOFF.md Generation ---
@@ -162,7 +170,8 @@ async function runHandoffIntelligenceTests() {
   assert(preview.previousAgent === 'Claude Code', 'Previous agent preserved');
   assert(preview.fileSummaries?.length === 1, 'Preview contains file edit summaries');
   assert(preview.formattedInstruction?.includes('# ORBIT CONTEXT HANDOFF BRIEF'), 'Contains standard handoff brief header');
-  assert(preview.formattedInstruction?.includes('INGESTION & CONTINUITY PROTOCOL'), 'Contains ingestion & continuity protocol');
+  assert(preview.formattedInstruction?.includes('INGESTION & CONTINUITY PROTOCOL (DISCUSS READY GATE)'), 'Contains ingestion & continuity protocol');
+  assert(preview.formattedInstruction?.includes('DO NOT MODIFY ANY FILES'), 'Forbids unprompted file modification');
   assert(preview.formattedInstruction?.includes('Connected Project Memory Files'), 'Contains connected project memory index');
   assert(preview.formattedInstruction?.includes('Discovered Patterns & Repository Conventions'), 'Contains patterns section');
   assert(preview.formattedInstruction?.includes('Agent Conversation & Work Trajectory'), 'Contains rich conversation narrative');

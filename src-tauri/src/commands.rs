@@ -445,7 +445,12 @@ pub async fn terminal_v2_start(
             message: None,
         },
     );
+
+    // Pre-scaffold system templates and project memory for the workspace
+    let _ = boot_project_memory(cwd.clone(), None);
+
     let result = tauri::async_runtime::spawn_blocking(move || {
+
         service.start(
             Some(app_for_worker),
             session_id,
@@ -577,36 +582,62 @@ pub fn get_checkpoints(state: State<'_, AppState>, workspace_id: String) -> Vec<
 pub fn save_checkpoint(state: State<'_, AppState>, checkpoint: Checkpoint) -> Result<(), String> {
     state.storage.save_checkpoint(checkpoint.clone());
 
-    // Continuous project memory sync: Append checkpoint to SESSION.md
+    // Continuous project memory sync: Append checkpoint to canonical ~/.orbit/memory/projects/<slug>/SESSION.md
     if let Some(workspace) = state.storage.get_workspaces().into_iter().find(|w| w.id == checkpoint.workspace_id) {
-        if !workspace.project_path.is_empty() {
-            let orbit_dir = std::path::Path::new(&workspace.project_path).join(".orbit");
-            let raw_slug = workspace
-                .name
-                .to_lowercase()
-                .chars()
-                .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
-                .collect::<String>();
-            let trimmed = raw_slug.trim_matches('-').to_string();
-            let project_slug = if trimmed.is_empty() { "default".to_string() } else { trimmed };
+        let raw_slug = workspace
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
+            .collect::<String>();
+        let trimmed = raw_slug.trim_matches('-').to_string();
+        let project_slug = if trimmed.is_empty() { "default".to_string() } else { trimmed };
 
-            let project_memory_dir = orbit_dir.join("memory").join("projects").join(&project_slug);
-            let _ = std::fs::create_dir_all(&project_memory_dir);
-            let session_file = project_memory_dir.join("SESSION.md");
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&session_file) {
+        let home = {
+            #[cfg(windows)]
+            {
+                std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var_os("HOME").map(std::path::PathBuf::from)
+            }
+        }.unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let agent_str = checkpoint.agent_name.as_deref().unwrap_or("Active Agent");
+        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+        let entry = format!(
+            "\n\n### 📌 Checkpoint: {} by {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Touched Files**: {}\n- **Decisions**: {}\n- **Notes**: {}\n",
+            checkpoint.name,
+            agent_str,
+            timestamp,
+            checkpoint.task,
+            checkpoint.progress,
+            checkpoint.changed_files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", "),
+            if checkpoint.decisions.is_empty() { "None".to_string() } else { checkpoint.decisions.join("; ") },
+            checkpoint.notes.as_deref().unwrap_or("Checkpoint milestone captured.")
+        );
+
+        // 1. Append to canonical home memory
+        let canonical_project_dir = home.join(".orbit").join("memory").join("projects").join(&project_slug);
+        let _ = std::fs::create_dir_all(&canonical_project_dir);
+        let canonical_session = canonical_project_dir.join("SESSION.md");
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&canonical_session) {
+            use std::io::Write;
+            let _ = file.write_all(entry.as_bytes());
+        }
+
+        // 2. Mirror to workspace .orbit if project_path is present
+        if !workspace.project_path.is_empty() {
+            let ws_mem_dir = std::path::Path::new(&workspace.project_path)
+                .join(".orbit")
+                .join("memory")
+                .join("projects")
+                .join(&project_slug);
+            let _ = std::fs::create_dir_all(&ws_mem_dir);
+            let ws_session = ws_mem_dir.join("SESSION.md");
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&ws_session) {
                 use std::io::Write;
-                let agent_str = checkpoint.agent_name.as_deref().unwrap_or("Active Agent");
-                let entry = format!(
-                    "\n\n### 📌 Checkpoint: {} by {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Touched Files**: {}\n- **Decisions**: {}\n- **Notes**: {}\n",
-                    checkpoint.name,
-                    agent_str,
-                    checkpoint.created_at,
-                    checkpoint.task,
-                    checkpoint.progress,
-                    checkpoint.changed_files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", "),
-                    if checkpoint.decisions.is_empty() { "None".to_string() } else { checkpoint.decisions.join("; ") },
-                    checkpoint.notes.as_deref().unwrap_or("Checkpoint milestone captured.")
-                );
                 let _ = file.write_all(entry.as_bytes());
             }
         }
@@ -670,8 +701,574 @@ pub fn record_handoff(state: State<'_, AppState>, handoff: HandoffRecord) -> Res
     Ok(())
 }
 
+fn ensure_orbit_system_templates(dir: &std::path::Path) {
+    let master_file = dir.join("MASTER.md");
+    if !master_file.exists() {
+        let content = r#"# ORBIT MASTER AGENT SYSTEM
+# THE CONTINUITY PROMPT — UNIVERSAL AGENT BOOT
+
+## WHAT HAPPENS WHEN THIS IS READ
+
+Step 1 — DISCUSS Activates (Human Conversational Layer)
+Read: ~/.orbit/system/DISCUSS.md
+Strict rule: Do NOT modify code. Speak to the user first.
+
+Step 2 — Ingest Project Memory
+Read in order:
+  1. ~/.orbit/memory/projects/[project-slug]/HANDOFF.md
+  2. ~/.orbit/memory/projects/[project-slug]/AUDIT-INDEX.md
+  3. ~/.orbit/memory/projects/[project-slug]/SESSION.md
+  4. ~/.orbit/memory/projects/[project-slug]/CHANGES.md
+  5. ~/.orbit/memory/projects/[project-slug]/DECISIONS.md
+  6. ~/.orbit/memory/projects/[project-slug]/BUGS.md
+  7. ~/.orbit/memory/projects/[project-slug]/ROADMAP.md
+
+Step 3 — Inspect Guardrails & Safety Invariants
+Read: ~/.orbit/system/TRIDEV.md, ~/.orbit/system/FILE-KEEPER.md, ~/.orbit/system/TIME-LENS.md, and ~/.orbit/system/VAULT.md
+If no prior project memory exists: follow ~/.orbit/system/BOOT.md protocol to initialize memory.
+
+Step 4 — Load Specialized Domain Protocols Based on Stack
+Always:   ~/.orbit/system/TRIDEV.md + ~/.orbit/system/TIME-LENS.md
+Backend:  ~/.orbit/system/FORGE.md + ~/.orbit/system/ATLAS.md
+Auth:     ~/.orbit/system/VAULT.md
+Realtime: ~/.orbit/system/WIRE.md + ~/.orbit/system/LIVE-OPS.md
+Frontend: ~/.orbit/system/CANVAS.md + ~/.orbit/system/THEME-GUARD.md
+QA/Test:  ~/.orbit/system/GHOST.md
+Notify:   ~/.orbit/system/RELAY.md
+Audit:    ~/.orbit/system/AUDIT.md
+
+Step 5 — TIME-LENS Runs
+Build temporal map from git history and active modifications.
+
+Step 6 — BRAHMA Opens Session
+Vision based on memory + TIME-LENS + AUDIT-INDEX.
+
+Step 7 — The Ready Gate
+Tell the user:
+  - What context was inherited from the previous agent
+  - The exact last request the user made in the previous session
+  - The proposed immediate next step
+Ask the user: "I have loaded your session memory and am ready. Shall I proceed with [Next Step], or would you like to direct me otherwise?"
+STOP and WAIT for user confirmation.
+
+---
+
+## SESSION COMMANDS
+
+| Say this          | What happens                           |
+|-------------------|----------------------------------------|
+| continue          | Load memory, resume from last point    |
+| wrap session      | BRAHMA closes, CLEANER, PARAM runs     |
+| run audit         | Full 11-agent audit pipeline           |
+| run [agent]       | Run specific agent                     |
+| use skill [name]  | Apply specific skill                   |
+| new project       | Full project init (30 questions)       |
+| copy skill [name] | Copy skill + memory to local project   |
+| show memory       | Display current project memory         |
+| show agents       | List all available agents              |
+| /orbit            | Load Orbit project vision and roadmap  |
+
+---
+
+## TOKEN SAVING — AUDIT INDEX
+Agents read AUDIT-INDEX.md first.
+Only scan files with OPEN issues or NEW/MODIFIED since last audit.
+Reduces context usage by ~70% on projects with audit history.
+"#;
+        let _ = std::fs::write(&master_file, content);
+    }
+
+    let discuss_file = dir.join("DISCUSS.md");
+    if !discuss_file.exists() {
+        let content = r#"# DISCUSS — CONVERSATIONAL ORCHESTRATOR
+You are DISCUSS, the human-facing intelligence layer of Orbit.
+You talk to the user, acknowledge project state, and route to correct agents.
+
+## The Cardinal Rule
+DO NOT TOUCH FILES UNTIL THE USER EXPLICITLY GIVES APPROVAL.
+When booting from a handoff, always present a concise 3-point briefing:
+1. 🎯 Inherited Mission: What the previous agent completed.
+2. 💬 Verbatim Dialogue Context: What you and the previous agent were discussing.
+3. 📋 Proposed Next Action: What needs to be done next.
+
+Then ASK: "Shall I proceed with this plan, or would you like to direct me otherwise?"
+
+## Core Routing
+
+| User says             | DISCUSS calls                        |
+|-----------------------|--------------------------------------|
+| "build [feature]"     | BRAHMA, FORGE, CANVAS                |
+| "fix auth/security"   | VAULT, VISHNU                        |
+| "something is slow"   | SPEEDSTER or find-n-plus-one skill   |
+| "run audit"           | ~/.orbit/system/AUDIT.md             |
+| "check this file"     | TIME-LENS, relevant agent            |
+| "messy code"          | MAHESH                               |
+| "WebSocket broken"    | ~/.orbit/system/LIVE-OPS.md          |
+| "design component"    | CANVAS + THEME-GUARD                 |
+| "database / schema"   | ATLAS                                |
+| "what was decided"    | Read DECISIONS.md                    |
+| "open bugs"           | Read BUGS.md                         |
+| "new project"         | ~/.orbit/system/BOOT.md              |
+
+## Context Warning System
+
+LIGHT — say nothing, just do it:
+  Single file scan, memory read, quick question.
+
+MEDIUM — brief warning:
+  "This will scan ~[N] files, use ~20-30% context. Proceed?"
+
+HEAVY — full warning:
+  "Warning: This will scan [N] files, use ~40-70% context.
+  Recommended: fresh session. Proceed anyway? (yes / start fresh)"
+
+CRITICAL — block until confirmed:
+  "This will fill your entire context window.
+  Options: (1) Proceed  (2) Break into pieces  (3) Save state first"
+
+## Memory-First Protocol
+Before answering ANYTHING about current project:
+  1. Check ~/.orbit/memory/projects/[name]/SESSION.md
+  2. Check ~/.orbit/memory/projects/[name]/BUGS.md
+  3. Check ~/.orbit/memory/projects/[name]/AUDIT-INDEX.md
+If found: use it, do not re-scan. Saves 500-1000 tokens per question.
+"#;
+        let _ = std::fs::write(&discuss_file, content);
+    }
+
+    let tridev_file = dir.join("TRIDEV.md");
+    if !tridev_file.exists() {
+        let content = r#"# TRIDEV — BRAHMA + VISHNU + MAHESH
+# Always active. Cannot be disabled.
+
+## BRAHMA — THE ARCHITECT
+- Opens every session with vision based on memory.
+- Guards module boundaries and prevents architectural debt.
+- Closes session with cumulative memory updates.
+
+## VISHNU — THE GUARDIAN
+- 15-Dimension security scan: auth guards, JWT, sanitization, secret protection.
+- Absolute veto on security vulnerabilities (cannot be overridden).
+- Prohibits touching .env files or logging secrets.
+
+## MAHESH — DESTROYER OF COMPLEXITY
+- 80-line function limit; 500-line file limit (decompose first).
+- Zero sequential awaits when independent (use Promise.all).
+- Zero unapproved npm packages or dependency bloat.
+"#;
+        let _ = std::fs::write(&tridev_file, content);
+    }
+
+    let file_keeper_file = dir.join("FILE-KEEPER.md");
+    if !file_keeper_file.exists() {
+        let content = r#"# FILE-KEEPER — FILE REGISTRY & SAFETY GATEKEEPER
+
+## ABSOLUTE PROTECTION — HARDCODED — CANNOT BE OVERRIDDEN
+NEVER TOUCH OR MODIFY UNLESS EXPLICITLY DIRECTED:
+  .env*         .git/          certificates/
+  credentials/  id_rsa*        *.pem / *.key
+
+## PERMANENT MEMORY FILES
+Never delete or overwrite without cumulative appending:
+  ~/.orbit/memory/projects/[name]/SESSION.md
+  ~/.orbit/memory/projects/[name]/DECISIONS.md
+  ~/.orbit/memory/projects/[name]/BUGS.md
+  ~/.orbit/memory/projects/[name]/PATTERNS.md
+  ~/.orbit/memory/projects/[name]/ROADMAP.md
+  ~/.orbit/memory/projects/[name]/AUDIT-INDEX.md
+"#;
+        let _ = std::fs::write(&file_keeper_file, content);
+    }
+
+    let boot_file = dir.join("BOOT.md");
+    if !boot_file.exists() {
+        let content = r#"# BOOT — ORBIT WORKSPACE INITIALIZATION
+Runs when no prior project memory exists in ~/.orbit/memory/projects/<slug>/.
+
+## Detect Situation First
+Check if codebase has files:
+  Empty or almost empty: NEW PROJECT
+  Has code already:      EXISTING PROJECT
+
+Ask:
+"I see [N] files. Is this:
+1. New project (plan and build together)
+2. Existing project (scan and learn what is here)
+3. Project worked on before (memory was lost)"
+
+## PATH A — NEW PROJECT — 30 QUESTIONS
+BRAHMA asks — Architecture (5 questions: purpose, users, critical flow, constraints, 3-month success)
+VISHNU asks — Security (4 questions: sensitive data, roles, compliance, public vs internal API)
+ATLAS asks — Data (4 questions: core entities, scale, database choice, permanent data)
+FORGE asks — Backend (4 questions: framework, APIs, background jobs, realtime)
+CANVAS asks — Frontend (4 questions: framework, design system, mobile, UI references)
+WIRE asks — Infra (3 questions: notifications, deployment target, performance targets)
+DISCUSS asks — Business & Timeline (6 questions: logic, integrations, deadline, team, notes)
+
+Save all answers into ~/.orbit/memory/projects/[name]/SESSION.md and ROADMAP.md.
+
+## PATH B — EXISTING PROJECT
+LIGHT scan (~10% context): structure + config only (package.json, README, schema, main entrypoints)
+FULL scan (~40% context): all files + initial audit
+"#;
+        let _ = std::fs::write(&boot_file, content);
+    }
+
+    let time_lens_file = dir.join("TIME-LENS.md");
+    if !time_lens_file.exists() {
+        let content = r#"# TIME-LENS — TEMPORAL ANALYSIS PROTOCOL
+# Always active. Run before mutating workspace files.
+
+1. Commit Velocity & Evolution:
+   - Check `git log -n 5 --oneline` to understand recent changes.
+   - Inspect git branch context and uncommitted modifications (`git status -s`).
+2. Conflict & Stale State Prevention:
+   - Verify that your proposed edits do not regress recently committed fixes.
+   - Respect invariants established in prior session commits.
+3. Minimal Surgical Diff:
+   - Never regenerate entire files when a surgical edit suffices.
+   - Preserve comments, exports, and surrounding indentation.
+"#;
+        let _ = std::fs::write(&time_lens_file, content);
+    }
+
+    let vault_file = dir.join("VAULT.md");
+    if !vault_file.exists() {
+        let content = r#"# VAULT — CREDENTIAL & SECRET CONTAINMENT PROTOCOL
+# Hardcoded safety barrier. Cannot be overridden.
+
+1. Protected Targets:
+   - .env*, credentials/, id_rsa*, *.pem, *.key, service-account*.json.
+2. Redaction Invariants:
+   - Never log, stream, or echo secret tokens into terminal outputs or memory files.
+   - Replace any detected credential in diffs or handoff briefs with [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD].
+3. Safe Local Environment:
+   - Read system environment variables via secure runtime bindings only when explicitly instructed.
+"#;
+        let _ = std::fs::write(&vault_file, content);
+    }
+
+    let session_cleaner_file = dir.join("SESSION-CLEANER.md");
+    if !session_cleaner_file.exists() {
+        let content = r#"# SESSION-CLEANER — POST-SESSION HYGIENE PROTOCOL
+# Cleans only transient scratch files; protects source and permanent memory.
+
+1. Allowed for Cleanup:
+   - *.tmp, *.temp, scratch scripts in designated temporary folders.
+2. ABSOLUTELY PROTECTED (NEVER DELETE OR MUTATE UNPROMPTED):
+   - src/, src-tauri/, package manifests (package.json, Cargo.toml).
+   - Version control (.git/).
+   - All Orbit memory files in ~/.orbit/memory/projects/<slug>/ (SESSION.md, DECISIONS.md, CHANGES.md, BUGS.md, PATTERNS.md, ROADMAP.md, AUDIT-INDEX.md).
+"#;
+        let _ = std::fs::write(&session_cleaner_file, content);
+    }
+
+    let forge_file = dir.join("FORGE.md");
+    if !forge_file.exists() {
+        let content = r#"# FORGE — BACKEND BUILDER
+## Standards
+Response format:
+  Success:   { success: true, data: T, message?: string }
+  Error:     { success: false, error: string, statusCode: number }
+  Paginated: { success: true, data: T[], meta: { total, page, limit, totalPages } }
+
+Checklist:
+- Every public method has explicit return type.
+- DTOs use class-validator / zod on every field.
+- No hardcoded secrets; use config services.
+- No sequential awaits where independent (use Promise.all).
+- Prisma / ORM queries use select (do not over-fetch).
+"#;
+        let _ = std::fs::write(&forge_file, content);
+    }
+
+    let atlas_file = dir.join("ATLAS.md");
+    if !atlas_file.exists() {
+        let content = r#"# ATLAS — DATABASE & INFRASTRUCTURE
+## Standards
+1. Money Fields: ALWAYS Decimal (never Float).
+2. Soft Delete: ALWAYS on important entities (deletedAt DateTime?). Filter where: { deletedAt: null }.
+3. Index Rules: Index every foreign key, frequently queried WHERE, and large table ORDER BY columns.
+4. Transactions: Wrap multi-table operations in transactions.
+5. Docker: Version-pinned images with explicit healthchecks.
+"#;
+        let _ = std::fs::write(&atlas_file, content);
+    }
+
+    let canvas_file = dir.join("CANVAS.md");
+    if !canvas_file.exists() {
+        let content = r#"# CANVAS — UI COMPONENT DESIGNER
+## Standards
+1. Always implement all 4 states: loading (skeleton), error (message + retry), empty (CTA), data.
+2. Never hardcode colors, spacing, or font sizes — use CSS variables / design tokens.
+3. ARIA labels on interactive elements; full keyboard navigation.
+4. Mobile responsive with minimum touch targets of 44px.
+"#;
+        let _ = std::fs::write(&canvas_file, content);
+    }
+
+    let theme_guard_file = dir.join("THEME-GUARD.md");
+    if !theme_guard_file.exists() {
+        let content = r#"# THEME-GUARD — DESIGN SYSTEM ENFORCER
+## Identity
+Watches JSX/TSX to eliminate hardcoded hex colors, raw pixel spacings, and font sizes.
+Enforces project tokens: `var(--color-primary)`, Tailwind scale classes (`text-sm`, `p-4`, `rounded-lg`).
+"#;
+        let _ = std::fs::write(&theme_guard_file, content);
+    }
+
+    let live_ops_file = dir.join("LIVE-OPS.md");
+    if !live_ops_file.exists() {
+        let content = r#"# LIVE-OPS — REALTIME, WEBSOCKET, PTY & STREAMING
+## 8 Known Bug Patterns & Fixes
+1. Missing admin room: Include admin dashboards in multi-room emits.
+2. socket.data.user not set: Assign resolved user upon connection.
+3. accessToken null after bootstrap: Re-hydrate or refresh auth on page reload.
+4. React Strict Mode double-mount: Use singleton module-level sockets.
+5. Role string mismatch: Strict equality between DB enums and room checks.
+6. Token refresh infinite loop: Add maxRetries counter and backoff.
+7. Event envelope mismatch: Unwrap structured payloads resiliently.
+8. EADDRINUSE port conflict: Add port cleanup to predev scripts.
+"#;
+        let _ = std::fs::write(&live_ops_file, content);
+    }
+
+    let ghost_file = dir.join("GHOST.md");
+    if !ghost_file.exists() {
+        let content = r#"# GHOST — QA & TESTING
+## Standards
+- No module is done until it has automated tests.
+- Happy path, error path, authorization boundaries, and edge cases (empty array, nulls).
+- Target coverage: Services 80%+, Controllers 70%+, Critical paths (auth, payment) 95%+.
+"#;
+        let _ = std::fs::write(&ghost_file, content);
+    }
+
+    let wire_file = dir.join("WIRE.md");
+    if !wire_file.exists() {
+        let content = r#"# WIRE — REALTIME & ASYNC
+Handles: Socket.io, BullMQ, background workers, cron jobs, push notifications, webhooks.
+Invariants: Named queues, exponential backoff with dead letter queues, and non-overlapping cron guards.
+"#;
+        let _ = std::fs::write(&wire_file, content);
+    }
+
+    let relay_file = dir.join("RELAY.md");
+    if !relay_file.exists() {
+        let content = r#"# RELAY — OUTBOUND NOTIFICATIONS & MESSAGING
+Handles email, push notifications, SMS, in-app alerts.
+Checklist: Entity identified, clear primary CTA, no raw technical IDs, validated variables before sending.
+"#;
+        let _ = std::fs::write(&relay_file, content);
+    }
+
+    let audit_file = dir.join("AUDIT.md");
+    if !audit_file.exists() {
+        let content = r#"# AUDIT — 11 AGENT AUDIT PIPELINE
+1. Ghost Hunter: missing assets & broken URLs.
+2. Matchmaker: broken foreign keys & dangling relationships.
+3. Data Doctor: invalid schemas, zero prices, placeholder data.
+4. Watchdog: business logic gaps & config oversights.
+5. Speedster: performance bottlenecks, N+1 queries, sequential awaits.
+6. Shield: VISHNU 15-dim security scan, secret exposures, auth guards.
+7. Architect: god files (>500 lines), DRY violations, console logs.
+8. Customer Voice: UX dead ends, unhandled errors, missing empty states.
+9. Live Ops: WebSocket & streaming connection resilience.
+10. Perfectionist: competitive benchmark & design consistency.
+11. Visionary: strategic enhancements & roadmap alignment.
+"#;
+        let _ = std::fs::write(&audit_file, content);
+    }
+
+    let param_file = dir.join("PARAM.md");
+    if !param_file.exists() {
+        let content = r#"# PARAM — THE META-AGENT
+Runs at the conclusion of sessions to evaluate and improve system instructions.
+Jobs:
+1. Agent Improvement: Rewrite underperforming instructions.
+2. Failure Classification: Classify wrong assumptions or missing context.
+3. Signal vs Noise: Eliminate repetitive log noise and reinforce high-signal findings.
+"#;
+        let _ = std::fs::write(&param_file, content);
+    }
+
+    let agents_index_file = dir.join("AGENTS-INDEX.md");
+    if !agents_index_file.exists() {
+        let content = r#"# COMPLETE AGENT & SKILLS REGISTRY
+
+## TIER 1 — SYSTEM AGENTS
+- MASTER.md: Universal continuity entry point
+- DISCUSS.md: Conversational orchestrator & router
+- BOOT.md: Workspace initialization (30 questions)
+- PARAM.md: Meta-agent improving system instructions
+- TIME-LENS.md: Temporal analysis & surgical diffs
+- SESSION-CLEANER.md: Post-session hygiene
+- FILE-KEEPER.md: Protection gatekeeper
+
+## TIER 2 — TRIDEV (ALWAYS ACTIVE)
+- BRAHMA: Architecture & session scope
+- VISHNU: 15-dim security guardian (absolute veto)
+- MAHESH: Destroyer of complexity & bloat
+
+## TIER 3 — BUILD AGENTS
+- FORGE.md: Backend services & API contracts
+- ATLAS.md: Database, schemas, migrations
+- CANVAS.md: UI component designer (4 states)
+- THEME-GUARD.md: Design system & tokens enforcer
+- GHOST.md: QA & automated testing
+- WIRE.md: Realtime, queues, workers
+- RELAY.md: Outbound notifications & email
+- VAULT.md: Credential & secret containment
+
+## TIER 4 — DOMAIN & RUNTIME
+- LIVE-OPS.md: WebSockets, PTY streaming, port management
+- ANIMESH.md: Orbit project vision — One Workspace. Every AI.
+
+## TIER 5 — AUDIT SYSTEM
+- AUDIT.md: 11-agent comprehensive audit pipeline
+"#;
+        let _ = std::fs::write(&agents_index_file, content);
+    }
+
+    let animesh_file = dir.join("ANIMESH.md");
+    if !animesh_file.exists() {
+        let content = r#"# ANIMESH — ORBIT PROJECT AGENT
+## Motto: One Workspace. Every AI.
+Orbit is the universal AI coding platform and developer workspace.
+Orbit owns conversations, memory, context, workspaces, and tools.
+AI engines own reasoning, code generation, planning, and responses.
+"#;
+        let _ = std::fs::write(&animesh_file, content);
+    }
+}
+
+pub fn ensure_project_memory_scaffold(project_memory_dir: &std::path::Path, raw_name: &str, current_task: &str) {
+    let _ = std::fs::create_dir_all(project_memory_dir);
+
+    let session_file = project_memory_dir.join("SESSION.md");
+    if !session_file.exists() {
+        let content = format!(
+            "# {} Project Memory — Cumulative Sessions\n\n> Initialized by Orbit Continuous Memory Engine.\n\n## Project Status\n- **Project**: {}\n- **Current Task**: {}\n- **Status**: Workspace initialized\n",
+            raw_name, raw_name, if current_task.is_empty() { "Active Development" } else { current_task }
+        );
+        let _ = std::fs::write(&session_file, content);
+    }
+
+    let decisions_file = project_memory_dir.join("DECISIONS.md");
+    if !decisions_file.exists() {
+        let content = format!(
+            "# {} Project — Architectural Decisions Record\n\n> Historical and active architectural invariants.\n",
+            raw_name
+        );
+        let _ = std::fs::write(&decisions_file, content);
+    }
+
+    let bugs_file = project_memory_dir.join("BUGS.md");
+    if !bugs_file.exists() {
+        let content = format!(
+            "# {} Project — Tracked Blockers & Issues\n\n> Active issues, edge cases, and known bugs.\n",
+            raw_name
+        );
+        let _ = std::fs::write(&bugs_file, content);
+    }
+
+    let patterns_file = project_memory_dir.join("PATTERNS.md");
+    if !patterns_file.exists() {
+        let content = format!(
+            "# {} Project — Discovered Patterns & Conventions\n\n- Strict typing, explicit error boundaries, and verified test suites.\n- Cumulative session persistence in ~/.orbit/memory/projects/.\n",
+            raw_name
+        );
+        let _ = std::fs::write(&patterns_file, content);
+    }
+
+    let roadmap_file = project_memory_dir.join("ROADMAP.md");
+    if !roadmap_file.exists() {
+        let task_desc = if current_task.is_empty() { "Active core development" } else { current_task };
+        let content = format!(
+            "# Roadmap — {}\n\n> Multi-agent continuous roadmap maintained by Orbit.\n\n## Phase 0 — Foundation & Runtime Architecture\n- [x] Workspace initialized and project memory configured\n- [x] Multi-agent runtime & deterministic context relay operational\n\n## Phase 1 — Active Core Implementation\n- [/] {}\n- [ ] Comprehensive verification across test suites\n\n## Phase 2 — System Hardening & Integration\n- [ ] Cross-module error bounds and performance audits\n- [ ] Edge-case handling and state resilience\n\n## Phase 3 — Production Readiness\n- [ ] Clean production build (0 errors, 0 warnings)\n- [ ] Multi-platform validation and release closure\n",
+            raw_name, task_desc
+        );
+        let _ = std::fs::write(&roadmap_file, content);
+    }
+
+    let audit_index_file = project_memory_dir.join("AUDIT-INDEX.md");
+    if !audit_index_file.exists() {
+        let content = format!(
+            "# Audit Index — {}\n\n> Token-saving audit index maintained by Orbit.\n> Agents read this first to only scan files with OPEN issues or recent changes.\n\n## Priority 1 — Security\n- [ ] Secrets and credentials exposure audit across `.env*` and configs\n- [ ] Auth guard and permission verification on sensitive endpoints\n\n## Priority 2 — Correctness\n- [ ] State synchronization and race conditions\n- [ ] Error boundary and exception coverage\n\n## Priority 3 — Performance\n- [ ] N+1 queries and sequential awaits optimization\n- [ ] Memory leaks and uncoalesced IPC events\n\n## Priority 4 — Quality & Maintainability\n- [ ] Clean typecheck and zero build errors\n- [ ] Test coverage on critical paths\n\n## OPEN ISSUES\n| File | Line | Issue | Severity | Found | Agent |\n|---|---|---|---|---|---|\n\n## FIXED\n| File | Issue | Fixed Session |\n|---|---|---|\n\n## CLEAN FILES (skip if unchanged)\n\n## WATCH AREAS (scan first — highest bug density)\n",
+            raw_name
+        );
+        let _ = std::fs::write(&audit_index_file, content);
+    }
+}
+
+#[tauri::command]
+pub fn boot_project_memory(
+    project_path: String,
+    workspace_name: Option<String>,
+) -> Result<String, String> {
+    let home = {
+        #[cfg(windows)]
+        {
+            std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::var_os("HOME").map(std::path::PathBuf::from)
+        }
+    }.unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let orbit_home_dir = home.join(".orbit");
+    let orbit_system_dir = orbit_home_dir.join("system");
+    let _ = std::fs::create_dir_all(&orbit_system_dir);
+    ensure_orbit_system_templates(&orbit_system_dir);
+
+    let raw_name = workspace_name
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| {
+            if !project_path.trim().is_empty() {
+                std::path::Path::new(&project_path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "project".to_string())
+            } else {
+                "project".to_string()
+            }
+        });
+
+    let slug = raw_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
+        .collect::<String>();
+    let trimmed_slug = slug.trim_matches('-').to_string();
+    let project_slug = if trimmed_slug.is_empty() { "default".to_string() } else { trimmed_slug };
+
+    let project_memory_dir = orbit_home_dir.join("memory").join("projects").join(&project_slug);
+    ensure_project_memory_scaffold(&project_memory_dir, &raw_name, "Workspace initialization");
+
+    if !project_path.trim().is_empty() {
+        let workspace_orbit_dir = std::path::Path::new(&project_path).join(".orbit");
+        if let Ok(_) = std::fs::create_dir_all(&workspace_orbit_dir) {
+            let continuity_pointer = workspace_orbit_dir.join("CONTINUITY.md");
+            if !continuity_pointer.exists() {
+                let master_abs = orbit_system_dir.join("MASTER.md").to_string_lossy().to_string();
+                let pointer_content = format!(
+                    "# ORBIT WORKSPACE CONTINUITY POINTER\n\n- **Project Memory**: `{}`\n- **System Manual**: `{}`\n- **Project Root**: `{}`\n- **Initial Boot Protocol**: `~/.orbit/system/BOOT.md`\n",
+                    project_memory_dir.to_string_lossy(),
+                    master_abs,
+                    project_path
+                );
+                let _ = std::fs::write(&continuity_pointer, pointer_content);
+            }
+        }
+    }
+
+    Ok(project_slug)
+}
+
 #[tauri::command]
 pub fn execute_agent_handoff(
+
     app: AppHandle,
     state: State<'_, AppState>,
     handoff: HandoffRecord,
@@ -680,13 +1277,13 @@ pub fn execute_agent_handoff(
     // 1. Record the handoff
     state.storage.record_handoff(handoff.clone());
 
-    let relevant_dialogue = handoff
+    let relevant_dialogue_owned = handoff
         .context_package
         .relevant_history
         .as_ref()
-        .and_then(|h| h.first())
-        .map(|s| s.as_str())
-        .unwrap_or("");
+        .map(|h| h.join("\n\n"))
+        .unwrap_or_default();
+    let relevant_dialogue = relevant_dialogue_owned.as_str();
 
     let handoff_content = handoff
         .context_package
@@ -707,6 +1304,10 @@ pub fn execute_agent_handoff(
     }.unwrap_or_else(|| std::path::PathBuf::from("."));
 
     let orbit_home_dir = home.join(".orbit");
+    let orbit_system_dir = orbit_home_dir.join("system");
+    let _ = std::fs::create_dir_all(&orbit_system_dir);
+    ensure_orbit_system_templates(&orbit_system_dir);
+
     let proj_path = &handoff.context_package.project_path;
     let raw_name = if !handoff.context_package.workspace_name.is_empty() {
         handoff.context_package.workspace_name.clone()
@@ -738,11 +1339,12 @@ pub fn execute_agent_handoff(
     let _ = std::fs::write(&root_handoff_file, handoff_content);
 
         // 2b. Cumulative SESSION.md memory (Rich conversational trajectory)
+        let timestamp_str = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
         let session_log_entry = format!(
-            "\n\n## Session Handoff: {} → {} ({})\n- **Task**: {}\n- **Progress**: {}\n- **Files Touched**: {}\n- **Decisions**: {}\n- **Blockers**: {}\n\n### Conversational Trajectory & Accomplishments:\n{}\n",
+            "\n\n## {} — Session Handoff: {} → {}\n- **Task**: {}\n- **Progress**: {}\n- **Files Touched**: {}\n- **Decisions**: {}\n- **Blockers**: {}\n\n### Conversational Trajectory & Accomplishments:\n{}\n",
+            timestamp_str,
             handoff.source_agent_name,
             handoff.target_agent_name,
-            chrono_now_millis(),
             handoff.context_package.current_task,
             handoff.context_package.progress,
             handoff.context_package.changed_files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>().join(", "),
@@ -750,6 +1352,7 @@ pub fn execute_agent_handoff(
             if handoff.context_package.known_issues.is_empty() { "None".to_string() } else { handoff.context_package.known_issues.join("; ") },
             if relevant_dialogue.is_empty() { "Continuous workflow relay." } else { relevant_dialogue }
         );
+
         let session_file = project_memory_dir.join("SESSION.md");
         let mut session_content = std::fs::read_to_string(&session_file)
             .unwrap_or_else(|_| format!("# {} Project Memory — Cumulative Sessions\n", raw_name));
@@ -757,27 +1360,27 @@ pub fn execute_agent_handoff(
         let _ = std::fs::write(&session_file, session_content);
 
         // 2c. Cumulative DECISIONS.md
+        let decisions_file = project_memory_dir.join("DECISIONS.md");
+        let mut decisions_content = std::fs::read_to_string(&decisions_file)
+            .unwrap_or_else(|_| format!("# {} Project — Architectural Decisions Record\n", raw_name));
         if !handoff.context_package.decisions.is_empty() {
-            let decisions_file = project_memory_dir.join("DECISIONS.md");
-            let mut decisions_content = std::fs::read_to_string(&decisions_file)
-                .unwrap_or_else(|_| format!("# {} Project — Architectural Decisions Record\n", raw_name));
             for dec in &handoff.context_package.decisions {
                 decisions_content
                     .push_str(&format!("\n- [{}] {}", handoff.source_agent_name, dec));
             }
-            let _ = std::fs::write(&decisions_file, decisions_content);
         }
+        let _ = std::fs::write(&decisions_file, decisions_content);
 
         // 2d. Cumulative BUGS.md
+        let bugs_file = project_memory_dir.join("BUGS.md");
+        let mut bugs_content = std::fs::read_to_string(&bugs_file)
+            .unwrap_or_else(|_| format!("# {} Project — Tracked Blockers & Issues\n", raw_name));
         if !handoff.context_package.known_issues.is_empty() {
-            let bugs_file = project_memory_dir.join("BUGS.md");
-            let mut bugs_content = std::fs::read_to_string(&bugs_file)
-                .unwrap_or_else(|_| format!("# {} Project — Tracked Blockers & Issues\n", raw_name));
             for bug in &handoff.context_package.known_issues {
                 bugs_content.push_str(&format!("\n- ⚠️ [{}] {}", handoff.source_agent_name, bug));
             }
-            let _ = std::fs::write(&bugs_file, bugs_content);
         }
+        let _ = std::fs::write(&bugs_file, bugs_content);
 
         // 2e. Discovered PATTERNS.md
         let patterns_file = project_memory_dir.join("PATTERNS.md");
@@ -821,17 +1424,22 @@ pub fn execute_agent_handoff(
                     "### `{}` ({}, +{}/-{} lines)\n**Summary**: {}\n\n",
                     s.file_path, s.status, s.additions, s.deletions, s.summary
                 ));
-                let diff = if let Some(d) = &s.diff_snippet {
-                    if !d.trim().is_empty() {
-                        d.clone()
+                let is_secret = s.file_path.contains(".env") || s.file_path.ends_with(".pem") || s.file_path.ends_with(".key") || s.file_path.contains("credential") || s.file_path.contains("id_rsa");
+                if is_secret {
+                    changes_content.push_str("```\n--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---\n```\n\n");
+                } else {
+                    let diff = if let Some(d) = &s.diff_snippet {
+                        if !d.trim().is_empty() {
+                            d.clone()
+                        } else {
+                            crate::git::get_git_file_diff(proj_path, &s.file_path)
+                        }
                     } else {
                         crate::git::get_git_file_diff(proj_path, &s.file_path)
+                    };
+                    if !diff.trim().is_empty() && diff != "No changes detected for this file." {
+                        changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
                     }
-                } else {
-                    crate::git::get_git_file_diff(proj_path, &s.file_path)
-                };
-                if !diff.trim().is_empty() && diff != "No changes detected for this file." {
-                    changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
                 }
             }
         }
@@ -839,34 +1447,104 @@ pub fn execute_agent_handoff(
         // Include any modified files from gitState not already covered
         for f in &handoff.context_package.changed_files {
             if !handled_files.contains(&f.path) {
-                let diff = crate::git::get_git_file_diff(proj_path, &f.path);
+                let is_secret = f.path.contains(".env") || f.path.ends_with(".pem") || f.path.ends_with(".key") || f.path.contains("credential") || f.path.contains("id_rsa");
                 changes_content.push_str(&format!(
                     "### `{}` ({})\n\n",
                     f.path, f.status
                 ));
-                if !diff.trim().is_empty() && diff != "No changes detected for this file." {
-                    changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
+                if is_secret {
+                    changes_content.push_str("```\n--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---\n```\n\n");
+                } else {
+                    let diff = crate::git::get_git_file_diff(proj_path, &f.path);
+                    if !diff.trim().is_empty() && diff != "No changes detected for this file." {
+                        changes_content.push_str(&format!("```diff\n{}\n```\n\n", diff.trim()));
+                    }
                 }
             }
         }
         let _ = std::fs::write(&changes_file, changes_content);
 
+    let master_abs = orbit_system_dir.join("MASTER.md").to_string_lossy().to_string();
+    let handoff_abs = project_handoff_file.to_string_lossy().to_string();
+
+    // 2h. Write workspace continuity pointer (.orbit/CONTINUITY.md) in project root
+    if !proj_path.is_empty() {
+        let workspace_orbit_dir = std::path::Path::new(proj_path).join(".orbit");
+        if let Ok(_) = std::fs::create_dir_all(&workspace_orbit_dir) {
+            let continuity_pointer = workspace_orbit_dir.join("CONTINUITY.md");
+            let pointer_content = format!(
+                "# ORBIT WORKSPACE CONTINUITY POINTER\n\n- **Project Memory**: `{}`\n- **Current Handoff**: `{}`\n- **System Manual**: `{}`\n- **Source Agent**: {}\n- **Target Agent**: {}\n",
+                project_memory_dir.to_string_lossy(),
+                handoff_abs,
+                master_abs,
+                handoff.source_agent_name,
+                handoff.target_agent_name
+            );
+            let _ = std::fs::write(&continuity_pointer, pointer_content);
+        }
+    }
+
     // 3. Build a dense, self-contained executive handoff prompt for Agent B.
     let summary_excerpt = if !relevant_dialogue.is_empty() {
-        let clean_snippet = relevant_dialogue
-            .lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.starts_with('#') && !l.is_empty())
-            .take(3)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let truncated = if clean_snippet.len() > 250 {
-            format!("{}...", &clean_snippet[..250])
+        let mut last_user_turn = String::new();
+        let mut current_speaker_is_user = false;
+
+        for line in relevant_dialogue.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("#### Turn") {
+                current_speaker_is_user = trimmed.contains("User") || trimmed.contains("👤");
+                continue;
+            } else if trimmed.starts_with("User:") || trimmed.starts_with("[USER DIRECTIVE]:") {
+                current_speaker_is_user = true;
+                let clean = trimmed
+                    .trim_start_matches("User:")
+                    .trim_start_matches("[USER DIRECTIVE]:")
+                    .trim();
+                if !clean.is_empty() {
+                    last_user_turn = clean.to_string();
+                }
+                continue;
+            } else if trimmed.starts_with("Agent:") || trimmed.starts_with("🤖") {
+                current_speaker_is_user = false;
+                continue;
+            }
+
+            if current_speaker_is_user && trimmed.starts_with('>') {
+                let content = trimmed.trim_start_matches('>').trim();
+                if !content.is_empty() && !content.starts_with('*') {
+                    if last_user_turn.is_empty() {
+                        last_user_turn = content.to_string();
+                    } else {
+                        last_user_turn.push(' ');
+                        last_user_turn.push_str(content);
+                    }
+                }
+            }
+        }
+
+        let excerpt = if !last_user_turn.is_empty() {
+            if last_user_turn.len() > 180 {
+                format!("{}...", &last_user_turn[..180])
+            } else {
+                last_user_turn
+            }
         } else {
-            clean_snippet
+            let first = relevant_dialogue
+                .lines()
+                .find(|l| !l.trim().is_empty() && !l.starts_with('#'))
+                .unwrap_or("")
+                .trim_start_matches('>')
+                .trim()
+                .to_string();
+            if first.len() > 180 {
+                format!("{}...", &first[..180])
+            } else {
+                first
+            }
         };
-        if !truncated.is_empty() {
-            format!(" Context from {}: \"{}\".", handoff.context_package.source_agent, truncated)
+
+        if !excerpt.is_empty() {
+            format!(" Last user directive: \"{}\".", excerpt)
         } else {
             String::new()
         }
@@ -904,15 +1582,18 @@ pub fn execute_agent_handoff(
     };
 
     let concise_prompt = format!(
-        "{}: Continuing from {}. Mission: {}.{}{}{} Read ~/.orbit/memory/projects/{}/ (HANDOFF.md, SESSION.md, DECISIONS.md, ROADMAP.md, BUGS.md, PATTERNS.md, CHANGES.md) for full deep memory. Ingest context and resume work.",
+        "ORBIT CONTINUITY ({}): Ingest {} (or ~/.orbit/system/MASTER.md) and {} (or ~/.orbit/memory/projects/{}/HANDOFF.md). Source: {}. Task: {}.{}{}{} RULE: Follow DISCUSS protocol. Do NOT modify any files yet. Greet the user, summarize what Agent A accomplished and the last directive, and ask for confirmation to proceed with the next step.",
         intent_prefix,
+        master_abs,
+        handoff_abs,
+        project_slug,
         handoff.context_package.source_agent,
         handoff.context_package.current_task,
         summary_excerpt,
         decisions_str,
-        touched_files_str,
-        project_slug
+        touched_files_str
     );
+
 
     // 4. If the target agent session is ALREADY running — write directly to its stdin.
     //    Never kill a live session during a handoff.
