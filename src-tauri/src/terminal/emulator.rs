@@ -152,7 +152,7 @@ impl TerminalEmulator {
         // The emulator remains the source of truth; the visible grid above is
         // still the only data required for the normal 60 FPS paint path.
         let history = self.term.grid().history_size();
-        let history_start = -(history.min(256) as i32);
+        let history_start = -(history.min(2500) as i32);
         let scrollback = (history_start..0)
             .map(|line| TerminalRow {
                 row: (line - history_start) as u16,
@@ -376,6 +376,6 @@ mod tests {
         emulator.feed(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n");
         let snapshot = emulator.snapshot("test", 1);
         assert!(!snapshot.scrollback.is_empty());
-        assert!(snapshot.scrollback.len() <= 256);
+        assert!(snapshot.scrollback.len() <= 2500);
     }
 }

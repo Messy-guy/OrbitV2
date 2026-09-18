@@ -277,12 +277,29 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
 
   const handleWheel = (event: React.WheelEvent) => {
     if (!snapshot) return;
-    event.preventDefault();
-    const point = pointFromEvent(event);
-    onInput(encodeMouse('motion', point.column, point.row, {
-      sgr: snapshot.modes.sgrMouse,
-      wheel: event.deltaY < 0 ? 'up' : 'down',
-    }));
+
+    // Alternate-screen applications with mouse reporting (vim, htop, less) get mouse wheel escapes
+    const isAltScreenMouse = snapshot.modes.alternateScreen && (snapshot.modes.mouseMotion || snapshot.modes.mouseClick);
+    if (isAltScreenMouse) {
+      event.preventDefault();
+      const point = pointFromEvent(event);
+      onInput(encodeMouse('motion', point.column, point.row, {
+        sgr: snapshot.modes.sgrMouse,
+        wheel: event.deltaY < 0 ? 'up' : 'down',
+      }));
+      return;
+    }
+
+    // Standard CLI scrollback: programmatically scroll container and manage sticky-to-bottom
+    if (hostRef.current) {
+      if (event.deltaY < 0) {
+        // User scrolling up: immediately unstick from bottom so 120ms snapshot updates don't snap down
+        stickToBottomRef.current = false;
+      }
+      hostRef.current.scrollTop += event.deltaY;
+      const atBottom = hostRef.current.scrollTop + hostRef.current.clientHeight >= hostRef.current.scrollHeight - 34;
+      stickToBottomRef.current = atBottom;
+    }
   };
 
   const handleMouseDown = (event: React.MouseEvent) => {

@@ -218,7 +218,63 @@ Created src/controllers/auth.controller.ts
   assert(terminalExtracted.conversationSynthesis !== undefined, 'Generated conversation synthesis');
   assert(!terminalExtracted.conversationSynthesis?.workAccomplished.some(w => w.step.includes('Keyboard:') || Boolean(w.detail?.includes('tab to cycle'))), 'TUI keyboard footer noise stripped from accomplishments');
 
-  console.log('\n=== ALL 6 HANDOFF INTELLIGENCE SUITES PASSED CLEANLY! ===');
+  // --- TEST 7: Full Trajectory Multi-Turn Session Preservation (Turn 1 to Latest) ---
+  console.log('\n--- TEST 7: Full Trajectory Multi-Turn Session Preservation ---');
+  const multiTurnSessionId = `multi-sess-${Date.now()}`;
+  const multiSession = conversationStore.getOrCreateSession(
+    multiTurnSessionId,
+    'proj-orbit',
+    'ws-orbit',
+    { id: 'ag-multi-source', name: 'Claude Code', provider: 'claude' },
+    'Multi-Turn Verification'
+  );
+
+  // Add 12 turns (6 user directives + 6 agent replies)
+  const directives = [
+    'Build scalable zero-knowledge proof verification pipeline',
+    'Add circuit compiler in src/zk/compiler.ts',
+    'Optimize witness generation for large constraint matrices',
+    'Implement batch proof aggregation service',
+    'Audit memory allocation for cryptographic curves',
+    'Run full integration test suite and benchmarks',
+  ];
+
+  for (let i = 0; i < directives.length; i++) {
+    conversationStore.addUserMessage(multiTurnSessionId, directives[i]);
+    conversationStore.completeAgentMessage(
+      multiTurnSessionId,
+      `Agent completed step ${i + 1} for: ${directives[i]}.\nModified src/zk/step_${i + 1}.ts.`,
+      `Executed zk tool for step ${i + 1}`
+    );
+  }
+
+  const multiExtracted = await UniversalSessionExtractor.extractAuthoritativeSession('ag-multi-source', multiTurnSessionId);
+
+  assert(multiExtracted.turns.length === 12, `Extracted all 12 conversation turns (got ${multiExtracted.turns.length})`);
+  assert(Boolean(multiExtracted.primaryGoal?.includes('Build scalable zero-knowledge proof verification pipeline')), 'Turn 1 initial goal is preserved');
+  assert(multiExtracted.recentUserInstructions.length === 6, `Preserved all 6 user directives without slicing (got ${multiExtracted.recentUserInstructions.length})`);
+  assert(multiExtracted.recentUserInstructions[0].includes('zero-knowledge'), 'First user directive is Turn 1 initial goal');
+  assert(multiExtracted.recentUserInstructions[5].includes('benchmarks'), 'Sixth user directive is the latest directive');
+  assert(multiExtracted.verbatimTranscript!.includes('Turn 1 — 👤 User'), 'Verbatim transcript starts at Turn 1');
+  assert(multiExtracted.verbatimTranscript!.includes('Build scalable zero-knowledge proof verification pipeline'), 'Verbatim transcript contains initial goal');
+  assert(multiExtracted.verbatimTranscript!.includes('Turn 12 — 🤖 Agent'), 'Verbatim transcript reaches Turn 12');
+  assert(Boolean(multiExtracted.conversationSynthesis?.narrativeSummary.includes('Directive 1 (Initial)')), 'Narrative summary labels Directive 1 as Initial');
+  assert(Boolean(multiExtracted.conversationSynthesis?.narrativeSummary.includes('Directive 6 (Latest)')), 'Narrative summary labels Directive 6 as Latest');
+
+  // Verify distillation evaluates all turns
+  const multiDistilled = SessionDistillerService.distillSession(
+    multiExtracted,
+    'chat_continue',
+    'Claude Code',
+    'Antigravity',
+    4000
+  );
+  assert(multiDistilled.goal.includes('zero-knowledge'), 'Distilled goal retains Turn 1');
+  assert(multiDistilled.formattedEnvelope.includes('Directive 1 (Initial)'), 'Distilled envelope contains Directive 1 (Initial)');
+  assert(multiDistilled.formattedEnvelope.includes('Directive 6 (Latest)'), 'Distilled envelope contains Directive 6 (Latest)');
+  assert(multiDistilled.formattedEnvelope.includes('Turn 1 — 👤 User'), 'Distilled envelope contains verbatim Turn 1');
+
+  console.log('\n=== ALL 7 HANDOFF INTELLIGENCE SUITES PASSED CLEANLY! ===');
 }
 
 runHandoffIntelligenceTests().catch((err) => {

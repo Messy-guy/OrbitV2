@@ -90,14 +90,27 @@ export class UniversalSessionExtractor {
   /**
    * Formats clean chronological conversation dialogue between user and agent
    */
-  public static formatVerbatimTranscript(turns: ExtractedTurn[], maxTurns = 10): string {
-    const recent = turns.slice(-maxTurns);
-    if (recent.length === 0) return 'No prior conversation turns recorded for this session.';
+  public static formatVerbatimTranscript(turns: ExtractedTurn[], maxTurns = 50): string {
+    if (turns.length === 0) return 'No prior conversation turns recorded for this session.';
 
-    return recent.map((turn, index) => {
+    let selectedTurns: { turn: ExtractedTurn; turnNum: number }[] = [];
+    if (turns.length <= maxTurns) {
+      selectedTurns = turns.map((turn, idx) => ({ turn, turnNum: idx + 1 }));
+    } else {
+      // Always retain Turn 1 (initial intent) and the most recent turns
+      selectedTurns.push({ turn: turns[0], turnNum: 1 });
+      const tailCount = maxTurns - 1;
+      const tail = turns.slice(-tailCount);
+      const startIndex = turns.length - tailCount;
+      tail.forEach((turn, idx) => {
+        selectedTurns.push({ turn, turnNum: startIndex + idx + 1 });
+      });
+    }
+
+    return selectedTurns.map(({ turn, turnNum }) => {
       const speaker = turn.role === 'user' ? '👤 User' : '🤖 Agent';
       const cleanContent = turn.content.trim();
-      let block = `#### Turn ${index + 1} — ${speaker}\n> ${cleanContent.replace(/\n/g, '\n> ')}`;
+      let block = `#### Turn ${turnNum} — ${speaker}\n> ${cleanContent.replace(/\n/g, '\n> ')}`;
       if (turn.toolsExecuted && turn.toolsExecuted.length > 0) {
         block += `\n> *Tools run: ${turn.toolsExecuted.map(t => `${t.name}${t.target ? ` (${t.target})` : ''}`).join(', ')}*`;
       }
@@ -271,14 +284,14 @@ export class UniversalSessionExtractor {
     const narrativeLines: string[] = [
       `### 🎯 Session Objectives & Directives:`,
       `**Goal**: ${resolvedPrimaryGoal}`,
-      ...objectives.slice(-4).map((u, i) => `• Directive ${i + 1}: "${u}"`),
+      ...objectives.map((u, i) => `• Directive ${i + 1}${i === 0 ? ' (Initial)' : i === objectives.length - 1 ? ' (Latest)' : ''}: "${u}"`),
       ``,
       `### 💬 Verbatim Recent Conversation Dialogue (User ⇄ Agent):`,
-      this.formatVerbatimTranscript(turns, 8),
+      this.formatVerbatimTranscript(turns, 50),
       ``,
       `### 🛠️ Work Accomplished (${accomplishments.length} Steps Executed):`,
       ...(accomplishments.length > 0 
-        ? accomplishments.slice(-6).map((step, idx) => `• **Step ${idx + 1}**: ${step.step}`)
+        ? accomplishments.slice(-25).map((step, idx) => `• **Step ${idx + 1}**: ${step.step}`)
         : ['• Executed workspace code inspections and runtime updates.']),
       ``,
       `### ⚡ Architectural Decisions Formulated:`,
@@ -458,7 +471,7 @@ export class UniversalSessionExtractor {
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
-      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 50),
     };
   }
 
@@ -556,7 +569,18 @@ export class UniversalSessionExtractor {
 
       // Append content to current turn
       if (currentTurn) {
-        currentTurn.content += (currentTurn.content ? '\n' : '') + line;
+        if (currentTurn.role === 'user') {
+          // User prompt line has already been captured. Subsequent output belongs to the agent.
+          finalizeTurn();
+          currentTurn = {
+            id: `turn-${Date.now()}-${turns.length}`,
+            role: 'agent',
+            content: line,
+            timestamp: Date.now(),
+          };
+        } else {
+          currentTurn.content += (currentTurn.content ? '\n' : '') + line;
+        }
       } else {
         currentTurn = {
           id: `turn-${Date.now()}-${turns.length}`,
@@ -589,14 +613,14 @@ export class UniversalSessionExtractor {
       sessionId,
       turns,
       primaryGoal: synthesis.primaryGoal,
-      recentUserInstructions: synthesis.userObjectives.slice(-5),
+      recentUserInstructions: synthesis.userObjectives,
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound),
       decisionsFormulated: Array.from(decisionsFormulated),
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
-      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 50),
     };
   }
 
@@ -677,7 +701,7 @@ export class UniversalSessionExtractor {
 
     const synthesis = this.synthesizeConversation(
       turns,
-      recentUserInstructions[recentUserInstructions.length - 1] || primaryGoal || 'Active workspace task',
+      primaryGoal || recentUserInstructions[0] || 'Active workspace task',
       Array.from(decisionsFormulated),
       Array.from(blockersFound),
       Array.from(filesTouched),
@@ -690,14 +714,14 @@ export class UniversalSessionExtractor {
       sessionId,
       turns,
       primaryGoal: synthesis.primaryGoal,
-      recentUserInstructions: synthesis.userObjectives.slice(-5),
+      recentUserInstructions: synthesis.userObjectives,
       filesTouched: Array.from(filesTouched),
       blockersFound: Array.from(blockersFound),
       decisionsFormulated: Array.from(decisionsFormulated),
       lastUnfinishedStep: synthesis.nextStepDirective,
       detailedConversationLog: synthesis.narrativeSummary,
       conversationSynthesis: synthesis,
-      verbatimTranscript: this.formatVerbatimTranscript(turns, 10),
+      verbatimTranscript: this.formatVerbatimTranscript(turns, 50),
     };
   }
 

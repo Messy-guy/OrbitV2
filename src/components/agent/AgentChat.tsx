@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { CornerDownLeft, ArrowLeftRight, Copy, Check, Sparkles } from 'lucide-react';
+import { CornerDownLeft, ArrowLeftRight, Copy, Check, Sparkles, ChevronDown, ChevronRight, History } from 'lucide-react';
 import { Agent } from '../../types/orbit';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
@@ -17,6 +17,7 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
+  const [expandedHandoffSummaries, setExpandedHandoffSummaries] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -141,6 +142,28 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {h.conversationSummary && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedHandoffSummaries(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                        className="w-full flex items-center justify-between p-2.5 rounded-btn surface-well hover:bg-panel-hover text-text-primary transition-colors text-[11px] font-mono border border-border-subtle"
+                      >
+                        <div className="flex items-center gap-1.5 text-text-primary">
+                          <History size={12} className="text-text-muted" />
+                          <span className="font-semibold">Prior Session History (Turn 1 to Handoff)</span>
+                        </div>
+                        {expandedHandoffSummaries[msg.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </button>
+
+                      {expandedHandoffSummaries[msg.id] && (
+                        <div className="mt-1.5 p-3 rounded-panel bg-well/80 border border-border text-[11px] font-mono text-text-secondary whitespace-pre-wrap max-h-96 overflow-y-auto leading-relaxed select-text">
+                          {h.conversationSummary}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

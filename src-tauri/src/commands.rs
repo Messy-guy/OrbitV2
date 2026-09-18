@@ -1485,26 +1485,51 @@ pub fn execute_agent_handoff(
     }
 
     // 3. Build a dense, self-contained executive handoff prompt for Agent B.
-    let summary_excerpt = if !relevant_dialogue.is_empty() {
-        let mut last_user_turn = String::new();
+    let (initial_goal, trajectory_summary, latest_directive) = if !relevant_dialogue.is_empty() {
+        let mut user_turns: Vec<String> = Vec::new();
+        let mut current_user_buf = String::new();
         let mut current_speaker_is_user = false;
 
         for line in relevant_dialogue.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("#### Turn") {
+                if current_speaker_is_user && !current_user_buf.is_empty() {
+                    user_turns.push(current_user_buf.trim().to_string());
+                    current_user_buf.clear();
+                }
                 current_speaker_is_user = trimmed.contains("User") || trimmed.contains("👤");
                 continue;
             } else if trimmed.starts_with("User:") || trimmed.starts_with("[USER DIRECTIVE]:") {
+                if current_speaker_is_user && !current_user_buf.is_empty() {
+                    user_turns.push(current_user_buf.trim().to_string());
+                    current_user_buf.clear();
+                }
                 current_speaker_is_user = true;
                 let clean = trimmed
                     .trim_start_matches("User:")
                     .trim_start_matches("[USER DIRECTIVE]:")
                     .trim();
                 if !clean.is_empty() {
-                    last_user_turn = clean.to_string();
+                    current_user_buf = clean.to_string();
+                }
+                continue;
+            } else if trimmed.starts_with("• Directive") {
+                if let Some(start_quote) = trimmed.find('"') {
+                    if let Some(end_quote) = trimmed.rfind('"') {
+                        if end_quote > start_quote {
+                            let directive_text = &trimmed[start_quote + 1..end_quote];
+                            if !directive_text.is_empty() {
+                                user_turns.push(directive_text.to_string());
+                            }
+                        }
+                    }
                 }
                 continue;
             } else if trimmed.starts_with("Agent:") || trimmed.starts_with("🤖") {
+                if current_speaker_is_user && !current_user_buf.is_empty() {
+                    user_turns.push(current_user_buf.trim().to_string());
+                    current_user_buf.clear();
+                }
                 current_speaker_is_user = false;
                 continue;
             }
@@ -1512,46 +1537,47 @@ pub fn execute_agent_handoff(
             if current_speaker_is_user && trimmed.starts_with('>') {
                 let content = trimmed.trim_start_matches('>').trim();
                 if !content.is_empty() && !content.starts_with('*') {
-                    if last_user_turn.is_empty() {
-                        last_user_turn = content.to_string();
+                    if current_user_buf.is_empty() {
+                        current_user_buf = content.to_string();
                     } else {
-                        last_user_turn.push(' ');
-                        last_user_turn.push_str(content);
+                        current_user_buf.push(' ');
+                        current_user_buf.push_str(content);
                     }
                 }
             }
         }
 
-        let excerpt = if !last_user_turn.is_empty() {
-            if last_user_turn.len() > 180 {
-                format!("{}...", &last_user_turn[..180])
+        if current_speaker_is_user && !current_user_buf.is_empty() {
+            user_turns.push(current_user_buf.trim().to_string());
+        }
+
+        let first = user_turns.first().cloned().unwrap_or_else(|| {
+            if !handoff.context_package.current_task.is_empty() {
+                handoff.context_package.current_task.clone()
             } else {
-                last_user_turn
+                "Active workspace task".to_string()
             }
+        });
+
+        let last = user_turns.last().cloned().unwrap_or_else(|| first.clone());
+
+        let traj = if user_turns.len() > 1 {
+            format!("{} user directives executed across session", user_turns.len())
         } else {
-            let first = relevant_dialogue
-                .lines()
-                .find(|l| !l.trim().is_empty() && !l.starts_with('#'))
-                .unwrap_or("")
-                .trim_start_matches('>')
-                .trim()
-                .to_string();
-            if first.len() > 180 {
-                format!("{}...", &first[..180])
-            } else {
-                first
-            }
+            "Single-turn kick-off".to_string()
         };
 
-        if !excerpt.is_empty() {
-            format!(" Last user directive: \"{}\".", excerpt)
-        } else {
-            String::new()
-        }
-    } else if !handoff.context_package.current_task.is_empty() {
-        format!(" Active task: {}.", handoff.context_package.current_task)
+        let clean_first = if first.len() > 140 { format!("{}...", &first[..140]) } else { first };
+        let clean_last = if last.len() > 140 { format!("{}...", &last[..140]) } else { last };
+
+        (clean_first, traj, clean_last)
     } else {
-        String::new()
+        let task = if !handoff.context_package.current_task.is_empty() {
+            handoff.context_package.current_task.clone()
+        } else {
+            "Active workspace task".to_string()
+        };
+        (task.clone(), "Direct handoff".to_string(), task)
     };
 
     let touched_files_str = if !handoff.context_package.changed_files.is_empty() {
@@ -1582,14 +1608,14 @@ pub fn execute_agent_handoff(
     };
 
     let concise_prompt = format!(
-        "ORBIT CONTINUITY ({}): Ingest {} (or ~/.orbit/system/MASTER.md) and {} (or ~/.orbit/memory/projects/{}/HANDOFF.md). Source: {}. Task: {}.{}{}{} RULE: Follow DISCUSS protocol. Do NOT modify any files yet. Greet the user, summarize what Agent A accomplished and the last directive, and ask for confirmation to proceed with the next step.",
+        "ORBIT CONTINUITY ({}): Ingest {} and {}. Source: {}. Initial Goal: \"{}\". Trajectory: {}. Latest Directive: \"{}\".{}{} RULE: Follow DISCUSS protocol. Do NOT modify any files yet. Greet the user, summarize the full trajectory from Turn 1 to present and what was accomplished, and ask for confirmation to proceed with the next step.",
         intent_prefix,
         master_abs,
         handoff_abs,
-        project_slug,
         handoff.context_package.source_agent,
-        handoff.context_package.current_task,
-        summary_excerpt,
+        initial_goal,
+        trajectory_summary,
+        latest_directive,
         decisions_str,
         touched_files_str
     );

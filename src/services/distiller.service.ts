@@ -66,16 +66,23 @@ export class SessionDistillerService {
       graph.addEdge(rootTaskId, instId, 'DEPENDS_ON');
     });
 
-    // 3. Add Turn Nodes & Links
-    sessionData.turns.slice(-8).forEach((turn, idx) => {
+    // 3. Add Turn Nodes & Links (Process ALL turns from Turn 1)
+    sessionData.turns.forEach((turn, idx) => {
       const turnId = `turn-${idx}-${turn.id}`;
       const tokenEst = Math.max(10, Math.ceil(turn.content.length / 4));
+      // Give high weight to Turn 1 (initial goal), recent turns, and all user prompts
+      const isInitialTurn = idx === 0;
+      const isRecentTurn = idx >= sessionData.turns.length - 4;
+      const isUserPrompt = turn.role === 'user';
+      const baseWeight = isInitialTurn ? 130 : isRecentTurn ? 90 + (idx * 5) : 50 + Math.min(idx * 2, 40);
+      const weight = baseWeight + (isUserPrompt ? 30 : 0);
+
       graph.addNode({
         id: turnId,
         type: 'turn',
-        label: `${turn.role.toUpperCase()}: ${turn.content.slice(0, 140)}...`,
+        label: `${turn.role.toUpperCase()} (Turn ${idx + 1}): ${turn.content.slice(0, 140)}...`,
         details: turn.content,
-        weight: 60 + idx * 10,
+        weight,
         estimatedTokens: tokenEst,
         timestamp: turn.timestamp || now,
       });
