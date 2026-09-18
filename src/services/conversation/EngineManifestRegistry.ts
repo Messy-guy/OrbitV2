@@ -8,16 +8,16 @@ class EngineManifestRegistry {
   }
 
   private registerBuiltInManifests() {
-    // 1. Antigravity (AGY) - Protocol: Interactive PTY
+    // 1. Antigravity (AGY) - Protocol: Native structured JSONL
     this.register({
       id: 'antigravity',
       name: 'Antigravity (AGY)',
       executable: 'agy',
-      transport: 'pty',
+      transport: 'native',
       fidelity: {
-        conversation: 'TERMINAL_FALLBACK',
-        activities: 'BEST_EFFORT',
-        approvals: 'UNSUPPORTED',
+        conversation: 'STRUCTURED',
+        activities: 'STRUCTURED',
+        approvals: 'STRUCTURED',
       },
       capabilities: {
         streaming: true,

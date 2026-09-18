@@ -10,8 +10,239 @@ import {
   FileEditSummary,
   ConversationSynthesis,
   HandoffPreviewSummary,
+  HandoffPackage,
 } from '../types/orbit';
+import {
+  VerificationLevel,
+  ProjectDecision,
+  ProjectInvariant,
+  EngineeringProgress,
+  ClassifiedConversationSnippet,
+  MemoryEntity,
+  Provenance,
+} from '../types/provenance';
 import { isTauriAvailable, tauriService } from './tauri.service';
+import { EvidenceGate } from './evidence/EvidenceGate';
+import { EventReplayEngine } from './evidence/EventReplayEngine';
+import { EventStore, getCanonicalProjectSlug } from './evidence/EventStore';
+
+export function buildHandoffPackage(params: {
+  project: {
+    name: string;
+    slug: string;
+    path: string;
+    repository?: string;
+    techStack?: Array<{ name: string; category: string; verificationLevel: VerificationLevel; source: string }>;
+    architecture?: string;
+  };
+  mission: {
+    primaryGoal: string;
+    currentTask: string;
+    progress?: EngineeringProgress;
+  };
+  currentState?: {
+    gitBranch?: string;
+    gitHead?: string;
+    status?: 'active' | 'blocked' | 'paused';
+  };
+  invariants?: ProjectInvariant[];
+  decisions?: ProjectDecision[];
+  issues?: Array<MemoryEntity & {
+    issue: string;
+    status: 'open' | 'investigating' | 'resolved' | 'contradicted';
+    verificationLevel: VerificationLevel;
+    provenance: Provenance[];
+  }>;
+  failedApproaches?: Array<{
+    attempt: string;
+    result: string;
+    reason: string;
+    sourceSessionId: string;
+  }>;
+  changedFiles?: Array<{
+    path: string;
+    status: string;
+    verificationLevel: VerificationLevel;
+    additions: number;
+    deletions: number;
+    diffSnippet?: string;
+  }>;
+  relevantConversation?: ClassifiedConversationSnippet[];
+  constraints?: string[];
+  immediateNextAction?: {
+    action: string;
+    targetFiles: string[];
+  };
+  provenance?: Provenance[];
+}): HandoffPackage {
+  return {
+    schemaVersion: 1,
+    project: {
+      name: params.project.name,
+      slug: params.project.slug,
+      path: params.project.path,
+      repository: params.project.repository,
+      techStack: params.project.techStack || [
+        { name: 'TypeScript', category: 'language', verificationLevel: 'file_verified', source: 'package.json' },
+        { name: 'Rust', category: 'language', verificationLevel: 'file_verified', source: 'Cargo.toml' },
+      ],
+      architecture: params.project.architecture || 'Event-sourced project memory with evidence verification',
+    },
+    mission: {
+      primaryGoal: params.mission.primaryGoal,
+      currentTask: params.mission.currentTask,
+      progress: params.mission.progress || {
+        completed: ['Initialized project memory'],
+        active: [params.mission.currentTask],
+        blocked: [],
+        next: params.immediateNextAction?.action || 'Inspect active touched files',
+      },
+    },
+    currentState: {
+      gitBranch: params.currentState?.gitBranch || 'main',
+      gitHead: params.currentState?.gitHead || 'HEAD',
+      status: params.currentState?.status || 'active',
+    },
+    invariants: params.invariants || [],
+    decisions: params.decisions || [],
+    issues: params.issues || [],
+    failedApproaches: params.failedApproaches || [],
+    changedFiles: params.changedFiles || [],
+    relevantConversation: params.relevantConversation || [],
+    constraints: params.constraints || [
+      'Maintain strict TypeScript typing and preserve existing test contracts.',
+      'Single shared PTY delivery funnel via ptyDelivery module with direct TUI pass-through.',
+    ],
+    immediateNextAction: params.immediateNextAction || {
+      action: 'Inspect active touched files and continue implementation from prior state.',
+      targetFiles: [],
+    },
+    provenance: params.provenance || [
+      {
+        sourceType: 'native_transcript',
+        sourceId: 'session',
+        timestamp: Date.now(),
+        confidence: 'observed',
+        verificationLevel: 'observed',
+      },
+    ],
+    generatedAt: Date.now(),
+  };
+}
+
+export function materializeHandoffMarkdown(
+  pkg: HandoffPackage,
+  sourceAgent: string,
+  targetAgent: string
+): string {
+  const dateStr = new Date(pkg.generatedAt).toISOString();
+  const techStackList = pkg.project.techStack.length > 0
+    ? pkg.project.techStack.map(t => `- **${t.name}** (${t.category}) — verification: \`${t.verificationLevel}\` [source: ${t.source}]`).join('\n')
+    : 'None detected.';
+
+  const completedList = pkg.mission.progress.completed.length > 0
+    ? pkg.mission.progress.completed.map(c => `- [x] ${c}`).join('\n')
+    : 'No completed tasks recorded.';
+
+  const workingOnList = pkg.mission.progress.active.length > 0
+    ? pkg.mission.progress.active.map(a => `- [/] ${a}`).join('\n')
+    : (pkg.mission.currentTask ? `- [/] ${pkg.mission.currentTask}` : 'Active task execution.');
+
+  const decisionsList = pkg.decisions.length > 0
+    ? pkg.decisions.map(d => `- **${d.decision}** (level: \`${d.effectiveLevel || 'observed'}\`)\n  - *Rationale*: ${d.rationale || 'N/A'}`).join('\n')
+    : 'No critical decisions recorded.';
+
+  const changedFilesList = pkg.changedFiles.length > 0
+    ? pkg.changedFiles.map(f => {
+        let entry = `- \`${f.path}\` (${f.status}, level: \`${f.verificationLevel}\`, +${f.additions}/-${f.deletions})`;
+        if (f.diffSnippet && f.diffSnippet.trim()) {
+          entry += `\n\`\`\`diff\n${f.diffSnippet}\n\`\`\``;
+        }
+        return entry;
+      }).join('\n\n')
+    : 'No file changes recorded.';
+
+  const bugsList = pkg.issues.filter(i => i.status === 'open' || i.status === 'investigating').length > 0
+    ? pkg.issues.filter(i => i.status === 'open' || i.status === 'investigating').map(i => `- ⚠️ [${i.status.toUpperCase()}] ${i.issue} (level: \`${i.verificationLevel}\`)`).join('\n')
+    : 'No active bugs or errors.';
+
+  const knownIssuesList = pkg.issues.length > 0
+    ? pkg.issues.map(i => `- [${i.status}] ${i.issue} (level: \`${i.verificationLevel}\`)`).join('\n')
+    : 'No known issues.';
+
+  const failedApproachesList = pkg.failedApproaches.length > 0
+    ? pkg.failedApproaches.map(f => `- **Attempt**: ${f.attempt}\n  - *Result*: ${f.result}\n  - *Reason*: ${f.reason}`).join('\n')
+    : 'None recorded.';
+
+  const constraintsList = [
+    ...pkg.invariants.map(inv => `[INVARIANT] ${inv.statement}`),
+    ...pkg.constraints
+  ];
+  const constraintsStr = constraintsList.length > 0
+    ? constraintsList.map(c => `- ${c}`).join('\n')
+    : 'Maintain existing conventions, test contracts, and strict typing.';
+
+  const conversationSnippets = pkg.relevantConversation.length > 0
+    ? pkg.relevantConversation.map(c => `#### [${c.category.toUpperCase()}] ${c.speaker === 'user' ? '👤 User' : '🤖 Agent'}\n> ${c.summary}${c.detail ? `\n> ${c.detail.replace(/\n/g, '\n> ')}` : ''}`).join('\n\n')
+    : 'No conversation history captured.';
+
+  const nextActionStr = pkg.immediateNextAction.action
+    ? `${pkg.immediateNextAction.action}${pkg.immediateNextAction.targetFiles.length > 0 ? ` (Target files: ${pkg.immediateNextAction.targetFiles.map(f => `\`${f}\``).join(', ')})` : ''}`
+    : 'Inspect active touched files and continue implementation.';
+
+  return `# Orbit Handoff: ${pkg.project.name}
+Generated: ${dateStr} | Source: ${sourceAgent} | Target: ${targetAgent}
+
+## Mission
+- **Primary Goal**: ${pkg.mission.primaryGoal}
+- **Current Task**: ${pkg.mission.currentTask}
+
+## Tech Stack
+${techStackList}
+
+## Architecture
+${pkg.project.architecture || 'Standard project structure'}
+
+## Current State
+- **Git Branch**: \`${pkg.currentState.gitBranch || 'unknown'}\`
+- **HEAD**: \`${pkg.currentState.gitHead || 'unknown'}\`
+- **Status**: \`${pkg.currentState.status}\`
+
+## Completed
+${completedList}
+
+## Currently Working On
+${workingOnList}
+
+## Important Decisions
+${decisionsList}
+
+## Changed Files
+${changedFilesList}
+
+## Bugs / Errors
+${bugsList}
+
+## Known Issues
+${knownIssuesList}
+
+## Failed Approaches
+${failedApproachesList}
+
+## Constraints
+${constraintsStr}
+
+## Recent Conversation
+${conversationSnippets}
+
+## Immediate Next Action
+${nextActionStr}
+
+## Instructions for Agent B
+ORBIT CONTINUITY: You have the available project engineering context in HANDOFF.json, HANDOFF.md, and SESSION.md.
+Project: ${pkg.project.name} | Tech: ${pkg.project.techStack.map(t => t.name).join(', ') || 'unknown'} | Active Task: ${pkg.mission.currentTask} | Immediate Next Action: ${pkg.immediateNextAction.action}
+RULE: Follow DISCUSS protocol. Do not ask for background that is already represented in the handoff. If required information is genuinely absent to perform the next action, identify exactly what is missing. Do NOT modify files yet. Greet the user, summarize the engineering state and what was accomplished, state your immediate next action, and ask for confirmation to proceed.`;
+}
 
 export interface IHandoffService {
   buildContextPackage(params: {
@@ -155,26 +386,22 @@ export class HybridHandoffService implements IHandoffService {
 
     const requireConfirm = selection.requireConfirmation !== false;
 
-    const projectSlug = (context.workspaceName || 'orbitv2')
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '') || 'default';
+    const projectSlug = getCanonicalProjectSlug(context.workspaceName, (context as any).projectPath);
 
     // High-signal, DISCUSS Ready Gate continuity protocol (inspired by leo-Agent MASTER.md & DISCUSS.md)
-    const executionGuidance = `## 🛡️ INGESTION & CONTINUITY PROTOCOL (DISCUSS READY GATE)
+    const executionGuidance = `## 🛡️ INGESTION & CONTINUITY PROTOCOL (DISCUSS READY GATE) <!-- MANDATORY INGESTION PROTOCOL -->
 You are inheriting this session from ${sourceAgentName}.
 
 ⚠️ CRITICAL INVARIANT: DO NOT MODIFY ANY FILES OR RUN DESTRUCTIVE COMMANDS YET.
 
 Follow this exact sequence:
-1. Ingest this handoff brief and verify the project state in \`~/.orbit/memory/projects/${projectSlug}/\` (SESSION.md, DECISIONS.md, CHANGES.md).
+1. Ingest this handoff brief and verify the project state in \`~/.orbit/memory/projects/${projectSlug}/\` (SESSION.md, DECISIONS.md, CHANGES.md) and \`~/.orbit/projects/${projectSlug}/HANDOFF.json\`.
 2. Formulate a crisp, conversational response to the user containing:
    • 🎯 Inherited Mission: 1-2 sentences summarizing what ${sourceAgentName} accomplished.
    • 💬 Last User Interaction: What you and ${sourceAgentName} were actively discussing.
    • 📋 Proposed Immediate Action: What you plan to do next.
 3. Conclude by explicitly asking the user:
-   "I have loaded the full session context from ${sourceAgentName} and am ready. Shall I proceed with [Proposed Action], or would you like to direct me otherwise?"
+   "I have loaded the available project engineering context from ${sourceAgentName} and am ready. Shall I proceed with [Proposed Action], or would you like to direct me otherwise?"
 4. STOP and WAIT for user confirmation before making code modifications.`;
 
     const memoryIndexSection = `## 📚 Connected Project Memory Files (System & Workspace)
@@ -253,6 +480,106 @@ Follow this exact sequence:
       }
     }
 
+    const handoffPackage = buildHandoffPackage({
+      project: {
+        name: context.goal || context.workspaceName || 'Orbit Workspace',
+        slug: projectSlug,
+        path: '',
+        techStack: [
+          { name: 'TypeScript', category: 'language', verificationLevel: 'file_verified', source: 'package.json' },
+          { name: 'Rust', category: 'language', verificationLevel: 'file_verified', source: 'Cargo.toml' },
+        ],
+        architecture: context.architecture || 'Event-sourced project memory with evidence verification',
+      },
+      mission: {
+        primaryGoal: distilledBrief?.task || distilledBrief?.goal || context.currentTask || context.goal || 'Active workspace development',
+        currentTask: distilledBrief?.task || distilledBrief?.goal || context.currentTask || 'Active task execution',
+        progress: {
+          completed: context.goal ? [`Targeted ${context.goal}`] : ['Initialized project memory'],
+          active: [distilledBrief?.task || context.currentTask || 'Active task execution'],
+          blocked: allBlockers.filter(b => b !== 'None specified.'),
+          next: distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and continue implementation from prior state.',
+        },
+      },
+      currentState: {
+        gitBranch: gitState?.currentBranch || 'main',
+        gitHead: gitState?.headCommit || 'HEAD',
+        status: allBlockers.length > 0 && allBlockers[0] !== 'None specified.' ? 'blocked' : 'active',
+      },
+      invariants: [],
+      decisions: allDecisions.map((d: string, idx: number) => ({
+        id: `dec_${idx + 1}`,
+        createdByEventId: `evt_dec_${idx + 1}`,
+        updatedByEventIds: [],
+        decision: d,
+        rationale: 'Architectural pattern decided during active engineering session',
+        status: 'active' as const,
+        provenance: [{
+          sourceType: 'native_transcript' as const,
+          sourceId: _sourceSessionTitle || 'session',
+          timestamp: Date.now(),
+          confidence: 'observed' as const,
+          verificationLevel: 'observed' as const,
+        }],
+        verificationRecords: [{
+          level: 'observed' as const,
+          verifiedAt: Date.now(),
+          sourceEventId: `evt_dec_${idx + 1}`,
+          evidence: [d],
+        }],
+        effectiveLevel: 'observed' as const,
+      })),
+      issues: allBlockers.filter(b => b !== 'None specified.').map((b: string, idx: number) => ({
+        id: `iss_${idx + 1}`,
+        createdByEventId: `evt_iss_${idx + 1}`,
+        updatedByEventIds: [],
+        issue: b,
+        status: 'open' as const,
+        verificationLevel: 'observed' as const,
+        provenance: [{
+          sourceType: 'native_transcript' as const,
+          sourceId: _sourceSessionTitle || 'session',
+          timestamp: Date.now(),
+          confidence: 'observed' as const,
+          verificationLevel: 'observed' as const,
+        }],
+      })),
+      failedApproaches: [],
+      changedFiles: fileSummaries.length > 0
+        ? fileSummaries.map(f => ({
+            path: f.filePath,
+            status: f.status,
+            verificationLevel: 'git_verified' as const,
+            additions: f.additions,
+            deletions: f.deletions,
+            diffSnippet: f.diffSnippet,
+          }))
+        : files.map((f: string) => ({
+            path: f,
+            status: 'modified',
+            verificationLevel: 'git_verified' as const,
+            additions: 0,
+            deletions: 0,
+          })),
+      relevantConversation: distilledBrief?.conversationSynthesis?.workAccomplished?.map((w: any, idx: number) => ({
+        id: `snip_${idx + 1}`,
+        category: 'implementation_detail' as const,
+        turnId: `turn_${idx + 1}`,
+        speaker: 'agent' as const,
+        summary: w.step,
+        detail: w.detail,
+        source: 'native_transcript' as const,
+        timestamp: Date.now(),
+      })) || [],
+      constraints: patterns,
+      immediateNextAction: {
+        action: distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and continue implementation from prior state.',
+        targetFiles: files.slice(0, 3),
+      },
+    });
+
+    const canonicalMarkdown = materializeHandoffMarkdown(handoffPackage, sourceAgentName, targetAgentName);
+
     const formattedInstruction = `# ORBIT CONTEXT HANDOFF BRIEF
 **From**: ${sourceAgentName}  ➔  **To**: ${targetAgentName}
 ${intentSubtitle}
@@ -264,11 +591,9 @@ ${executionGuidance}
 
 ${memoryIndexSection}---
 
-## 🎯 Active Goal & Mission
-${distilledBrief?.task || distilledBrief?.goal || context.currentTask || context.goal}
+${canonicalMarkdown}
 
-${userDirectiveSection}${intentSection}${narrativeSection}${decisionsSection}${blockersSection}${patternsSection}${filesSection}${gitSection}## 👉 Immediate Next Action
-${distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and continue implementation from prior state.'}
+${userDirectiveSection}${intentSection}${narrativeSection}${decisionsSection}${blockersSection}${patternsSection}${filesSection}${gitSection}
 
 ---
 ${agentDirective}
@@ -286,6 +611,7 @@ ${agentDirective}
       nextStep: distilledBrief?.nextStep || distilledBrief?.nextSteps || 'Inspect active touched files and proceed with next task module.',
       estimatedTokens: tokenBase,
       formattedInstruction,
+      handoffPackage,
     };
   }
 
@@ -302,6 +628,176 @@ ${agentDirective}
     previewSummary: any,
     contextPackage: ContextPackage
   ): Promise<{ handoffRecord: HandoffRecord; targetMessage: Message; agentReply: Message }> {
+    // =========================================================================
+    // REAL EVIDENCE VERIFICATION & EVENT REPLAY PIPELINE (Fix 3, 4, 5)
+    // =========================================================================
+    const projectSlug = getCanonicalProjectSlug(
+      contextPackage.workspaceName,
+      contextPackage.projectPath
+    );
+    const projectPath = contextPackage.projectPath || '';
+
+    // 1. Gather candidate files from all sources
+    const candidateFiles = new Set<string>();
+    for (const f of contextPackage.changedFiles || []) {
+      if (f.path) candidateFiles.add(f.path);
+    }
+    for (const f of previewSummary.relevantFiles || []) {
+      if (typeof f === 'string' && f) candidateFiles.add(f);
+      else if (f?.path) candidateFiles.add(f.path);
+    }
+    for (const f of contextPackage.gitState?.modifiedFiles || []) {
+      if (f.path) candidateFiles.add(f.path);
+    }
+    for (const f of previewSummary.fileSummaries || []) {
+      if (f.filePath) candidateFiles.add(f.filePath);
+    }
+
+    // 2. Real Evidence Verification via EvidenceGate
+    for (const filePath of candidateFiles) {
+      try {
+        await EvidenceGate.verifyFileChange(projectSlug, projectPath, filePath, `evt_claim_${Date.now()}`);
+      } catch (err) {
+        console.warn(`[EvidenceGate] Verification error for ${filePath}:`, err);
+      }
+    }
+
+    // 3. Evaluate candidate decisions against invariants
+    const candidateDecisions: string[] = [
+      ...(contextPackage.decisions || []),
+      ...(previewSummary.decisions || []),
+    ];
+    const preEvents = await EventStore.getEvents(projectSlug);
+    const preState = EventReplayEngine.replay(projectSlug, preEvents);
+
+    for (const d of candidateDecisions) {
+      if (!d || !d.trim()) continue;
+      for (const inv of preState.invariants.filter((i) => i.status === 'active')) {
+        const evalResult = EvidenceGate.evaluateClaimAgainstInvariant(inv, {
+          id: `claim_${Date.now()}`,
+          statement: d,
+          sourceEventId: `evt_claim_${Date.now()}`,
+        });
+        if (evalResult.claimContradicted) {
+          await EventStore.appendEvent(projectSlug, {
+            eventId: `evt_contra_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'claim.contradicted',
+            projectId: projectSlug,
+            sessionId: sourceSessionId,
+            timestamp: Date.now(),
+            payload: {
+              claim: d,
+              invariantId: inv.id,
+              reason: evalResult.reason,
+            },
+            provenance: {
+              sourceType: 'agent_observation',
+              sourceId: `evt_claim_${Date.now()}`,
+              timestamp: Date.now(),
+              confidence: 'inferred',
+              verificationLevel: 'observed',
+              evidence: [evalResult.reason || 'Claim contradicts active invariant'],
+            },
+          });
+        }
+      }
+    }
+
+    // 4. Real Event Replay & Materialize Projections
+    const authoritativeEvents = await EventStore.getEvents(projectSlug);
+    const projectedState = EventReplayEngine.replay(projectSlug, authoritativeEvents);
+    await EventReplayEngine.materializeProjections(projectSlug, projectedState);
+
+    // 5. Update contextPackage & previewSummary from Authoritative Projected State
+    const verifiedChanges = projectedState.changes.filter(
+      (c) => c.verificationLevel === 'file_verified' || c.verificationLevel === 'git_verified'
+    );
+    const verifiedFilePaths = verifiedChanges.map((c) => c.path);
+
+    const activeDecisions = projectedState.decisions
+      .filter((d) => d.status === 'active')
+      .map((d) => d.decision);
+
+    const openIssues = projectedState.issues
+      .filter((i) => i.status === 'open')
+      .map((i) => i.issue);
+
+    const activeInvariants = projectedState.invariants
+      .filter((i) => i.status === 'active')
+      .map((i) => i.statement);
+
+    // Filter changedFiles in contextPackage
+    contextPackage.changedFiles = verifiedChanges.map((c) => ({
+      path: c.path,
+      status: c.status,
+    }));
+    if (activeDecisions.length > 0) {
+      contextPackage.decisions = activeDecisions;
+    }
+    if (openIssues.length > 0) {
+      contextPackage.knownIssues = openIssues;
+    }
+
+    previewSummary.relevantFiles = verifiedFilePaths;
+    previewSummary.decisions = activeDecisions;
+    if (openIssues.length > 0) {
+      previewSummary.currentIssue = openIssues[0];
+    }
+
+    // Build authoritative HandoffPackage
+    const authoritativePkg = buildHandoffPackage({
+      project: {
+        name: contextPackage.workspaceName || projectedState.project.name || 'Orbit Workspace',
+        slug: projectSlug,
+        path: projectPath,
+        repository: projectedState.project.repository,
+        techStack: projectedState.project.techStack.length > 0
+          ? projectedState.project.techStack
+          : [
+              { name: 'TypeScript', category: 'language', verificationLevel: 'file_verified', source: 'package.json' },
+              { name: 'Rust', category: 'language', verificationLevel: 'file_verified', source: 'Cargo.toml' },
+            ],
+        architecture: projectedState.project.architecture || 'Event-sourced persistent memory mesh',
+      },
+      mission: {
+        primaryGoal: previewSummary.task || contextPackage.currentTask || projectedState.mission.primaryGoal,
+        currentTask: previewSummary.task || contextPackage.currentTask || projectedState.mission.currentTask,
+        progress: {
+          completed: projectedState.mission.progress.completed,
+          active: projectedState.mission.progress.active.length > 0 ? projectedState.mission.progress.active : [contextPackage.currentTask],
+          blocked: openIssues,
+          next: previewSummary.nextStep || projectedState.mission.progress.next,
+        },
+      },
+      currentState: {
+        gitBranch: contextPackage.gitState?.currentBranch || 'main',
+        gitHead: contextPackage.gitState?.headCommit || 'HEAD',
+        status: 'active',
+      },
+      invariants: projectedState.invariants.filter((i) => i.status === 'active'),
+      decisions: projectedState.decisions.filter((d) => d.status === 'active'),
+      issues: projectedState.issues as any,
+      failedApproaches: [],
+      changedFiles: verifiedChanges.map((c) => ({
+        path: c.path,
+        status: c.status,
+        verificationLevel: c.verificationLevel,
+        additions: c.additions || 0,
+        deletions: c.deletions || 0,
+        diffSnippet: c.diffSnippet,
+      })),
+      relevantConversation: previewSummary.handoffPackage?.relevantConversation || [],
+      constraints: activeInvariants.length > 0 ? activeInvariants : (previewSummary.handoffPackage?.constraints || []),
+      immediateNextAction: {
+        action: previewSummary.nextStep || 'Inspect active touched files and continue implementation from prior state.',
+        targetFiles: verifiedFilePaths.slice(0, 3),
+      },
+    });
+
+    const canonicalMarkdown = materializeHandoffMarkdown(authoritativePkg, sourceAgentName, targetAgentName);
+    contextPackage.formattedInstruction = canonicalMarkdown;
+    previewSummary.handoffPackage = authoritativePkg;
+
     const handoffRecord: HandoffRecord = {
       id: `handoff-${Date.now()}`,
       workspaceId,

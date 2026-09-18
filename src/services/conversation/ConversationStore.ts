@@ -5,6 +5,7 @@ import {
   ActivitySummary,
   SessionStatus,
 } from '../../types/conversation';
+import { EventStore } from '../evidence/EventStore';
 
 type StoreListener = () => void;
 
@@ -166,6 +167,24 @@ export class AuthoritativeConversationStore {
     // Generate intelligent title from first prompt if default title
     if (session.conversation.turns.length === 1 || session.title.endsWith('Session')) {
       session.title = cleanText.length > 32 ? `${cleanText.slice(0, 32)}...` : cleanText;
+    }
+
+    if (session.projectId) {
+      void EventStore.appendEvent(session.projectId, {
+        eventId: `evt_u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'user.directive',
+        projectId: session.projectId,
+        sessionId,
+        timestamp: Date.now(),
+        payload: { directive: cleanText, text: cleanText },
+        provenance: {
+          sourceType: 'user_statement',
+          sourceId: sessionId,
+          timestamp: Date.now(),
+          confidence: 'verified',
+          verificationLevel: 'observed',
+        },
+      });
     }
 
     this.notify();
@@ -345,6 +364,25 @@ export class AuthoritativeConversationStore {
     agentTurn.completedAt = Date.now();
     session.status = 'waiting';
     session.updatedAt = Date.now();
+
+    if (session.projectId && finalText.trim()) {
+      void EventStore.appendEvent(session.projectId, {
+        eventId: `evt_a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'agent.message',
+        projectId: session.projectId,
+        sessionId,
+        timestamp: Date.now(),
+        payload: { text: finalText.trim() },
+        provenance: {
+          sourceType: 'canonical_session',
+          sourceId: sessionId,
+          timestamp: Date.now(),
+          confidence: 'observed',
+          verificationLevel: 'observed',
+        },
+      });
+    }
+
     this.notify();
   }
 

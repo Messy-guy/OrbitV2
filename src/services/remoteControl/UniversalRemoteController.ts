@@ -3,6 +3,7 @@ import { conversationStore } from '../conversation/ConversationStore';
 import { conversationCaptureService } from '../conversation/ConversationCaptureService';
 import { pendingInputEchoQueue } from '../sessionProjection/input/PendingInputEchoQueue';
 import { isTauriAvailable } from '../tauri.service';
+import { resolveProjectSlug } from '../evidence/EventStore';
 import { agentProfileRegistry } from './AgentInteractionProfileRegistry';
 import { deliverMessageToPty } from './ptyDelivery';
 import {
@@ -173,9 +174,10 @@ export class UniversalRemoteController {
     }
 
     // 5. Update Conversation Store
+    const projectSlug = resolveProjectSlug(agent?.workspaceId);
     conversationStore.getOrCreateSession(
       resolvedSessionId,
-      agent?.workspaceId || 'default',
+      projectSlug,
       agent?.workspaceId || 'default',
       {
         id: resolvedAgentId,

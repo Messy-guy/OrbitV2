@@ -55,6 +55,8 @@ class ConversationCaptureService {
     } else if (manifest.transport === 'jsonl') {
       adapterId = 'jsonl';
       jsonlAdapter.setManifestForSession(sessionId, manifest);
+    } else if (manifest.transport === 'native' || manifest.id === 'antigravity') {
+      adapterId = 'antigravity';
     } else {
       adapterId = 'pty';
     }

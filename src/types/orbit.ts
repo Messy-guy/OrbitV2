@@ -213,6 +213,7 @@ export interface HandoffPreviewSummary {
   nextStep: string;
   estimatedTokens: number;
   formattedInstruction?: string;
+  handoffPackage?: HandoffPackage;
 }
 
 export interface HandoffSelection {
@@ -420,6 +421,61 @@ export interface ContextDraft {
   activeIssues: IssueRecord[];
   recentDecisions: DraftItem[];
   gitSummary: string;
+  generatedAt: number;
+}
+
+export * from './provenance';
+export * from './events';
+
+export interface HandoffPackage {
+  schemaVersion: 1;
+  project: {
+    name: string;
+    slug: string;
+    path: string;
+    repository?: string;
+    techStack: Array<{ name: string; category: string; verificationLevel: import('./provenance').VerificationLevel; source: string }>;
+    architecture: string;
+  };
+  mission: {
+    primaryGoal: string;
+    currentTask: string;
+    progress: import('./provenance').EngineeringProgress;
+  };
+  currentState: {
+    gitBranch?: string;
+    gitHead?: string;
+    status: 'active' | 'blocked' | 'paused';
+  };
+  invariants: import('./provenance').ProjectInvariant[];
+  decisions: import('./provenance').ProjectDecision[];
+  issues: Array<import('./provenance').MemoryEntity & {
+    issue: string;
+    status: 'open' | 'investigating' | 'resolved' | 'contradicted';
+    verificationLevel: import('./provenance').VerificationLevel;
+    provenance: import('./provenance').Provenance[];
+  }>;
+  failedApproaches: Array<{
+    attempt: string;
+    result: string;
+    reason: string;
+    sourceSessionId: string;
+  }>;
+  changedFiles: Array<{
+    path: string;
+    status: string;
+    verificationLevel: import('./provenance').VerificationLevel;
+    additions: number;
+    deletions: number;
+    diffSnippet?: string;
+  }>;
+  relevantConversation: import('./provenance').ClassifiedConversationSnippet[];
+  constraints: string[];
+  immediateNextAction: {
+    action: string;
+    targetFiles: string[];
+  };
+  provenance: import('./provenance').Provenance[];
   generatedAt: number;
 }
 

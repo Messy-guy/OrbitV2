@@ -213,9 +213,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           }
 
           // Authoritatively bind and restore the existing canonical session with the stable activeSess ID
+          const { resolveProjectSlug } = await import('../services/evidence/EventStore');
+          const projectSlug = resolveProjectSlug(workspaceId);
+
           conversationCaptureService.bindSession(
             activeSess,
-            workspaceId,
+            projectSlug,
             workspaceId,
             {
               id: agent.id,
@@ -409,9 +412,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             derivedOperationalMode
           );
 
+          const { resolveProjectSlug } = await import('../services/evidence/EventStore');
+          const projectSlug = resolveProjectSlug(workspaceId, undefined, projectPath);
+
           conversationCaptureService.bindSession(
             newSession.id,
-            workspaceId,
+            projectSlug,
             workspaceId,
             {
               id: newAgent.id,
@@ -557,9 +563,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (agent) {
       try {
         const { conversationCaptureService } = await import('../services/conversation/ConversationCaptureService');
+        const { resolveProjectSlug } = await import('../services/evidence/EventStore');
+        const projectSlug = resolveProjectSlug(workspaceId);
         conversationCaptureService.bindSession(
           newSession.id,
-          workspaceId,
+          projectSlug,
           workspaceId,
           {
             id: agent.id,

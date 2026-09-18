@@ -1227,29 +1227,10 @@ pub fn boot_project_memory(
     let _ = std::fs::create_dir_all(&orbit_system_dir);
     ensure_orbit_system_templates(&orbit_system_dir);
 
-    let raw_name = workspace_name
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| {
-            if !project_path.trim().is_empty() {
-                std::path::Path::new(&project_path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "project".to_string())
-            } else {
-                "project".to_string()
-            }
-        });
-
-    let slug = raw_name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '-' })
-        .collect::<String>();
-    let trimmed_slug = slug.trim_matches('-').to_string();
-    let project_slug = if trimmed_slug.is_empty() { "default".to_string() } else { trimmed_slug };
-
-    let project_memory_dir = orbit_home_dir.join("memory").join("projects").join(&project_slug);
-    ensure_project_memory_scaffold(&project_memory_dir, &raw_name, "Workspace initialization");
+    // Initialize or load structured project memory using fingerprint cache
+    let stored = crate::project_memory::initialize_or_load_project_memory(&project_path, workspace_name.as_deref())?;
+    let project_slug = stored.slug;
+    let project_canonical_dir = crate::project_memory::get_project_canonical_dir(&project_slug);
 
     if !project_path.trim().is_empty() {
         let workspace_orbit_dir = std::path::Path::new(&project_path).join(".orbit");
@@ -1259,7 +1240,7 @@ pub fn boot_project_memory(
                 let master_abs = orbit_system_dir.join("MASTER.md").to_string_lossy().to_string();
                 let pointer_content = format!(
                     "# ORBIT WORKSPACE CONTINUITY POINTER\n\n- **Project Memory**: `{}`\n- **System Manual**: `{}`\n- **Project Root**: `{}`\n- **Initial Boot Protocol**: `~/.orbit/system/BOOT.md`\n",
-                    project_memory_dir.to_string_lossy(),
+                    project_canonical_dir.to_string_lossy(),
                     master_abs,
                     project_path
                 );
@@ -1269,6 +1250,15 @@ pub fn boot_project_memory(
     }
 
     Ok(project_slug)
+}
+
+#[tauri::command]
+pub fn append_project_event(
+    project_slug: String,
+    event_json: String,
+) -> Result<bool, String> {
+    crate::project_memory::append_event_to_ledger(&project_slug, &event_json)?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -1335,7 +1325,19 @@ pub fn execute_agent_handoff(
     let project_memory_dir = orbit_home_dir.join("memory").join("projects").join(&project_slug);
     let _ = std::fs::create_dir_all(&project_memory_dir);
 
-    // 2a. Active Project Handoff briefing file
+    let canonical_proj_dir = crate::project_memory::get_project_canonical_dir(&project_slug);
+    let canonical_views_dir = canonical_proj_dir.join("views");
+    let _ = std::fs::create_dir_all(&canonical_views_dir);
+
+    let canonical_handoff_md = canonical_views_dir.join("HANDOFF.md");
+    let _ = std::fs::write(&canonical_handoff_md, handoff_content);
+
+    let canonical_handoff_json = canonical_proj_dir.join("HANDOFF.json");
+    if let Ok(serialized) = serde_json::to_string_pretty(&handoff) {
+        let _ = std::fs::write(&canonical_handoff_json, serialized);
+    }
+
+    // 2a. Active Project Handoff briefing file (legacy mirror)
     let project_handoff_file = project_memory_dir.join("HANDOFF.md");
     let _ = std::fs::write(&project_handoff_file, handoff_content);
 
@@ -1650,17 +1652,32 @@ pub fn execute_agent_handoff(
         "ORBIT CONTEXT RELAY (Resume Chat)"
     };
 
+    let tech_stack_summary = if let Ok(mem) = crate::project_memory::initialize_or_load_project_memory(proj_path, Some(&raw_name)) {
+        if !mem.tech_stack.is_empty() {
+            mem.tech_stack.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", ")
+        } else {
+            "TypeScript / Rust".to_string()
+        }
+    } else {
+        "TypeScript / Rust".to_string()
+    };
+
+    let active_task = if !latest_directive.is_empty() {
+        latest_directive.clone()
+    } else if !handoff.context_package.current_task.is_empty() {
+        handoff.context_package.current_task.clone()
+    } else {
+        "Active workspace implementation and verification".to_string()
+    };
+
+    let next_action = "Inspect active touched files and continue implementation from prior state.".to_string();
+
     let concise_prompt = format!(
-        "ORBIT CONTINUITY ({}): Ingest {} and {}. Source: {}. Initial Goal: \"{}\". Trajectory: {}. Latest Directive: \"{}\".{}{} RULE: Follow DISCUSS protocol. Do NOT ask the user for background context or project details — you already have complete context in HANDOFF.md and SESSION.md. Do NOT modify any files yet. Greet the user, summarize what was accomplished from Turn 1 to present, state your immediate next work action, and ask for confirmation to proceed with the work.",
-        intent_prefix,
-        master_abs,
-        handoff_abs,
-        handoff.context_package.source_agent,
-        initial_goal,
-        trajectory_summary,
-        latest_directive,
-        decisions_str,
-        touched_files_str
+        "ORBIT CONTINUITY: You have the available project engineering context in HANDOFF.json, HANDOFF.md, and SESSION.md. Project: {} | Tech: {} | Active Task: {} | Immediate Next Action: {} RULE: Follow DISCUSS protocol. Do not ask for background that is already represented in the handoff. If required information is genuinely absent to perform the next action, identify exactly what is missing. Do NOT modify files yet. Greet the user, summarize the engineering state and what was accomplished, state your immediate next action, and ask for confirmation to proceed.",
+        raw_name,
+        tech_stack_summary,
+        active_task,
+        next_action
     );
 
 
@@ -2570,19 +2587,22 @@ pub fn get_recent_antigravity_transcript(workspace_path: Option<String>) -> Resu
     });
 
     if let Some((latest_path, _, _)) = transcripts.first() {
-        use std::collections::VecDeque;
         use std::io::{BufRead, BufReader};
         if let Ok(file) = std::fs::File::open(latest_path) {
             let reader = BufReader::new(file);
-            let mut lines: VecDeque<String> = VecDeque::with_capacity(300);
+            let mut all_lines: Vec<String> = Vec::new();
             for line in reader.lines().flatten() {
-                if lines.len() >= 300 {
-                    lines.pop_front();
-                }
-                lines.push_back(line);
+                all_lines.push(line);
             }
-            let result: Vec<String> = lines.into();
-            return Ok(Some(result.join("\n")));
+            let selected_lines = if all_lines.len() <= 2500 {
+                all_lines
+            } else {
+                let mut subset = Vec::with_capacity(2500);
+                subset.extend_from_slice(&all_lines[..100]); // Always keep Turn 1 and initial user directive
+                subset.extend_from_slice(&all_lines[all_lines.len() - 2400..]); // Keep recent trajectory
+                subset
+            };
+            return Ok(Some(selected_lines.join("\n")));
         }
     }
 

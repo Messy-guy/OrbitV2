@@ -5,12 +5,14 @@ mod discovery;
 mod git;
 mod mcp;
 mod models;
+pub mod project_memory;
+pub mod project_scanner;
 mod runtime;
 mod storage;
 mod terminal;
 
 use commands::{
-    apply_context_draft, boot_project_memory, create_session, create_workspace, delete_agent, delete_checkpoint,
+    append_project_event, apply_context_draft, boot_project_memory, create_session, create_workspace, delete_agent, delete_checkpoint,
     delete_workspace, detect_agents, execute_agent_handoff, generate_context_draft,
 
     generate_context_package, get_agent_mcp_tools, get_agent_terminal_history,
@@ -166,6 +168,7 @@ pub fn run() {
             record_handoff,
             execute_agent_handoff,
             boot_project_memory,
+            append_project_event,
             get_project_activity,
 
             generate_context_draft,

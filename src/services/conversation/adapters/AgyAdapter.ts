@@ -78,7 +78,10 @@ export class AgyAdapter implements EngineAdapter {
             prompt = prompt.slice(6).trim();
           }
 
-          if (prompt) {
+          // Rule 9: Filter pure terminal meta-commands (/res, /clear, /model, /help, etc.)
+          const isMetaCommand = /^\/(?:res|resume|clear|clean|model|help|reset|exit|quit|compact|cost|history)\b/i.test(prompt);
+
+          if (prompt && !isMetaCommand) {
             turns.push({
               id: `turn_u_${item.step_index || Date.now()}`,
               role: 'user',
@@ -96,18 +99,10 @@ export class AgyAdapter implements EngineAdapter {
             });
           }
         } else if (item.type === 'PLANNER_RESPONSE') {
-          const contentText = item.content || '';
+          let contentText = item.content || '';
           const activities: ActivitySummary[] = [];
 
-          if (item.thinking) {
-            activities.push({
-              id: `act_th_${item.step_index || Date.now()}`,
-              category: 'other',
-              summary: `Thought Process (${item.thinking.slice(0, 50)}...)`,
-              startedAt: timestamp,
-              completedAt: timestamp,
-            });
-          }
+          // Rule 5: Never persist hidden chain-of-thought (agent.thought). Persist observable activity only.
 
           if (item.tool_calls && Array.isArray(item.tool_calls)) {
             for (const call of item.tool_calls) {
@@ -116,11 +111,16 @@ export class AgyAdapter implements EngineAdapter {
               activities.push({
                 id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
                 category: cat,
-                summary: `${call.toolSummary || name}`,
+                summary: `Executed ${name}${call.toolSummary ? `: ${call.toolSummary}` : ''}`,
                 startedAt: timestamp,
                 completedAt: timestamp,
               });
             }
+          }
+
+          // If content is empty but tool activities exist, synthesize an observable activity summary
+          if (!contentText.trim() && activities.length > 0) {
+            contentText = activities.map((a) => `• ${a.summary}`).join('\n');
           }
 
           if (contentText.trim() || activities.length > 0) {

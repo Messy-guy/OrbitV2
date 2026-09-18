@@ -62,3 +62,5 @@ export class HybridWorkspaceService implements IWorkspaceService {
     this.fallbackWorkspaces = this.fallbackWorkspaces.filter(w => w.id !== id);
   }
 }
+
+export const workspaceService: IWorkspaceService = new HybridWorkspaceService();

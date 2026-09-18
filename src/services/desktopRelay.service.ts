@@ -6,6 +6,7 @@ import { useSkillStore } from '../stores/skill.store';
 import { isTauriAvailable, tauriService } from './tauri.service';
 import { conversationStore } from './conversation/ConversationStore';
 import { conversationCaptureService } from './conversation/ConversationCaptureService';
+import { resolveProjectSlug } from './evidence/EventStore';
 import { universalRemoteController } from './remoteControl';
 import { sessionService } from './session.service';
 import { sessionGateway } from './sessionGateway/sessionGateway';
@@ -285,9 +286,10 @@ class DesktopRelayService {
       const activeWs = useWorkspaceStore.getState().getActiveWorkspace();
       for (const a of agents) {
         const sessId = activeSessionIdByAgent[a.id] || a.currentSessionId || a.id;
+        const projectSlug = resolveProjectSlug(a.workspaceId || activeWs?.id, activeWs?.name, activeWs?.projectPath);
         conversationCaptureService.bindSession(
           sessId,
-          a.workspaceId || activeWs?.id || 'default_project',
+          projectSlug,
           a.workspaceId || activeWs?.id || 'default_project',
           {
             id: a.id,

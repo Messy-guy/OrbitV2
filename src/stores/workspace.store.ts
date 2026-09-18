@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Workspace } from '../types/orbit';
-import { workspaceService } from '../services';
+import { workspaceService } from '../services/workspace.service';
 import { tauriService } from '../services/tauri.service';
 
 interface WorkspaceState {

@@ -111,7 +111,7 @@ export interface EngineCapabilities {
   nativeConversationHistory: boolean;
 }
 
-export type TransportType = 'acp' | 'jsonrpc' | 'jsonl' | 'pty';
+export type TransportType = 'acp' | 'jsonrpc' | 'jsonl' | 'pty' | 'native';
 
 export interface EngineManifest {
   id: string;

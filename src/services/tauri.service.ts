@@ -461,6 +461,11 @@ export const tauriService = {
     return invoke<string>('boot_project_memory', { projectPath, workspaceName });
   },
 
+  async appendProjectEvent(projectSlug: string, eventJson: string): Promise<boolean> {
+    if (!isTauriAvailable()) return false;
+    return invoke<boolean>('append_project_event', { projectSlug, eventJson });
+  },
+
 
   // Phase 4: Intelligent Context Engine
   async getProjectActivity(workspaceId: string): Promise<import('../types/orbit').ProjectActivityState | null> {
