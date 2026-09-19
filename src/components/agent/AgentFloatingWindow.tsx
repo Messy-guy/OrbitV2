@@ -59,8 +59,10 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
   onFocus,
   onPositionChange,
 }) => {
-  const { agents, removeAgent, setAgentRole } = useAgentStore();
-  const { activeSessionIdByAgent } = useAgentStore();
+  const removeAgent = useAgentStore(s => s.removeAgent);
+  const setAgentRole = useAgentStore(s => s.setAgentRole);
+  const parentAgent = useAgentStore(s => agent.parentId ? s.agents.find(a => a.id === agent.parentId) : null);
+  const currentSessionId = useAgentStore(s => s.activeSessionIdByAgent[agent.id]);
   const { setShareContextOpen, maximizedAgentId, setMaximizedAgentId } = useUIStore();
   const { equipSkillToAgent, getEquippedSkills, unequipSkillFromAgent, assignmentsByAgent } = useSkillStore();
   const [isDragOver, setIsDragOver] = useState(false);
@@ -68,7 +70,6 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
   const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
 
   const equippedSkills = getEquippedSkills(agent.id);
-  const parentAgent = agent.parentId ? agents.find(a => a.id === agent.parentId) : null;
   const isMaximized = maximizedAgentId === agent.id;
   const [prevBounds, setPrevBounds] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -126,7 +127,6 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
     }
   };
 
-  const currentSessionId = activeSessionIdByAgent[agent.id];
   const isTerminal = agent.viewMode !== 'chat';
 
   const getProviderIcon = () => {
@@ -355,7 +355,7 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
           <button
             onClick={(e) => {
               e.stopPropagation();
-              const sessId = activeSessionIdByAgent[agent.id] || 'default';
+              const sessId = currentSessionId || 'default';
               tauriService.sendAgentInput(agent.id, sessId, 'clear\n').catch(() => {});
             }}
             className="p-1 text-text-muted hover:text-text-primary hover:bg-well rounded-lg transition-colors cursor-pointer"

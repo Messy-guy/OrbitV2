@@ -9,7 +9,6 @@ import { ContextPackage, HandoffRecord, HandoffSelection } from '../../types/orb
 import { OrbitEvent } from '../../types/events';
 import { tauriService } from '../tauri.service';
 
-const HOME = process.env.HOME || process.env.USERPROFILE || os.homedir() || '.';
 const TEST_SLUG = 'orbit-regression-test';
 
 async function runRegressionSuite() {
@@ -17,7 +16,7 @@ async function runRegressionSuite() {
   console.log(' ORBIT — 5-BUG HANDOFF REGRESSION TEST SUITE');
   console.log('========================================================================\n');
 
-  const testCanonicalDir = path.join(HOME, '.orbit', 'projects', TEST_SLUG);
+  const testCanonicalDir = EventStore.getProjectDir(TEST_SLUG);
   fs.rmSync(testCanonicalDir, { recursive: true, force: true });
   fs.mkdirSync(testCanonicalDir, { recursive: true });
 

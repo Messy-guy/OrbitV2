@@ -17,6 +17,9 @@ pub struct StoredProjectMemory {
 }
 
 pub fn get_orbit_home() -> PathBuf {
+    if let Some(orbit_home) = std::env::var_os("ORBIT_HOME") {
+        return PathBuf::from(orbit_home);
+    }
     let home = {
         #[cfg(windows)]
         {
@@ -28,6 +31,12 @@ pub fn get_orbit_home() -> PathBuf {
         }
     }
     .unwrap_or_else(|| PathBuf::from("."));
+
+    let home_str = home.to_string_lossy();
+    if let Some(idx) = home_str.find("/.orbit/profiles/") {
+        return PathBuf::from(&home_str[..idx]).join(".orbit");
+    }
+
     home.join(".orbit")
 }
 

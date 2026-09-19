@@ -208,9 +208,13 @@ export const SkillBrowserModal: React.FC = () => {
             </div>
           ) : filteredSkills.length === 0 ? (
             <div className="py-12 text-center text-text-muted font-mono text-xs">
-              {selectedCategory === 'favorites' 
+              {selectedCategory === 'favorites'
                 ? 'No starred favorite skills yet. Click the star ★ icon on any skill to pin it here and in your sidebar!'
-                : `No skills found matching "${searchQuery}".`}
+                : searchQuery.trim()
+                  ? `No skills found matching "${searchQuery.trim()}".`
+                  : selectedCategory !== 'all'
+                    ? `No skills in this category yet.`
+                    : 'No skills available. Try refreshing the registry.'}
             </div>
           ) : (
             filteredSkills.map((skill) => {

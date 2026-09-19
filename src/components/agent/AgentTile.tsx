@@ -11,12 +11,15 @@ interface AgentTileProps {
   agent: Agent;
 }
 
-export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
-  const { activeSessionIdByAgent, sessions, setAgentRole } = useAgentStore();
+export const AgentTile: React.FC<AgentTileProps> = React.memo(({ agent }) => {
+  const setAgentRole = useAgentStore(s => s.setAgentRole);
   const { setShareContextOpen, setCreateCheckpointOpen, setActiveBottomPanel } = useUIStore();
   const [isDragOver, setIsDragOver] = React.useState(false);
 
-  const currentSessionId = activeSessionIdByAgent[agent.id] || sessions[agent.id]?.[0]?.id;
+  // Narrow to this agent only — prevents re-renders from sibling agent store updates
+  const currentSessionId = useAgentStore(s =>
+    s.activeSessionIdByAgent[agent.id] || s.sessions[agent.id]?.[0]?.id
+  );
   const isTerminal = agent.viewMode !== 'chat';
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -113,4 +116,4 @@ export const AgentTile: React.FC<AgentTileProps> = ({ agent }) => {
       </div>
     </div>
   );
-};
+});

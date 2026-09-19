@@ -20,7 +20,6 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef(agent.currentSessionId || `sess-${agent.id}`);
   const subscriptionRef = useRef<{ detach: () => Promise<void> } | null>(null);
-  const snapshotPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const storeRef = useRef<TerminalSessionStore | null>(null);
   const lastDimensionsRef = useRef<{ rows: number; columns: number }>({ rows: 24, columns: 80 });
   const [phase, setPhase] = useState<Phase>('booting');
@@ -124,14 +123,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
         isResume
       );
       await reattach();
-      if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
-      const pollSnapshot = () => {
-        if (typeof document !== 'undefined' && document.hidden) return;
-        void tauriService.getNativeTerminalSnapshot(sessionRef.current)
-          .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
-          .catch(() => {});
-      };
-      snapshotPollRef.current = setInterval(pollSnapshot, 140);
+      // Seed the initial display state with one snapshot fetch immediately after
+      // the event subscription is live. All further updates arrive as real-time
+      // event patches through attachNativeTerminal — no recurring poll needed.
+      void tauriService.getNativeTerminalSnapshot(sessionRef.current)
+        .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
+        .catch(() => {});
       setPhase('active');
       resizeTerminal(agentId, rows, columns);
 
@@ -168,8 +165,6 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       const subscription = subscriptionRef.current;
       subscriptionRef.current = null;
       void subscription?.detach().catch(() => {});
-      if (snapshotPollRef.current) clearInterval(snapshotPollRef.current);
-      snapshotPollRef.current = null;
     };
   }, [agentId, projectPath, startSession]);
 

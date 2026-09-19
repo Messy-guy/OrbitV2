@@ -86,8 +86,16 @@ export function isAbsolutePath(filePath: string): boolean {
 
 export function getOrbitHomeDir(): string {
   if (typeof process !== 'undefined' && process.env) {
+    if (process.env.ORBIT_HOME) return process.env.ORBIT_HOME;
     const home = process.env.HOME || process.env.USERPROFILE;
-    if (home) return home;
+    if (home) {
+      const normalized = home.replace(/\\/g, '/');
+      const profileIndex = normalized.indexOf('/.orbit/profiles/');
+      if (profileIndex !== -1) {
+        return home.substring(0, profileIndex);
+      }
+      return home;
+    }
   }
   return '~';
 }

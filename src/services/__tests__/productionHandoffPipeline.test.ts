@@ -18,8 +18,8 @@ async function runProductionAuditSuite() {
   console.log(' ORBIT — PRODUCTION INTEGRATION TEST SUITE (REAL CALL PATHS)');
   console.log('========================================================================\n');
 
-  const testCanonicalDir = path.join(HOME, '.orbit', 'projects', TEST_SLUG);
-  const testWrongDir = path.join(HOME, '.orbit', 'projects', TEST_WS_ID);
+  const testCanonicalDir = EventStore.getProjectDir(TEST_SLUG);
+  const testWrongDir = EventStore.getProjectDir(TEST_WS_ID);
   const tempProjDir = path.join(os.tmpdir(), `orbit_prod_test_repo_${Date.now()}`);
 
   // Setup test sandbox directories

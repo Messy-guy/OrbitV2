@@ -304,8 +304,15 @@ class DesktopRelayService {
     // Bind current desktop agents immediately
     bindCurrentAgents();
 
-    this.unsubscribeAgentStore = useAgentStore.subscribe(() => {
-      bindCurrentAgents();
+    // Watch for agents list changes (add/remove) to re-bind sessions.
+    // Keyed on agents array identity so PTY output batches (which only update
+    // terminalLogs/messages, not the agents array) do NOT trigger re-binding.
+    let lastAgentsRef = useAgentStore.getState().agents;
+    this.unsubscribeAgentStore = useAgentStore.subscribe((state) => {
+      if (state.agents !== lastAgentsRef) {
+        lastAgentsRef = state.agents;
+        bindCurrentAgents();
+      }
       this.scheduleSync();
     });
 

@@ -12,7 +12,9 @@ interface AgentChatProps {
 }
 
 export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
-  const { messages, sendMessage } = useAgentStore();
+  // Narrow to only this session's messages — prevents re-render on sibling agent PTY output
+  const sessionMessages = useAgentStore(s => s.messages[sessionId] || []);
+  const sendMessage = useAgentStore(s => s.sendMessage);
   const { getActiveWorkspace } = useWorkspaceStore();
   const [input, setInput] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -22,7 +24,6 @@ export const AgentChat: React.FC<AgentChatProps> = ({ agent, sessionId }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeWorkspace = getActiveWorkspace();
-  const sessionMessages = messages[sessionId] || [];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

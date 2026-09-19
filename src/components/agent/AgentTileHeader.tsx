@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { MoreVertical, Trash2, Plus, Play, Pause, Terminal, MessageSquare } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types/orbit';
 import { Badge } from '../ui/Badge';
@@ -10,11 +10,16 @@ interface AgentTileHeaderProps {
 }
 
 export const AgentTileHeader: React.FC<AgentTileHeaderProps> = ({ agent }) => {
-  const { removeAgent, setAgentStatus, setAgentRole, sessions, activeSessionIdByAgent, setActiveSession, createNewSession, toggleAgentViewMode } = useAgentStore();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  const agentSessions = sessions[agent.id] || [];
-  const currentSessionId = activeSessionIdByAgent[agent.id];
+  const removeAgent = useAgentStore(s => s.removeAgent);
+  const setAgentStatus = useAgentStore(s => s.setAgentStatus);
+  const setAgentRole = useAgentStore(s => s.setAgentRole);
+  const setActiveSession = useAgentStore(s => s.setActiveSession);
+  const createNewSession = useAgentStore(s => s.createNewSession);
+  const toggleAgentViewMode = useAgentStore(s => s.toggleAgentViewMode);
+  // Narrow to only this agent's sessions/activeSessionId so sibling updates don't re-render
+  const agentSessions = useAgentStore(s => s.sessions[agent.id] || []);
+  const currentSessionId = useAgentStore(s => s.activeSessionIdByAgent[agent.id]);
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const isTerminal = agent.viewMode !== 'chat';
 
   const getStatusDot = (status: AgentStatus) => {

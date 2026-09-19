@@ -148,7 +148,15 @@ export const AgentSkillPickerModal: React.FC<AgentSkillPickerModalProps> = ({
           ) : filteredSkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-1.5 text-text-dim font-mono text-xs">
               <Sparkles size={20} className="opacity-40" />
-              <span>No matching skills found.</span>
+              <span>
+                {searchQuery.trim()
+                  ? `No skills match "${searchQuery.trim()}".`
+                  : selectedCategory === 'favorites'
+                    ? 'No favorites yet — star a skill to pin it here.'
+                    : selectedCategory !== 'all'
+                      ? 'No skills in this category.'
+                      : 'No skills available yet.'}
+              </span>
             </div>
           ) : (
             filteredSkills.map((skill) => {

@@ -9,7 +9,9 @@ import { AgentGridTileLayout } from '../../types/orbit';
 const ReactGridLayout = WidthProvider(RGL);
 
 export const AgentGrid: React.FC = () => {
-  const { agents, gridLayouts, updateGridLayouts } = useAgentStore();
+  const agents = useAgentStore(s => s.agents);
+  const gridLayouts = useAgentStore(s => s.gridLayouts);
+  const updateGridLayouts = useAgentStore(s => s.updateGridLayouts);
   const [containerHeight, setContainerHeight] = useState(600);
   const containerRef = useRef<HTMLDivElement>(null);
 
