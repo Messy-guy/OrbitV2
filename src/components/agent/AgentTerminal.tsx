@@ -60,7 +60,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     try {
       subscriptionRef.current = await tauriService.attachNativeTerminal(sessionRef.current, (event) => {
         storeRef.current?.apply(event);
-        if (event.type === 'Lifecycle') {
+        if (event.type === 'lifecycle') {
           if (event.state === 'exited' || event.state === 'stopped') setPhase('exited');
           if (event.state === 'failed') { setPhase('error'); setErrorMsg(event.message || 'Native terminal session failed'); }
         }
@@ -127,7 +127,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
       // the event subscription is live. All further updates arrive as real-time
       // event patches through attachNativeTerminal — no recurring poll needed.
       void tauriService.getNativeTerminalSnapshot(sessionRef.current)
-        .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
+        .then((snapshot) => storeRef.current?.apply({ type: 'snapshot', snapshot }))
         .catch(() => {});
       setPhase('active');
       resizeTerminal(agentId, rows, columns);
@@ -154,7 +154,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     const onVisibility = () => {
       if (!document.hidden && sessionRef.current) {
         void tauriService.getNativeTerminalSnapshot(sessionRef.current)
-          .then((snapshot) => storeRef.current?.apply({ type: 'Snapshot', snapshot }))
+          .then((snapshot) => storeRef.current?.apply({ type: 'snapshot', snapshot }))
           .catch(() => {});
       }
     };

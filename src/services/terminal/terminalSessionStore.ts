@@ -11,14 +11,35 @@ export class TerminalSessionStore {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   getSnapshot = () => this.snapshot;
   apply(event: TerminalEvent): void {
-    if (event.type === 'Lifecycle') return;
-    if (isSequenceGap(this.lastSequence, event)) { this.gapHandler?.(); return; }
-    const incoming = event.type === 'Snapshot' ? event.snapshot : event.patch;
-    if (incoming.sequence <= this.lastSequence) return;
-    const next = event.type === 'Snapshot' ? event.snapshot : this.snapshot ? applyPatch(this.snapshot, event.patch) : null;
-    if (!next) { this.gapHandler?.(); return; }
-    this.snapshot = next; this.lastSequence = incoming.sequence;
-    for (const listener of this.listeners) listener();
+    if (event.type === 'lifecycle') return;
+    if (isSequenceGap(this.lastSequence, event)) {
+      this.gapHandler?.();
+      return;
+    }
+
+    if (event.type === 'snapshot') {
+      if (this.snapshot && event.snapshot.sequence < this.lastSequence) return;
+      this.snapshot = event.snapshot;
+      this.lastSequence = event.snapshot.sequence;
+      for (const listener of this.listeners) listener();
+      return;
+    }
+
+    if (event.type === 'patch') {
+      if (event.patch.sequence <= this.lastSequence) return;
+      if (!this.snapshot) {
+        this.gapHandler?.();
+        return;
+      }
+      const next = applyPatch(this.snapshot, event.patch);
+      if (!next) {
+        this.gapHandler?.();
+        return;
+      }
+      this.snapshot = next;
+      this.lastSequence = event.patch.sequence;
+      for (const listener of this.listeners) listener();
+    }
   }
   reset(snapshot?: TerminalSnapshot): void {
     this.snapshot = snapshot ?? null; this.lastSequence = snapshot?.sequence ?? -1;

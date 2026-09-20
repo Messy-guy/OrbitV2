@@ -239,13 +239,66 @@ async function runPerformanceValidation() {
     modes: { bracketedPaste: false, alternateScreen: false, appCursor: false, mouseClick: false, mouseDrag: false, mouseMotion: false, sgrMouse: false },
   };
 
-  termStore.apply({ type: 'Snapshot', snapshot: baseSnapshot });
-  assert(termStore.getSnapshot()?.sequence === 0, 'Initial snapshot seeded at sequence 0');
+  // 1. Seed with initial snapshot (sequence 0) using real Rust camelCase tag
+  termStore.apply({ type: 'snapshot', snapshot: baseSnapshot });
+  assert(termStore.getSnapshot()?.sequence === 0, 'Initial camelCase snapshot seeded at sequence 0');
 
-  // Apply 200 consecutive incremental ScreenPatches (simulating fast CLI output stream)
-  for (let seq = 1; seq <= 200; seq++) {
+  // 2. Apply first incremental ScreenPatch (sequence 1) as emitted by Rust on CLI startup
+  const firstRow = {
+    row: 0,
+    cells: Array.from({ length: 80 }, (_, col) => ({
+      text: 'Antigravity CLI v2.0.0 (ready)'.charAt(col) || ' ',
+      foreground: { r: 255, g: 255, b: 255, a: 255 },
+      background: { r: 0, g: 0, b: 0, a: 255 },
+      attributes: 0,
+      width: 1,
+    })),
+  };
+  const firstPatch: TerminalPatch = {
+    sessionId: 'sess-a',
+    sequence: 1,
+    rows: 24,
+    columns: 80,
+    dirtyRows: [firstRow],
+    titleChanged: false,
+    cursor: { row: 0, column: 30, visible: true },
+    modes: baseSnapshot.modes,
+  };
+  termStore.apply({ type: 'patch', patch: firstPatch });
+  assert(termStore.getSnapshot()?.sequence === 1, 'First ScreenPatch applied successfully (sequence 0 -> 1)');
+  const row0Text = termStore.getSnapshot()?.cells[0].cells.map(c => c.text).join('').trim();
+  assert(row0Text === 'Antigravity CLI v2.0.0 (ready)', 'Terminal row 0 contains rendered CLI welcome text');
+
+  // 3. Apply second incremental ScreenPatch (sequence 2) for interactive prompt
+  const promptRow = {
+    row: 1,
+    cells: Array.from({ length: 80 }, (_, col) => ({
+      text: 'leo@orbit:~$ '.charAt(col) || ' ',
+      foreground: { r: 0, g: 255, b: 0, a: 255 },
+      background: { r: 0, g: 0, b: 0, a: 255 },
+      attributes: 0,
+      width: 1,
+    })),
+  };
+  const secondPatch: TerminalPatch = {
+    sessionId: 'sess-a',
+    sequence: 2,
+    rows: 24,
+    columns: 80,
+    dirtyRows: [promptRow],
+    titleChanged: false,
+    cursor: { row: 1, column: 13, visible: true },
+    modes: baseSnapshot.modes,
+  };
+  termStore.apply({ type: 'patch', patch: secondPatch });
+  assert(termStore.getSnapshot()?.sequence === 2, 'Second ScreenPatch applied successfully (sequence 1 -> 2)');
+  const row1Text = termStore.getSnapshot()?.cells[1].cells.map(c => c.text).join('').trim();
+  assert(row1Text === 'leo@orbit:~$', 'Terminal row 1 contains rendered interactive prompt text');
+
+  // 4. Apply 200 consecutive incremental ScreenPatches (simulating fast streaming CLI output)
+  for (let seq = 3; seq <= 200; seq++) {
     const updatedRow = {
-      row: 0,
+      row: 2,
       cells: Array.from({ length: 80 }, (_, col) => ({
         text: col === 0 ? `${seq % 10}` : ' ',
         foreground: { r: 255, g: 255, b: 255, a: 255 },
@@ -262,10 +315,10 @@ async function runPerformanceValidation() {
       columns: 80,
       dirtyRows: [updatedRow],
       titleChanged: false,
-      cursor: { row: 0, column: seq % 80, visible: true },
+      cursor: { row: 2, column: seq % 80, visible: true },
       modes: baseSnapshot.modes,
     };
-    termStore.apply({ type: 'Patch', patch });
+    termStore.apply({ type: 'patch', patch });
   }
 
   assert(termStore.getSnapshot()?.sequence === 200, '200 ScreenPatches applied incrementally up to sequence 200');
@@ -282,7 +335,7 @@ async function runPerformanceValidation() {
     cursor: { row: 0, column: 0, visible: true },
     modes: baseSnapshot.modes,
   };
-  termStore.apply({ type: 'Patch', patch: gapPatch });
+  termStore.apply({ type: 'patch', patch: gapPatch });
   assert(Boolean(reattachTriggered), 'Sequence gap correctly triggered reattach handler');
 
   // -------------------------------------------------------------------------
@@ -319,6 +372,37 @@ async function runPerformanceValidation() {
 
   assert(detachCallCount === 30, 'All 30 terminal subscriptions (10 cycles x 3 agents) cleanly detached');
   assert(activeSubscriptions.length === 0, 'Zero lingering subscriptions in active array');
+
+  // -------------------------------------------------------------------------
+  // TEST 5: Strict Discriminated Union Narrowing (Zero `any` Casts)
+  // -------------------------------------------------------------------------
+  console.log('\n--- TEST 5: Strict Wire Protocol Discriminated Union Narrowing ---');
+
+  type TerminalEventType = import('../terminal/terminalTypes').TerminalEvent;
+  const sampleSnapshotEvent: TerminalEventType = { type: 'snapshot', snapshot: baseSnapshot };
+  if (sampleSnapshotEvent.type === 'snapshot') {
+    // Type narrows automatically to { type: 'snapshot'; snapshot: TerminalSnapshot }
+    const seq: number = sampleSnapshotEvent.snapshot.sequence;
+    assert(seq === 0, 'Discriminated union strictly narrows to TerminalSnapshot on type: snapshot');
+  }
+
+  const samplePatchEvent: TerminalEventType = { type: 'patch', patch: firstPatch };
+  if (samplePatchEvent.type === 'patch') {
+    // Type narrows automatically to { type: 'patch'; patch: TerminalPatch }
+    const seq: number = samplePatchEvent.patch.sequence;
+    assert(seq === 1, 'Discriminated union strictly narrows to TerminalPatch on type: patch');
+  }
+
+  const sampleLifecycleEvent: TerminalEventType = {
+    type: 'lifecycle',
+    sessionId: 's1',
+    state: 'running',
+    pid: 42,
+  };
+  if (sampleLifecycleEvent.type === 'lifecycle') {
+    // Type narrows automatically to { type: 'lifecycle'; sessionId: string; state: string; ... }
+    assert(sampleLifecycleEvent.state === 'running', 'Discriminated union strictly narrows to lifecycle state without any cast');
+  }
 
   console.log('\n========================================================================');
   console.log(' 🎉 ALL RUNTIME PERFORMANCE & ISOLATION CONTRACTS VERIFIED (100% GREEN)');
