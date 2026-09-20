@@ -97,16 +97,16 @@ assert(patched?.cells[1].cells[0].text === 'n', 'dirty row patch was not applied
 assert(patched?.title === 'initial', 'unchanged title was incorrectly cleared');
 assert(patched?.modes.alternateScreen === true, 'mode patch was not applied');
 assert(protocol.applyPatch(first, { ...argumentsForPatch(first), sessionId: 'wrong' }) === null, 'session mismatch was accepted');
-assert(protocol.isSequenceGap(0, { type: 'Patch', patch: { ...argumentsForPatch(first), sequence: 2 } }), 'sequence gap was not detected');
-assert(!protocol.isSequenceGap(0, { type: 'Patch', patch: { ...argumentsForPatch(first), sequence: 1 } }), 'contiguous patch was treated as a gap');
+assert(protocol.isSequenceGap(0, { type: 'patch', patch: { ...argumentsForPatch(first), sequence: 2 } }), 'sequence gap was not detected');
+assert(!protocol.isSequenceGap(0, { type: 'patch', patch: { ...argumentsForPatch(first), sequence: 1 } }), 'contiguous patch was treated as a gap');
 
 const storeGaps = [];
 const store = new TerminalSessionStore(() => storeGaps.push('gap'));
-store.apply({ type: 'Snapshot', snapshot: first });
-store.apply({ type: 'Patch', patch: { ...argumentsForPatch(first), sequence: 1, dirtyRows: [row(0, 'next')] } });
-store.apply({ type: 'Patch', patch: { ...argumentsForPatch(first), sequence: 1, dirtyRows: [row(0, 'bad!')] } });
+store.apply({ type: 'snapshot', snapshot: first });
+store.apply({ type: 'patch', patch: { ...argumentsForPatch(first), sequence: 1, dirtyRows: [row(0, 'next')] } });
+store.apply({ type: 'patch', patch: { ...argumentsForPatch(first), sequence: 1, dirtyRows: [row(0, 'bad!')] } });
 assert(store.getSnapshot().cells[0].cells[0].text === 'n', 'duplicate patch was not suppressed');
-store.apply({ type: 'Patch', patch: { ...argumentsForPatch(first), sequence: 3 } });
+store.apply({ type: 'patch', patch: { ...argumentsForPatch(first), sequence: 3 } });
 assert(storeGaps.length === 1, 'sequence-gap resync callback was not triggered');
 
 assert(Array.from(input.encodeKey('c', { ctrl: true }))[0] === 3, 'Ctrl-C encoding is incorrect');
