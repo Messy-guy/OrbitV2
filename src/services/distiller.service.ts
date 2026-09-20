@@ -191,36 +191,36 @@ ${nextStep}
 
 *Instructions for ${targetAgentName}: Ingest this brief and recent conversation trajectory. Follow DISCUSS Ready Gate protocol: Do NOT edit files yet. Greet the user, summarize the inherited mission and last user directive, and confirm the next action before proceeding.*`;
     } else if (intent === 'plan_to_code') {
-      formattedEnvelope = `# ⚡ ORBIT CONTINUITY: BRAHMA TO MAHESH CODE RELAY
-**From**: ${sourceAgentName} (Plan Architect)  ➔  **To**: ${targetAgentName} (TDD Builder)
-**Objective**: Turn Plan Specification into Green Test Contracts with Zero Bloat.
+      formattedEnvelope = `# ⚡ ORBIT CONTINUITY: PLAN ➔ IMPLEMENT CODE RELAY
+**From**: ${sourceAgentName} (Plan Architect)  ➔  **To**: ${targetAgentName} (Implementation Builder)
+**Objective**: Turn Plan Specification into Verified Code and Passing Tests with Zero Bloat.
 
-## 📐 BRAHMA Specification & Invariants
+## 📐 Architecture Specification & Requirements
 ${sessionData.primaryGoal || 'Workspace Implementation Specification'}
 
 ## 💬 Architectural Plan & Decisions
 ${conversationNarrative}
 
-## 🛑 MAHESH Guardrails (Zero Bloat Invariants)
+## 🛑 Implementation Guardrails (Zero Bloat Invariants)
 • Rule 1: Pass test suite with minimal diff.
 • Rule 2: Zero sequential awaits for independent tasks (use Promise.all).
 • Rule 3: Zero unapproved npm packages or dependency bloat.
 • Rule 4: Absolute file protection (.env, .git, config untouched).
 
-${fileSummariesSection ? `${fileSummariesSection}\n\n` : ''}## ⏳ TIME-LENS Active Touchpoints
+${fileSummariesSection ? `${fileSummariesSection}\n\n` : ''}## ⏳ Active Changed Files
 ${timeLensReport}
 
 ## 👉 Immediate Action: Step 1
 ${nextStep}
 
-*Instructions for ${targetAgentName}: Ingest Brahma's specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
+*Instructions for ${targetAgentName}: Ingest this specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
     } else {
-      // Security & AST Audit (Vishnu)
-      formattedEnvelope = `# 🛡️ ORBIT CONTINUITY: VISHNU 15-DIMENSION SECURITY AUDIT
-**From**: ${sourceAgentName}  ➔  **To**: ${targetAgentName} (Security Auditor)
-**Objective**: Audit git diff and AST for race conditions, security vulnerabilities, and leaks.
+      // Security & Code Audit
+      formattedEnvelope = `# 🛡️ ORBIT CONTINUITY: SECURITY & CODE REVIEW AUDIT
+**From**: ${sourceAgentName}  ➔  **To**: ${targetAgentName} (Security & Code Auditor)
+**Objective**: Audit git diff and code changes for race conditions, security vulnerabilities, and leaks.
 
-## 🛡️ VISHNU 15-Dim Invariants
+## 🛡️ Code Review & Security Invariants
 1. Race condition detection (atomic transactions for state).
 2. Input validation & sanitize params.
 3. No secrets or environment leakage.

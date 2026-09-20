@@ -463,12 +463,12 @@ Follow this exact sequence:
     let agentDirective = `*Instructions for ${targetAgentName}: Ingest this brief and recent conversation trajectory. Follow DISCUSS Ready Gate protocol: Do NOT edit files yet. Greet the user, summarize the inherited mission and last user directive, and confirm the next action before proceeding.*`;
 
     if (intent === 'plan_to_code') {
-      intentSubtitle = '**Workflow Intent**: ⚡ Plan ➔ Code Relay (Brahma to Mahesh)';
-      intentSection = `## 🛑 MAHESH Guardrails (Zero Bloat Invariants)\n• Rule 1: Pass test suite with minimal diff.\n• Rule 2: Zero sequential awaits for independent tasks (use Promise.all).\n• Rule 3: Zero unapproved npm packages or dependency bloat.\n• Rule 4: Absolute file protection (.env, .git, config untouched).\n\n`;
-      agentDirective = `*Instructions for ${targetAgentName}: Ingest Brahma's specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
+      intentSubtitle = '**Workflow Intent**: ⚡ Plan ➔ Implement Code Relay';
+      intentSection = `## 🛑 Implementation Guardrails (Zero Bloat Invariants)\n• Rule 1: Pass test suite with minimal diff.\n• Rule 2: Zero sequential awaits for independent tasks (use Promise.all).\n• Rule 3: Zero unapproved npm packages or dependency bloat.\n• Rule 4: Absolute file protection (.env, .git, config untouched).\n\n`;
+      agentDirective = `*Instructions for ${targetAgentName}: Ingest this specification and constraints. Follow DISCUSS Ready Gate protocol: Present your understanding to the user and confirm the immediate next step before executing code modifications.*`;
     } else if (intent === 'security_audit') {
-      intentSubtitle = '**Workflow Intent**: 🛡️ Vishnu 15-Dimension Security Audit';
-      intentSection = `## 🛡️ VISHNU 15-Dim Invariants & Audit Scope\n1. Race condition detection (atomic transactions for state).\n2. Input validation & sanitize params.\n3. No secrets or environment leakage.\n4. Error boundary & crash recovery.\n\n`;
+      intentSubtitle = '**Workflow Intent**: 🛡️ Security & Code Review Audit';
+      intentSection = `## 🛡️ Code Review & Security Invariants\n1. Race condition detection (atomic transactions for state).\n2. Input validation & sanitize params.\n3. No secrets or environment leakage.\n4. Error boundary & crash recovery.\n\n`;
       agentDirective = `*Instructions for ${targetAgentName}: Provide a concise bulleted audit report with CRITICAL, WARNING, and CLEAN status.*`;
     }
 

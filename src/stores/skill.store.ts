@@ -100,8 +100,17 @@ export const useSkillStore = create<SkillState>()(
         const current = get().installedSkills || [];
         if (current.some((s) => s.id === skill.id)) return;
 
+        let resolvedSkill = skill;
+        try {
+          if (!resolvedSkill.rawContent && (resolvedSkill.source === 'anthropic' || resolvedSkill.source === 'skills_sh' || resolvedSkill.rawUrl)) {
+            resolvedSkill = await skillAggregatorService.resolveSkillContent(resolvedSkill);
+          }
+        } catch (e) {
+          console.warn('Skill resolution notice during install:', e);
+        }
+
         const newSkill: SkillItem = {
-          ...skill,
+          ...resolvedSkill,
           isInstalled: true,
         };
 
@@ -174,11 +183,21 @@ export const useSkillStore = create<SkillState>()(
             },
           }));
 
+          // 1b. Ensure skill content is resolved on demand
+          let skillToMount = skill;
+          try {
+            if (!skillToMount.rawContent && (skillToMount.source === 'anthropic' || skillToMount.source === 'skills_sh' || skillToMount.rawUrl)) {
+              skillToMount = await skillAggregatorService.resolveSkillContent(skillToMount);
+            }
+          } catch (e) {
+            console.warn('Skill resolution notice during equip:', e);
+          }
+
           // 2. Mount skill into provider discovery path
           const mountResult = await ProviderSkillAdapterService.mountSkillForProvider(
             projectPath,
             agent.provider,
-            skill
+            skillToMount
           );
 
           initialAssignment.mountedPaths = [mountResult.mountedPath];

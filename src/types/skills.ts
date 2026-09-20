@@ -1,7 +1,7 @@
 // Data types for Orbit Skill Intelligence & Aggregator System
 import { AgentProvider } from './orbit';
 
-export type SkillSource = 'vercel' | 'skills_sh' | 'github' | 'official' | 'local' | 'codex' | 'agy' | 'custom';
+export type SkillSource = 'vercel' | 'skills_sh' | 'github' | 'official' | 'local' | 'codex' | 'agy' | 'custom' | 'anthropic';
 
 export type SkillCategory = 'popular' | 'favorites' | 'all' | 'framework' | 'testing' | 'security' | 'design' | 'backend' | 'workflow';
 

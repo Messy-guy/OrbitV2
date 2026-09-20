@@ -204,10 +204,10 @@ export const ShareContextModal: React.FC = () => {
     setIsTransferring(true);
     setTransferError(null);
     try {
-      setTransferStep('Synthesizing conversation trajectory & user directives...');
+      setTransferStep('Compiling conversation context & user directives...');
       await sleep(350);
 
-      setTransferStep('Extracting file diffs, architectural decisions & patterns...');
+      setTransferStep('Collecting verified file diffs and architectural decisions...');
       await sleep(350);
 
       setTransferStep(`Writing project memory files to ${memoryDirPath}...`);
@@ -260,7 +260,7 @@ export const ShareContextModal: React.FC = () => {
       isOpen={isShareContextOpen}
       onClose={() => setShareContextOpen(false)}
       title="Continue with Agent"
-      subtitle="Relay synthesized conversation trajectory, file edits, and decisions to the target agent"
+      subtitle="Transfer conversation context, verified file changes, and engineering decisions to the target agent"
       maxWidth="lg"
     >
       <div className="flex flex-col gap-3.5 font-sans text-xs pt-0.5 max-h-[82vh] overflow-y-auto pr-1">
@@ -268,7 +268,7 @@ export const ShareContextModal: React.FC = () => {
         {/* Intent Workflow Selector Strip */}
         <div className="flex flex-col gap-1.5">
           <span className="text-[10px] font-mono uppercase tracking-wider text-text-muted font-bold">
-            1. Continuity Workflow Intent
+            1. Continuity Workflow Mode
           </span>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -283,9 +283,9 @@ export const ShareContextModal: React.FC = () => {
             >
               <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-text-primary">
                 <MessageSquareCode size={13} className="text-emerald-400" />
-                <span>Resume Chat</span>
+                <span>Continue Session</span>
               </div>
-              <span className="text-[9.5px] text-text-muted leading-tight">Master memory boot. Resumes chat trajectory without repeating prior work.</span>
+              <span className="text-[9.5px] text-text-muted leading-tight">Transfers conversation context and engineering state to continue the task.</span>
             </button>
 
             <button
@@ -300,9 +300,9 @@ export const ShareContextModal: React.FC = () => {
             >
               <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-text-primary">
                 <Zap size={13} className="text-amber-400" />
-                <span>Plan ➔ Code</span>
+                <span>Plan ➔ Implement</span>
               </div>
-              <span className="text-[9.5px] text-text-muted leading-tight">Brahma to Mahesh relay. Turns spec into code with zero bloat.</span>
+              <span className="text-[9.5px] text-text-muted leading-tight">Hands off technical specifications to a coding agent with TDD guardrails.</span>
             </button>
 
             <button
@@ -317,9 +317,9 @@ export const ShareContextModal: React.FC = () => {
             >
               <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-text-primary">
                 <ShieldCheck size={13} className="text-sky-400" />
-                <span>Security Audit</span>
+                <span>Security & Code Review</span>
               </div>
-              <span className="text-[9.5px] text-text-muted leading-tight">Vishnu 15-dim scan. Audits git diffs, race conditions & memory leaks.</span>
+              <span className="text-[9.5px] text-text-muted leading-tight">Audits file diffs for race conditions, vulnerabilities, leaks, and error handling.</span>
             </button>
           </div>
         </div>
@@ -407,14 +407,14 @@ export const ShareContextModal: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-text-muted">
                 <Sparkles size={13} className="text-emerald-400" />
-                <span>Synthesized Memory: <strong className="text-text-primary">{distilledBrief.estimatedTokens} tokens</strong></span>
-                <span className="text-text-dim">({distilledBrief.compressionRatioPercent}% compression)</span>
+                <span>Handoff Context: <strong className="text-text-primary">{distilledBrief.estimatedTokens} tokens</strong></span>
+                <span className="text-text-dim">({distilledBrief.compressionRatioPercent}% compressed)</span>
               </div>
               <div className="flex items-center gap-1.5 text-text-muted">
                 <Clock size={12} className="text-amber-400" />
-                <span>Files: <strong className="text-text-primary">{distilledBrief.filesTouched.length} touched</strong></span>
+                <span>Changed Files: <strong className="text-text-primary">{distilledBrief.filesTouched.length} files</strong></span>
                 {distilledBrief.fileSummaries && distilledBrief.fileSummaries.length > 0 && (
-                  <span className="text-emerald-400 font-bold">({distilledBrief.fileSummaries.length} diffs analyzed)</span>
+                  <span className="text-emerald-400 font-bold">({distilledBrief.fileSummaries.length} diffs reviewed)</span>
                 )}
               </div>
             </div>
@@ -427,7 +427,7 @@ export const ShareContextModal: React.FC = () => {
             >
               <span className="font-sans font-medium flex items-center gap-1.5">
                 <FileText size={11} className="text-sky-400" />
-                <span>{showDetails ? 'Hide Handoff Briefing Inspector' : 'Inspect Synthesized Conversation & File Diffs'}</span>
+                <span>{showDetails ? 'Hide Handoff Briefing Inspector' : 'Review Handoff Context & Diffs'}</span>
               </span>
               <div className="flex items-center gap-1">
                 <span className="text-text-dim">{showDetails ? 'Collapse' : 'Expand'}</span>
@@ -449,7 +449,7 @@ export const ShareContextModal: React.FC = () => {
                         : "text-text-muted hover:text-text-primary hover:bg-panel"
                     )}
                   >
-                    💬 Conversation Trajectory
+                    💬 Conversation Summary
                   </button>
                   <button
                     type="button"

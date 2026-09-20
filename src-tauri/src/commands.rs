@@ -1440,7 +1440,7 @@ pub fn execute_agent_handoff(
                 ));
                 let is_secret = s.file_path.contains(".env") || s.file_path.ends_with(".pem") || s.file_path.ends_with(".key") || s.file_path.contains("credential") || s.file_path.contains("id_rsa") || s.file_path.contains("id_ed25519") || s.file_path.contains("id_ecdsa") || s.file_path.contains("service-account") || s.file_path.ends_with(".pfx") || s.file_path.ends_with(".p12");
                 if is_secret {
-                    changes_content.push_str("```\n--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---\n```\n\n");
+                    changes_content.push_str("```\n--- [REDACTED BY ORBIT SECURITY SHIELD] ---\n```\n\n");
                 } else {
                     let diff = if let Some(d) = &s.diff_snippet {
                         if !d.trim().is_empty() {
@@ -1467,7 +1467,7 @@ pub fn execute_agent_handoff(
                     f.path, f.status
                 ));
                 if is_secret {
-                    changes_content.push_str("```\n--- [REDACTED BY ORBIT FILE-KEEPER / VISHNU SHIELD] ---\n```\n\n");
+                    changes_content.push_str("```\n--- [REDACTED BY ORBIT SECURITY SHIELD] ---\n```\n\n");
                 } else {
                     let diff = crate::git::get_git_file_diff(proj_path, &f.path);
                     if !diff.trim().is_empty() && diff != "No changes detected for this file." {
@@ -1651,12 +1651,12 @@ pub fn execute_agent_handoff(
         String::new()
     };
 
-    let intent_prefix = if handoff_content.contains("BRAHMA TO MAHESH") || handoff_content.contains("PLAN ➔ CODE") {
-        "ORBIT CODE RELAY (Plan ➔ Code)"
-    } else if handoff_content.contains("VISHNU 15-DIMENSION") || handoff_content.contains("SECURITY AUDIT") {
-        "ORBIT SECURITY AUDIT (Vishnu 15-Dim)"
+    let intent_prefix = if handoff_content.contains("BRAHMA TO MAHESH") || handoff_content.contains("PLAN ➔ CODE") || handoff_content.contains("PLAN ➔ IMPLEMENT") {
+        "ORBIT CODE RELAY (Plan ➔ Implement)"
+    } else if handoff_content.contains("VISHNU") || handoff_content.contains("SECURITY AUDIT") || handoff_content.contains("SECURITY & CODE REVIEW") {
+        "ORBIT SECURITY AUDIT"
     } else {
-        "ORBIT CONTEXT RELAY (Resume Chat)"
+        "ORBIT CONTEXT RELAY (Continue Session)"
     };
 
     let tech_stack_summary = if let Ok(mem) = crate::project_memory::initialize_or_load_project_memory(proj_path, Some(&raw_name)) {
