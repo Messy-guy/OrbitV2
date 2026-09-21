@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { tauriService } from '../services/tauri.service';
 import { useWorkspaceStore } from './workspace.store';
+import { useContextStore } from './context.store';
 
 export interface OpenFileItem {
   path: string;
@@ -260,6 +261,9 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
           },
         };
       });
+      if (targetProjPath) {
+        useContextStore.getState().loadGitState(targetProjPath).catch(() => {});
+      }
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

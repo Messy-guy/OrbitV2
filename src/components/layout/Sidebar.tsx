@@ -21,6 +21,7 @@ export const Sidebar: React.FC = () => {
   const { agents } = useAgentStore();
   const { isSidebarCollapsed, toggleSidebar, setCreateWorkspaceOpen, setAddAgentOpen, setMaximizedAgentId } = useUIStore();
   const { installedSkills, favoriteSkills, setBrowserModalOpen, setDraggedSkill } = useSkillStore();
+  const gitState = useContextStore((state) => state.gitState);
 
   const handlePickAndCreateProject = async () => {
     try {
@@ -284,26 +285,32 @@ export const Sidebar: React.FC = () => {
         <div className="p-2 border-t border-border bg-well/40 flex items-center justify-between gap-1 text-[11px] font-mono">
           <button
             onClick={() => useUIStore.getState().toggleBottomPanel('git')}
-            className="flex-1 px-2 py-1 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center justify-between group cursor-pointer"
-            title="Open Source Control"
+            className="flex-1 px-2 py-1.5 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center justify-between group cursor-pointer"
+            title={`Source Control: ${gitState?.currentBranch || 'main'} (${gitState?.modifiedFiles?.length ?? 0} changed files)`}
           >
-            <div className="flex items-center gap-1.5 truncate">
-              <GitBranch size={11} className="text-amber-500 shrink-0" />
-              <span className="truncate">Git</span>
+            <div className="flex items-center gap-1.5 truncate min-w-0 pr-1">
+              <GitBranch
+                size={12}
+                className={clsx(
+                  'shrink-0 transition-colors',
+                  (gitState?.modifiedFiles?.length ?? 0) > 0 ? 'text-amber-400' : 'text-emerald-400'
+                )}
+              />
+              <span className="truncate font-medium">{gitState?.currentBranch || 'Git'}</span>
             </div>
-            {useContextStore.getState().gitState?.modifiedFiles && useContextStore.getState().gitState!.modifiedFiles.length > 0 && (
-              <span className="text-[9px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-400 font-bold">
-                {useContextStore.getState().gitState!.modifiedFiles.length}
+            {(gitState?.modifiedFiles?.length ?? 0) > 0 && (
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold shrink-0">
+                {gitState!.modifiedFiles.length}
               </span>
             )}
           </button>
 
           <button
             onClick={() => useUIStore.getState().toggleBottomPanel('files')}
-            className="px-2 py-1 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center gap-1 cursor-pointer"
+            className="p-1.5 rounded-md hover:bg-panel border border-transparent hover:border-border text-text-muted hover:text-text-primary transition-all flex items-center justify-center shrink-0 cursor-pointer"
             title="Open Workspace Files"
           >
-            <FolderTree size={11} />
+            <FolderTree size={12} />
           </button>
         </div>
       )}

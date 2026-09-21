@@ -78,9 +78,9 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                 let y = bytes[1] as char;
                 let rest = line[3..].trim();
                 let file_path = if let Some(idx) = rest.find(" -> ") {
-                    rest[idx + 4..].trim().to_string()
+                    rest[idx + 4..].trim().trim_matches('"').to_string()
                 } else {
-                    rest.to_string()
+                    rest.trim_matches('"').to_string()
                 };
 
                 if file_path.is_empty() {

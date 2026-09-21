@@ -40,6 +40,41 @@ export const WorkspaceView: React.FC = () => {
     }
   }, [activeWorkspaceId, activeWorkspace?.projectPath, loadAgentsForWorkspace, loadContextForWorkspace, loadWorkspaceData]);
 
+  // Real-time Git state tracking: window focus, tab visibility, and quiet 12s idle poll
+  useEffect(() => {
+    const projectPath = activeWorkspace?.projectPath;
+    if (!projectPath) return;
+
+    let isRefreshing = false;
+    const refreshGit = () => {
+      if (isRefreshing || (typeof document !== 'undefined' && document.hidden)) return;
+      isRefreshing = true;
+      useContextStore
+        .getState()
+        .loadGitState(projectPath)
+        .catch(() => {})
+        .finally(() => {
+          isRefreshing = false;
+        });
+    };
+
+    const handleFocus = () => refreshGit();
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refreshGit();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const timer = setInterval(refreshGit, 12000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(timer);
+    };
+  }, [activeWorkspace?.projectPath]);
+
   if (!activeWorkspace) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background select-none">

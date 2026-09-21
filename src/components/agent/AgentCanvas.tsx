@@ -42,6 +42,7 @@ export const AgentCanvas: React.FC = () => {
 
   const [topZIndex, setTopZIndex] = useState<number>(10);
   const [windowBounds, setWindowBounds] = useState<Record<string, WindowBounds>>({});
+  const [isAutoReflowEnabled, setIsAutoReflowEnabled] = useState<boolean>(true);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
 
   // Infinite Canvas Pan & Zoom Camera State
@@ -168,17 +169,29 @@ export const AgentCanvas: React.FC = () => {
     return layout;
   };
 
-  // Re-align layout whenever visible agents change
+  // Place newly spawned agents while preserving custom positions of existing agents
   useEffect(() => {
     if (visibleAgents.length === 0) return;
     const containerW = containerRef.current?.clientWidth || window.innerWidth - 260;
     const containerH = containerRef.current?.clientHeight || window.innerHeight - 80;
 
-    const newLayout = calculateSmartLayout(visibleAgents, containerW, containerH);
-    // Directly apply the newly computed aligned coordinates across all visible terminals
-    setWindowBounds(newLayout);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
+    setWindowBounds(prev => {
+      const missingAgents = visibleAgents.filter(a => !prev[a.id]);
+      if (missingAgents.length === 0) return prev;
+
+      const defaultLayout = calculateSmartLayout(visibleAgents, containerW, containerH);
+      const nextBounds = { ...prev };
+      missingAgents.forEach((agent) => {
+        nextBounds[agent.id] = defaultLayout[agent.id] || {
+          x: 40,
+          y: 40,
+          width: 800,
+          height: 520,
+          zIndex: 10,
+        };
+      });
+      return nextBounds;
+    });
 
     if (visibleAgents.length > 0 && !activeAgentId) {
       setActiveAgentId(visibleAgents[visibleAgents.length - 1].id);
@@ -206,15 +219,82 @@ export const AgentCanvas: React.FC = () => {
     }
   }, [selectedAgentForModal]);
 
+  const handlePositionChange = (
+    agentId: string,
+    bounds: { x: number; y: number; width: number; height: number }
+  ) => {
+    setWindowBounds(prev => {
+      const old = prev[agentId] || { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, zIndex: 10 };
+      const updated: Record<string, WindowBounds> = {
+        ...prev,
+        [agentId]: {
+          ...old,
+          ...bounds,
+        },
+      };
 
-  const handlePositionChange = (agentId: string, bounds: { x: number; y: number; width: number; height: number }) => {
-    setWindowBounds(prev => ({
-      ...prev,
-      [agentId]: {
-        ...(prev[agentId] || { zIndex: 10 }),
-        ...bounds,
-      },
-    }));
+      if (!isAutoReflowEnabled) {
+        return updated;
+      }
+
+      const deltaW = bounds.width - old.width;
+      const deltaH = bounds.height - old.height;
+      const gap = 14;
+
+      // When resized horizontally: adjust right neighbor placement and width
+      if (Math.abs(deltaW) >= 1) {
+        visibleAgents.forEach(other => {
+          if (other.id === agentId) return;
+          const otherOld = prev[other.id];
+          if (!otherOld) return;
+
+          const isRightNeighbor =
+            otherOld.x >= old.x + old.width - 40 &&
+            otherOld.x <= old.x + old.width + gap + 40;
+
+          const hasVerticalOverlap =
+            Math.max(otherOld.y, bounds.y) < Math.min(otherOld.y + otherOld.height, bounds.y + bounds.height);
+
+          if (isRightNeighbor && hasVerticalOverlap) {
+            const nextX = Math.round(bounds.x + bounds.width + gap);
+            const nextWidth = Math.max(280, Math.round(otherOld.width - deltaW));
+            updated[other.id] = {
+              ...otherOld,
+              x: nextX,
+              width: nextWidth,
+            };
+          }
+        });
+      }
+
+      // When resized vertically: adjust bottom neighbor placement and height
+      if (Math.abs(deltaH) >= 1) {
+        visibleAgents.forEach(other => {
+          if (other.id === agentId) return;
+          const otherOld = prev[other.id];
+          if (!otherOld) return;
+
+          const isBottomNeighbor =
+            otherOld.y >= old.y + old.height - 40 &&
+            otherOld.y <= old.y + old.height + gap + 40;
+
+          const hasHorizontalOverlap =
+            Math.max(otherOld.x, bounds.x) < Math.min(otherOld.x + otherOld.width, bounds.x + bounds.width);
+
+          if (isBottomNeighbor && hasHorizontalOverlap) {
+            const nextY = Math.round(bounds.y + bounds.height + gap);
+            const nextHeight = Math.max(180, Math.round(otherOld.height - deltaH));
+            updated[other.id] = {
+              ...otherOld,
+              y: nextY,
+              height: nextHeight,
+            };
+          }
+        });
+      }
+
+      return updated;
+    });
   };
 
   // Auto-tile / Arrange all windows
@@ -301,8 +381,8 @@ export const AgentCanvas: React.FC = () => {
 
   // Smooth Zoom with Mouse Wheel
   const handleCanvasWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[role="textbox"], textarea, select')) {
-      return; // allow normal terminal scroll
+    if ((e.target as HTMLElement).closest('[role="textbox"], textarea, select, canvas, .react-draggable, .floating-window-header')) {
+      return; // allow normal terminal scroll and prevent canvas zoom
     }
 
     e.preventDefault();
@@ -519,6 +599,24 @@ export const AgentCanvas: React.FC = () => {
           title="3-Column Panoramic Split"
         >
           <Columns3 size={13} />
+        </button>
+        <div className="h-3.5 w-px bg-white/10 mx-0.5" />
+        <button
+          onClick={() => setIsAutoReflowEnabled(prev => !prev)}
+          className={clsx(
+            'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10.5px] font-mono transition-all cursor-pointer select-none',
+            isAutoReflowEnabled
+              ? 'bg-accent/20 text-accent font-semibold border border-accent/40 shadow-xs'
+              : 'text-text-muted hover:text-white hover:bg-white/5 border border-transparent'
+          )}
+          title={
+            isAutoReflowEnabled
+              ? 'Auto-Reflow is Active: Resizing any terminal automatically adjusts neighbor placement and dimensions'
+              : 'Freeform Mode: Terminals can be positioned and resized completely independently'
+          }
+        >
+          <Sparkles size={11} className={isAutoReflowEnabled ? 'text-accent' : 'text-text-dim'} />
+          <span>{isAutoReflowEnabled ? 'Auto-Reflow' : 'Freeform'}</span>
         </button>
       </div>
 

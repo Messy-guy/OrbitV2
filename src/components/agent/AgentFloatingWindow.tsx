@@ -235,14 +235,13 @@ export const AgentFloatingWindowComponent: React.FC<AgentFloatingWindowProps> = 
           });
         }
       }}
-      minWidth={300}
-      minHeight={200}
+      minWidth={280}
+      minHeight={180}
       scale={isMaximized ? 1 : scale}
       dragHandleClassName="floating-window-header"
       cancel=".no-drag, input, textarea, button, select"
       disableDragging={isMaximized}
       enableResizing={!isMaximized}
-      bounds="parent"
       className={clsx(
         "rounded-2xl flex flex-col overflow-hidden border",
         isActive 

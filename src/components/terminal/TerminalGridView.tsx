@@ -290,8 +290,9 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
 
   const handleWheel = (event: React.WheelEvent) => {
     if (!snapshot) return;
+    event.stopPropagation();
 
-    // Alternate-screen applications with mouse reporting (vim, htop, less) get mouse wheel escapes
+    // 1. Alternate-screen applications with mouse reporting (vim, htop, less) get mouse wheel escapes
     const isAltScreenMouse = snapshot.modes.alternateScreen && (snapshot.modes.mouseMotion || snapshot.modes.mouseClick);
     if (isAltScreenMouse) {
       event.preventDefault();
@@ -303,16 +304,37 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
       return;
     }
 
-    // Standard CLI scrollback: programmatically scroll container and manage sticky-to-bottom
-    if (hostRef.current) {
+    const host = hostRef.current;
+    const canScrollContainer = host && host.scrollHeight > host.clientHeight + 4;
+
+    // 2. Standard CLI scrollback when scrollable content exists
+    if (canScrollContainer && !snapshot.modes.alternateScreen) {
+      event.preventDefault();
       if (event.deltaY < 0) {
-        // User scrolling up: immediately unstick from bottom so 120ms snapshot updates don't snap down
+        // User scrolling up: immediately unstick from bottom so updates don't snap down
         stickToBottomRef.current = false;
       }
-      hostRef.current.scrollTop += event.deltaY;
-      const atBottom = hostRef.current.scrollTop + hostRef.current.clientHeight >= hostRef.current.scrollHeight - 34;
+      host.scrollTop += event.deltaY;
+      const atBottom = host.scrollTop + host.clientHeight >= host.scrollHeight - 34;
       stickToBottomRef.current = atBottom;
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = requestAnimationFrame(() => {
+        renderCurrent();
+      });
+      return;
     }
+
+    // 3. Interactive CLI mode (alternate screen or fixed-height interactive TUI like Antigravity, Claude Code, etc.):
+    // Translate wheel deltas into standard Up/Down arrows so the interactive prompt / pager / list scrolls smoothly!
+    event.preventDefault();
+    const isUp = event.deltaY < 0;
+    const arrowKey = isUp
+      ? (snapshot.modes.appCursor ? '\x1bOA' : '\x1b[A')
+      : (snapshot.modes.appCursor ? '\x1bOB' : '\x1b[B');
+
+    const steps = Math.max(1, Math.min(3, Math.round(Math.abs(event.deltaY) / 35)));
+    const encoder = new TextEncoder();
+    onInput(encoder.encode(arrowKey.repeat(steps)));
   };
 
   const handleMouseDown = (event: React.MouseEvent) => {

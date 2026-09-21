@@ -177,9 +177,27 @@ export const useContextStore = create<ContextState>((set, get) => ({
   },
 
   loadGitState: async (projectPath: string) => {
-    const git = await contextService.getGitState(projectPath);
-    set({ gitState: git });
-    return git;
+    if (!projectPath) return null as any;
+    try {
+      const git = await contextService.getGitState(projectPath);
+      const current = get().gitState;
+      const isUnchanged =
+        current &&
+        current.currentBranch === git.currentBranch &&
+        current.headCommit === git.headCommit &&
+        current.modifiedFiles.length === git.modifiedFiles.length &&
+        current.stagedFiles?.length === git.stagedFiles?.length &&
+        current.unstagedFiles?.length === git.unstagedFiles?.length &&
+        current.untrackedFiles?.length === git.untrackedFiles?.length;
+
+      if (!isUnchanged) {
+        set({ gitState: git });
+      }
+      return git;
+    } catch (e) {
+      console.warn('Failed to load git state:', e);
+      return null as any;
+    }
   },
 
   stageFile: async (projectPath: string, filePath: string) => {
