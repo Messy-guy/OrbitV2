@@ -536,119 +536,72 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {/* 4. Account Profile / Sandbox */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
-                      Account Profile / Sandbox
-                    </span>
-                    <span
-                      className={clsx(
-                        'text-[9.5px] font-mono px-1.5 py-0.5 rounded-md font-medium inline-flex items-center gap-1',
-                        customProfile === 'default'
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                      )}
-                    >
-                      {customProfile === 'default' ? (
-                        <>
-                          <Globe size={10} />
-                          <span>Global Auth</span>
-                        </>
-                      ) : (
-                        <>
-                          <FolderLock size={10} />
-                          <span className="truncate max-w-[120px]">{customProfile}</span>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  <span className="text-[9.5px] font-mono text-text-dim truncate">
-                    {customProfile === 'default' ? '~/.config' : `~/.orbit/profiles/${customProfile}`}
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                    Account Profile / Sandbox
+                  </span>
+                  <span
+                    className={clsx(
+                      'text-[9.5px] font-mono px-2 py-0.5 rounded-md font-medium inline-flex items-center gap-1',
+                      customProfile === 'default'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                    )}
+                  >
+                    {customProfile === 'default' ? (
+                      <>
+                        <Globe size={10} />
+                        <span>Global Auth (~/.config)</span>
+                      </>
+                    ) : (
+                      <>
+                        <FolderLock size={10} />
+                        <span className="truncate max-w-[150px]">{customProfile} (~/.orbit/profiles/{customProfile})</span>
+                      </>
+                    )}
                   </span>
                 </div>
 
                 {!isCreatingNewProfile ? (
-                  <div className="flex flex-col gap-2">
-                    {/* Quick profile chips for 1-click switching */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5">
-                      {existingProfiles.slice(0, 4).map((p) => {
-                        const isSelected = customProfile === p;
-                        return (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setCustomProfile(p)}
-                            className={clsx(
-                              'px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 shrink-0 cursor-pointer',
-                              isSelected
-                                ? 'bg-accent/15 border border-accent/40 text-accent font-semibold shadow-xs'
-                                : 'bg-well/70 hover:bg-well border border-border text-text-muted hover:text-text-primary'
-                            )}
-                          >
-                            {p === 'default' ? (
-                              <Globe size={11} className={isSelected ? 'text-accent' : 'text-text-dim'} />
-                            ) : (
-                              <FolderLock size={11} className={isSelected ? 'text-accent' : 'text-text-dim'} />
-                            )}
-                            <span className="truncate max-w-[110px]">{p === 'default' ? 'default' : p}</span>
-                          </button>
-                        );
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsCreatingNewProfile(true);
-                          setNewProfileName('');
-                        }}
-                        className="px-2 py-1 rounded-lg text-xs font-mono bg-well/40 hover:bg-well border border-dashed border-border hover:border-border-hover text-text-dim hover:text-text-primary transition-all flex items-center gap-1 shrink-0 cursor-pointer"
-                        title="Create new profile sandbox"
-                      >
-                        <Plus size={11} />
-                        <span>New</span>
-                      </button>
-                    </div>
-
-                    {/* CustomSelect Dropdown with auto-placement */}
-                    <CustomSelect
-                      value={customProfile}
-                      placement="auto"
-                      onChange={(val) => {
-                        if (val === '__NEW__') {
-                          setIsCreatingNewProfile(true);
-                          setNewProfileName('');
-                        } else {
-                          setCustomProfile(val);
-                        }
-                      }}
-                      onDeleteOption={handleDeleteProfile}
-                      options={[
-                        ...existingProfiles.map((p) => ({
-                          value: p,
-                          label: p === 'default' ? 'default (Global Host)' : p,
-                          sublabel:
-                            p === 'default'
-                              ? 'Shared host credentials & global config directory'
-                              : `Isolated sandbox: ~/.orbit/profiles/${p}`,
-                          badge: p === 'default' ? 'Global' : 'Sandbox',
-                          badgeColor: (p === 'default' ? 'emerald' : 'sky') as 'emerald' | 'sky',
-                          icon:
-                            p === 'default' ? (
-                              <Globe size={13} className="text-emerald-400" />
-                            ) : (
-                              <FolderLock size={13} className="text-sky-400" />
-                            ),
-                          canDelete: p !== 'default',
-                        })),
-                        {
-                          value: '__NEW__',
-                          label: '+ Create New Sandbox Profile…',
-                          sublabel: 'Spawn agents in a clean isolated config sandbox',
-                          isAction: true,
-                        },
-                      ]}
-                    />
-                  </div>
+                  <CustomSelect
+                    value={customProfile}
+                    placement="top"
+                    onChange={(val) => {
+                      if (val === '__NEW__') {
+                        setIsCreatingNewProfile(true);
+                        setNewProfileName('');
+                      } else {
+                        setCustomProfile(val);
+                      }
+                    }}
+                    onDeleteOption={handleDeleteProfile}
+                    options={[
+                      ...existingProfiles.map((p) => ({
+                        value: p,
+                        label: p === 'default' ? 'default (Global Host)' : p,
+                        sublabel:
+                          p === 'default'
+                            ? 'Shared host credentials & global config directory'
+                            : `Isolated sandbox: ~/.orbit/profiles/${p}`,
+                        badge: p === 'default' ? 'Global' : 'Sandbox',
+                        badgeColor: (p === 'default' ? 'emerald' : 'sky') as 'emerald' | 'sky',
+                        icon:
+                          p === 'default' ? (
+                            <Globe size={13} className="text-emerald-400" />
+                          ) : (
+                            <FolderLock size={13} className="text-sky-400" />
+                          ),
+                        canDelete: p !== 'default',
+                      })),
+                      {
+                        value: '__NEW__',
+                        label: '+ Create New Sandbox Profile…',
+                        sublabel: 'Spawn agents in a clean isolated config sandbox',
+                        isAction: true,
+                      },
+                    ]}
+                  />
                 ) : (
                   <div className="p-3 rounded-xl bg-well/80 border border-border flex flex-col gap-2.5 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between">

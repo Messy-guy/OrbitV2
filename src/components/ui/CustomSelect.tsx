@@ -51,8 +51,19 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       return;
     }
     const rect = dropdownRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
+    const container = dropdownRef.current.closest<HTMLElement>(
+      '[role="dialog"], .modal-content, [class*="overflow-y-auto"], [class*="overflow-hidden"]'
+    );
+
+    let spaceBelow = window.innerHeight - rect.bottom;
+    let spaceAbove = rect.top;
+
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      spaceBelow = containerRect.bottom - rect.bottom;
+      spaceAbove = rect.top - containerRect.top;
+    }
+
     if (spaceBelow < 220 && spaceAbove > spaceBelow) {
       setResolvedPlacement('top');
     } else {
