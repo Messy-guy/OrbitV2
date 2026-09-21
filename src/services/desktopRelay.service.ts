@@ -114,12 +114,22 @@ class DesktopRelayService {
         },
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000,
+        reconnectionDelayMax: 10000,
+        timeout: 15000,
       });
 
+      // If we don't connect within 20s, surface as offline (not perpetual "connecting")
+      const connectionTimeout = setTimeout(() => {
+        if (this.isConnecting && !this.socket?.connected) {
+          this.isConnecting = false;
+          this.notifyStatus(false);
+        }
+      }, 20000);
+
       this.socket.on('connect', () => {
+        clearTimeout(connectionTimeout);
         this.isConnecting = false;
         console.log('✅ [Desktop Relay] Connected to Live Relay! Socket ID:', this.socket?.id);
         this.notifyStatus(true);
@@ -139,7 +149,12 @@ class DesktopRelayService {
         this.notifyStatus(false);
       });
 
-      this.socket.on('connect_error', (err) => {
+      this.socket.on('connect_error', (_err) => {
+        this.isConnecting = false;
+        this.notifyStatus(false);
+      });
+
+      this.socket.on('reconnect_failed', () => {
         this.isConnecting = false;
         this.notifyStatus(false);
       });
@@ -263,10 +278,6 @@ class DesktopRelayService {
           useAgentStore.getState().setAgentStatus(agentId, decision === 'APPROVE' ? 'working' : 'ready');
         }
         this.scheduleSync();
-      });
-
-      this.socket.on('disconnect', () => {
-        this.isConnecting = false;
       });
 
       this.setupStoreSubscribers();

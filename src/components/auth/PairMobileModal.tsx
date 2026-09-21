@@ -12,14 +12,29 @@ export const PairMobileModal: React.FC = () => {
   const [hasCopied, setHasCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'qr' | 'code'>('code');
   const [isRelayConnected, setIsRelayConnected] = useState(desktopRelayService.isConnected());
+  const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
     if (isPairMobileOpen) {
-      desktopRelayService.connect();
-      const unsub = desktopRelayService.subscribeStatus((connected) => {
-        setIsRelayConnected(connected);
-      });
-      return unsub;
+      if (!desktopRelayService.isConnected()) {
+        setIsConnecting(true);
+        // Reset connecting flag after the service's own 20s timeout
+        const t = setTimeout(() => setIsConnecting(false), 22000);
+        desktopRelayService.connect();
+        const unsub = desktopRelayService.subscribeStatus((connected) => {
+          setIsRelayConnected(connected);
+          setIsConnecting(false);
+        });
+        return () => {
+          clearTimeout(t);
+          unsub();
+        };
+      } else {
+        const unsub = desktopRelayService.subscribeStatus((connected) => {
+          setIsRelayConnected(connected);
+        });
+        return unsub;
+      }
     }
   }, [isPairMobileOpen]);
 
@@ -114,31 +129,42 @@ export const PairMobileModal: React.FC = () => {
               {isRelayConnected ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-emerald-400">RELAY WORKSTATION ONLINE</span>
+                  <span className="text-emerald-400">RELAY ONLINE</span>
+                </>
+              ) : isConnecting ? (
+                <>
+                  <RefreshCw size={10} className="text-amber-400 animate-spin" />
+                  <span className="text-amber-400">CONNECTING…</span>
                 </>
               ) : (
                 <>
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                  <span className="text-amber-400">CONNECTING TO RELAY...</span>
+                  <span className="w-2 h-2 rounded-full bg-rose-400" />
+                  <span className="text-rose-400">RELAY OFFLINE</span>
                 </>
               )}
             </div>
-            {!isRelayConnected ? (
+            {isRelayConnected ? (
+              <span className="text-[10px] font-mono text-text-dim">TLS Encrypted</span>
+            ) : (
               <button
-                onClick={() => desktopRelayService.connect()}
+                onClick={() => {
+                  setIsConnecting(true);
+                  setTimeout(() => setIsConnecting(false), 22000);
+                  desktopRelayService.connect();
+                }}
                 className="text-[10px] font-mono text-accent hover:underline cursor-pointer flex items-center gap-1"
               >
                 <RefreshCw size={10} />
                 <span>Retry</span>
               </button>
-            ) : (
-              <span className="text-[10px] font-mono text-text-dim">TLS Encrypted</span>
             )}
           </div>
           <p className="text-text-muted font-mono text-[11px] leading-relaxed">
             {isRelayConnected
               ? "Your phone connects directly to this workstation. Keep Orbit open while pairing."
-              : "Reconnecting to local relay server at http://localhost:3000..."}
+              : isConnecting
+                ? `Connecting to ${relayUrl.replace('https://', '')}…`
+                : `Could not reach ${relayUrl.replace('https://', '')}. Tap Retry or check your connection.`}
           </p>
         </div>
 
