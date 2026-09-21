@@ -56,14 +56,26 @@ impl EventListener for EventSink {
             Event::Title(title) => *self.title.lock() = Some(title),
             Event::ResetTitle => *self.title.lock() = None,
             Event::ColorRequest(index, formatter) => {
-                let color = if index == 11 {
+                let color = if index == NamedColor::Background as usize {
                     Rgb { r: 9, g: 10, b: 15 }
-                } else {
+                } else if index == NamedColor::Foreground as usize {
                     Rgb {
                         r: 228,
                         g: 228,
                         b: 231,
                     }
+                } else if index == NamedColor::Cursor as usize {
+                    Rgb {
+                        r: 228,
+                        g: 228,
+                        b: 231,
+                    }
+                } else if index < 16 {
+                    let c = named_color(index_to_named_color(index as u8));
+                    Rgb { r: c.r, g: c.g, b: c.b }
+                } else {
+                    let c = indexed_color((index & 0xff) as u8);
+                    Rgb { r: c.r, g: c.g, b: c.b }
                 };
                 self.writes.lock().push(formatter(color).into_bytes());
             }
@@ -222,58 +234,117 @@ fn color_to_rgba(color: Color) -> TerminalColor {
 
 fn named_color(name: NamedColor) -> TerminalColor {
     const COLORS: [(u8, u8, u8); 16] = [
-        (0, 0, 0),
-        (205, 49, 49),
-        (13, 188, 121),
-        (229, 229, 16),
-        (36, 114, 200),
-        (188, 63, 188),
-        (17, 168, 205),
-        (229, 229, 229),
-        (102, 102, 102),
-        (241, 76, 76),
-        (35, 209, 139),
-        (245, 245, 67),
-        (59, 142, 234),
-        (214, 112, 214),
-        (41, 184, 219),
-        (255, 255, 255),
+        (40, 44, 52),     // 0: Black (modern dark charcoal so it doesn't vanish on #090a0f)
+        (224, 108, 117),  // 1: Red
+        (152, 195, 121),  // 2: Green
+        (229, 192, 123),  // 3: Yellow
+        (97, 175, 239),   // 4: Blue (vibrant, clearly legible on dark canvas)
+        (198, 120, 221),  // 5: Magenta
+        (86, 182, 194),   // 6: Cyan
+        (220, 223, 228),  // 7: White
+        (92, 99, 112),    // 8: BrightBlack / Gray (zinc-500 equivalent)
+        (239, 113, 122),  // 9: BrightRed
+        (168, 209, 137),  // 10: BrightGreen
+        (240, 203, 134),  // 11: BrightYellow
+        (113, 187, 247),  // 12: BrightBlue
+        (210, 135, 232),  // 13: BrightMagenta
+        (102, 194, 205),  // 14: BrightCyan
+        (255, 255, 255),  // 15: BrightWhite
     ];
-    if matches!(name, NamedColor::Background) {
-        return TerminalColor {
+
+    match name {
+        NamedColor::Background => TerminalColor {
             r: 9,
             g: 10,
             b: 15,
             a: 255,
-        };
-    }
-    if matches!(
-        name,
-        NamedColor::Foreground
-            | NamedColor::Cursor
-            | NamedColor::BrightForeground
-            | NamedColor::DimForeground
-    ) {
-        return TerminalColor {
+        },
+        NamedColor::Foreground | NamedColor::Cursor => TerminalColor {
             r: 228,
             g: 228,
             b: 231,
             a: 255,
-        };
-    }
-    let index = name as usize;
-    if index >= COLORS.len() {
-        // Foreground/background/cursor are represented by the Orbit dark theme
-        // defaults. The renderer can still apply inverse/bold attributes.
-        return TerminalColor {
-            r: 228,
-            g: 228,
-            b: 231,
+        },
+        NamedColor::BrightForeground => TerminalColor {
+            r: 255,
+            g: 255,
+            b: 255,
             a: 255,
-        };
+        },
+        NamedColor::DimForeground => TerminalColor {
+            r: 130,
+            g: 133,
+            b: 144,
+            a: 255,
+        },
+        NamedColor::DimBlack => {
+            let (r, g, b) = COLORS[0];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimRed => {
+            let (r, g, b) = COLORS[1];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimGreen => {
+            let (r, g, b) = COLORS[2];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimYellow => {
+            let (r, g, b) = COLORS[3];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimBlue => {
+            let (r, g, b) = COLORS[4];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimMagenta => {
+            let (r, g, b) = COLORS[5];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimCyan => {
+            let (r, g, b) = COLORS[6];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        NamedColor::DimWhite => {
+            let (r, g, b) = COLORS[7];
+            TerminalColor { r: r * 2 / 3, g: g * 2 / 3, b: b * 2 / 3, a: 255 }
+        },
+        _ => {
+            let index = name as usize;
+            if index < COLORS.len() {
+                let (r, g, b) = COLORS[index];
+                TerminalColor { r, g, b, a: 255 }
+            } else {
+                TerminalColor {
+                    r: 228,
+                    g: 228,
+                    b: 231,
+                    a: 255,
+                }
+            }
+        }
     }
-    let (r, g, b) = COLORS[index];
-    TerminalColor { r, g, b, a: 255 }
+}
+
+fn index_to_named_color(index: u8) -> NamedColor {
+    match index {
+        0 => NamedColor::Black,
+        1 => NamedColor::Red,
+        2 => NamedColor::Green,
+        3 => NamedColor::Yellow,
+        4 => NamedColor::Blue,
+        5 => NamedColor::Magenta,
+        6 => NamedColor::Cyan,
+        7 => NamedColor::White,
+        8 => NamedColor::BrightBlack,
+        9 => NamedColor::BrightRed,
+        10 => NamedColor::BrightGreen,
+        11 => NamedColor::BrightYellow,
+        12 => NamedColor::BrightBlue,
+        13 => NamedColor::BrightMagenta,
+        14 => NamedColor::BrightCyan,
+        _ => NamedColor::BrightWhite,
+    }
 }
 
 fn indexed_color(index: u8) -> TerminalColor {
@@ -377,5 +448,23 @@ mod tests {
         let snapshot = emulator.snapshot("test", 1);
         assert!(!snapshot.scrollback.is_empty());
         assert!(snapshot.scrollback.len() <= 2500);
+    }
+
+    #[test]
+    fn generates_correct_dark_background_and_light_foreground_responses() {
+        let mut emulator = TerminalEmulator::new(10, 3);
+        // OSC 11: Background query
+        emulator.feed(b"\x1b]11;?\x07");
+        let writes = emulator.drain_writes();
+        assert_eq!(writes.len(), 1);
+        let resp = String::from_utf8_lossy(&writes[0]);
+        assert!(resp.starts_with("\x1b]11;rgb:0909/0a0a/0f0f"), "Background query must return dark background, got: {}", resp);
+
+        // OSC 10: Foreground query
+        emulator.feed(b"\x1b]10;?\x07");
+        let writes = emulator.drain_writes();
+        assert_eq!(writes.len(), 1);
+        let resp = String::from_utf8_lossy(&writes[0]);
+        assert!(resp.starts_with("\x1b]10;rgb:e4e4/e4e4/e7e7"), "Foreground query must return light foreground, got: {}", resp);
     }
 }

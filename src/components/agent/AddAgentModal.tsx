@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, ArrowRight, Terminal as TerminalIcon, Download, Copy, RefreshCw } from 'lucide-react';
+import { Check, ArrowRight, Terminal as TerminalIcon, Download, Copy, RefreshCw, FolderLock, Globe, User, Plus, X } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -43,7 +43,7 @@ export const AddAgentModal: React.FC = () => {
   const { activeWorkspaceId, getActiveWorkspace, activeSpaceIdByProject } = useWorkspaceStore();
   const { addAgent, agents } = useAgentStore();
   const { user } = useAuthStore();
-  const { savedProfiles, addSavedProfile, loadSavedProfiles } = useSettingsStore();
+  const { savedProfiles, addSavedProfile, removeSavedProfile, loadSavedProfiles } = useSettingsStore();
 
   const parentAgent = spawnerParentAgentId ? agents.find(a => a.id === spawnerParentAgentId) : null;
 
@@ -86,12 +86,23 @@ export const AddAgentModal: React.FC = () => {
     ])
   );
 
+  const [newProfileName, setNewProfileName] = useState('');
+
   const handleSaveProfile = () => {
-    const clean = customProfile.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const clean = newProfileName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (clean && clean !== 'default') {
       addSavedProfile(clean);
       setCustomProfile(clean);
       setIsCreatingNewProfile(false);
+      setNewProfileName('');
+    }
+  };
+
+  const handleDeleteProfile = (profileToDelete: string) => {
+    if (profileToDelete === 'default') return;
+    removeSavedProfile(profileToDelete);
+    if (customProfile === profileToDelete) {
+      setCustomProfile('default');
     }
   };
 
@@ -111,6 +122,7 @@ export const AddAgentModal: React.FC = () => {
       setTaskDirective('');
       setCustomProfile('default');
       setIsCreatingNewProfile(false);
+      setNewProfileName('');
       setInstallOutput(null);
       if (globalDetectedAgentsCache) {
         setDetectedAgents(globalDetectedAgentsCache);
@@ -264,10 +276,10 @@ export const AddAgentModal: React.FC = () => {
       >
         <div className="flex flex-col font-sans">
           {/* Main 2-Pane Spawner Catalog */}
-          <div className="flex flex-col sm:flex-row h-[520px] overflow-hidden">
+          <div className="flex flex-col sm:flex-row h-auto sm:h-[540px] max-h-[calc(85vh-70px)] overflow-hidden">
             
             {/* Left Pane: Agent Catalog */}
-            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-3.5 flex flex-col gap-2.5 shrink-0 select-none">
+            <div className="w-full sm:w-72 border-b sm:border-b-0 sm:border-r border-border bg-well/30 p-3.5 flex flex-col gap-2.5 shrink-0 select-none max-h-48 sm:max-h-none overflow-y-auto sm:overflow-visible">
               <div className="flex items-center justify-between px-1 pt-1">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
                   Engine Catalog
@@ -457,7 +469,7 @@ export const AddAgentModal: React.FC = () => {
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
                   Operational Mode
                 </span>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setSelectedRole('architect')}
@@ -524,71 +536,181 @@ export const AddAgentModal: React.FC = () => {
               </div>
 
               {/* 4. Account Profile / Sandbox */}
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
-                  Account Profile / Sandbox
-                </span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-text-muted">
+                      Account Profile / Sandbox
+                    </span>
+                    <span
+                      className={clsx(
+                        'text-[9.5px] font-mono px-1.5 py-0.5 rounded-md font-medium inline-flex items-center gap-1',
+                        customProfile === 'default'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                      )}
+                    >
+                      {customProfile === 'default' ? (
+                        <>
+                          <Globe size={10} />
+                          <span>Global Auth</span>
+                        </>
+                      ) : (
+                        <>
+                          <FolderLock size={10} />
+                          <span className="truncate max-w-[120px]">{customProfile}</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <span className="text-[9.5px] font-mono text-text-dim truncate">
+                    {customProfile === 'default' ? '~/.config' : `~/.orbit/profiles/${customProfile}`}
+                  </span>
+                </div>
+
                 {!isCreatingNewProfile ? (
-                  <CustomSelect
-                    value={customProfile}
-                    onChange={(val) => {
-                      if (val === '__NEW__') {
-                        setIsCreatingNewProfile(true);
-                        setCustomProfile('');
-                      } else {
-                        setCustomProfile(val);
-                      }
-                    }}
-                    options={[
-                      ...existingProfiles.map((p) => ({
-                        value: p,
-                        label: p === 'default' ? 'default (Global Auth)' : `Profile: ${p}`,
-                        sublabel: p === 'default' ? 'Shared API keys & auth token' : 'Isolated sandbox credentials',
-                      })),
-                      {
-                        value: '__NEW__',
-                        label: '+ Create New Account Profile…',
-                        isAction: true,
-                      },
-                    ]}
-                  />
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g. work, client-a"
+                  <div className="flex flex-col gap-2">
+                    {/* Quick profile chips for 1-click switching */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5">
+                      {existingProfiles.slice(0, 4).map((p) => {
+                        const isSelected = customProfile === p;
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCustomProfile(p)}
+                            className={clsx(
+                              'px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 shrink-0 cursor-pointer',
+                              isSelected
+                                ? 'bg-accent/15 border border-accent/40 text-accent font-semibold shadow-xs'
+                                : 'bg-well/70 hover:bg-well border border-border text-text-muted hover:text-text-primary'
+                            )}
+                          >
+                            {p === 'default' ? (
+                              <Globe size={11} className={isSelected ? 'text-accent' : 'text-text-dim'} />
+                            ) : (
+                              <FolderLock size={11} className={isSelected ? 'text-accent' : 'text-text-dim'} />
+                            )}
+                            <span className="truncate max-w-[110px]">{p === 'default' ? 'default' : p}</span>
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingNewProfile(true);
+                          setNewProfileName('');
+                        }}
+                        className="px-2 py-1 rounded-lg text-xs font-mono bg-well/40 hover:bg-well border border-dashed border-border hover:border-border-hover text-text-dim hover:text-text-primary transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                        title="Create new profile sandbox"
+                      >
+                        <Plus size={11} />
+                        <span>New</span>
+                      </button>
+                    </div>
+
+                    {/* CustomSelect Dropdown with auto-placement */}
+                    <CustomSelect
                       value={customProfile}
-                      onChange={(e) => setCustomProfile(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleSaveProfile();
-                        } else if (e.key === 'Escape') {
-                          setIsCreatingNewProfile(false);
-                          setCustomProfile('default');
+                      placement="auto"
+                      onChange={(val) => {
+                        if (val === '__NEW__') {
+                          setIsCreatingNewProfile(true);
+                          setNewProfileName('');
+                        } else {
+                          setCustomProfile(val);
                         }
                       }}
-                      autoFocus
-                      className="flex-1 px-3.5 py-2 rounded-xl bg-well border border-border text-text-primary font-mono text-xs focus:outline-hidden"
+                      onDeleteOption={handleDeleteProfile}
+                      options={[
+                        ...existingProfiles.map((p) => ({
+                          value: p,
+                          label: p === 'default' ? 'default (Global Host)' : p,
+                          sublabel:
+                            p === 'default'
+                              ? 'Shared host credentials & global config directory'
+                              : `Isolated sandbox: ~/.orbit/profiles/${p}`,
+                          badge: p === 'default' ? 'Global' : 'Sandbox',
+                          badgeColor: (p === 'default' ? 'emerald' : 'sky') as 'emerald' | 'sky',
+                          icon:
+                            p === 'default' ? (
+                              <Globe size={13} className="text-emerald-400" />
+                            ) : (
+                              <FolderLock size={13} className="text-sky-400" />
+                            ),
+                          canDelete: p !== 'default',
+                        })),
+                        {
+                          value: '__NEW__',
+                          label: '+ Create New Sandbox Profile…',
+                          sublabel: 'Spawn agents in a clean isolated config sandbox',
+                          isAction: true,
+                        },
+                      ]}
                     />
-                    <button
-                      type="button"
-                      onClick={handleSaveProfile}
-                      disabled={!customProfile.trim()}
-                      className="px-3 py-2 rounded-xl bg-accent text-white hover:opacity-90 disabled:opacity-40 text-xs font-mono font-medium cursor-pointer transition-opacity"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCreatingNewProfile(false);
-                        setCustomProfile('default');
-                      }}
-                      className="px-3 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-well text-xs font-mono cursor-pointer transition-colors"
-                    >
-                      Cancel
-                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-well/80 border border-border flex flex-col gap-2.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-medium text-text-primary flex items-center gap-1.5">
+                        <FolderLock size={12} className="text-accent" />
+                        Create Sandbox Profile
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingNewProfile(false);
+                          setNewProfileName('');
+                        }}
+                        className="text-text-dim hover:text-text-primary p-0.5 rounded cursor-pointer transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="e.g. work, client-a, dev-sandbox"
+                          value={newProfileName}
+                          onChange={(e) => setNewProfileName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveProfile();
+                            } else if (e.key === 'Escape') {
+                              setIsCreatingNewProfile(false);
+                              setNewProfileName('');
+                            }
+                          }}
+                          autoFocus
+                          className="w-full px-3 py-2 rounded-xl bg-panel border border-border text-text-primary font-mono text-xs focus:outline-hidden focus:border-accent/60 placeholder:text-text-dim transition-colors"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSaveProfile}
+                        disabled={!newProfileName.trim()}
+                        className="px-3 py-2 rounded-xl bg-accent text-white hover:opacity-90 disabled:opacity-40 text-xs font-mono font-medium cursor-pointer transition-opacity shrink-0"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCreatingNewProfile(false);
+                          setNewProfileName('');
+                        }}
+                        className="px-2.5 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-well text-xs font-mono cursor-pointer transition-colors shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="text-[10px] font-mono text-text-dim leading-relaxed">
+                      Creates an isolated storage directory at{' '}
+                      <code className="text-text-muted">~/.orbit/profiles/{newProfileName.trim() || '<name>'}</code> with
+                      independent auth tokens, sessions, and configs.
+                    </p>
                   </div>
                 )}
               </div>

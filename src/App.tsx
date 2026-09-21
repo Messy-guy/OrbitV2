@@ -56,6 +56,19 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Check for landing route preview (?landing=true or hash #landing)
+  const isLandingRoute = typeof window !== 'undefined' && 
+    (window.location.search.includes('landing=true') || window.location.hash === '#landing');
+
+  if (isLandingRoute) {
+    const OrbitLanding = React.lazy(() => import('./pages/landing/OrbitLanding'));
+    return (
+      <React.Suspense fallback={<div className="h-screen w-screen bg-[#050505] text-white flex items-center justify-center font-mono text-sm">Loading Orbit World...</div>}>
+        <OrbitLanding />
+      </React.Suspense>
+    );
+  }
+
   // 1. Mandatory Authentication Gatekeeper
   if (!isAuthenticated) {
     return <LoginScreen />;

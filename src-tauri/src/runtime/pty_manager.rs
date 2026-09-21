@@ -1032,7 +1032,10 @@ impl PtyManager {
         cmd_builder.env("COLORFGBG", "15;0");
         if let Some(term_program) = runtime_spec.term_program {
             cmd_builder.env("TERM_PROGRAM", term_program);
+        } else {
+            cmd_builder.env("TERM_PROGRAM", "alacritty");
         }
+        cmd_builder.env("TERM_PROGRAM_VERSION", "0.26.0");
         cmd_builder.env("LINES", rows_val.to_string());
         cmd_builder.env("COLUMNS", cols_val.to_string());
         cmd_builder.env("ORBIT_WORKSPACE_ID", &workspace_id);

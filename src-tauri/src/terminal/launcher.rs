@@ -60,17 +60,8 @@ impl LaunchSpec {
         command.env("COLORFGBG", "15;0");
         command.env("LINES", self.rows.to_string());
         command.env("COLUMNS", self.columns.to_string());
-        command.env(
-            "TERM_PROGRAM",
-            if matches!(
-                self.provider.to_ascii_lowercase().as_str(),
-                "agy" | "antigravity"
-            ) {
-                "alacritty"
-            } else {
-                "orbit"
-            },
-        );
+        command.env("TERM_PROGRAM", "alacritty");
+        command.env("TERM_PROGRAM_VERSION", "0.26.0");
         for (key, value) in &self.env {
             command.env(key, value);
         }
