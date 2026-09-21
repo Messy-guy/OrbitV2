@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, LayoutGrid, RotateCcw, Terminal, ZoomIn, ZoomOut, Maximize, Sparkles, Code2, Bookmark, Activity, GitBranch, FolderTree, X, Columns2, Columns3, Keyboard } from 'lucide-react';
+import { Plus, LayoutGrid, RotateCcw, Terminal, ZoomIn, ZoomOut, Maximize, Grid2x2, Code2, Bookmark, Activity, GitBranch, FolderTree, X, Columns2, Columns3, Keyboard } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useWorkspaceStore } from '../../stores/workspace.store';
 import { useUIStore } from '../../stores/ui.store';
@@ -84,105 +84,188 @@ export const AgentCanvas: React.FC = () => {
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Compute precise aligned layout for N agents
-  const calculateSmartLayout = (agentList: typeof agents, containerW: number, containerH: number): Record<string, WindowBounds> => {
-    const pad = 24;
-    const gap = 16;
-    const availW = Math.max(400, containerW - pad * 2);
-    const availH = Math.max(300, containerH - pad * 2);
-    const count = agentList.length;
+  // Compute balanced initial non-overlapping grid layout for N agents
+  const getGridDimensions = (count: number): { cols: number; rows: number } => {
+    if (count <= 1) return { cols: 1, rows: 1 };
+    if (count === 2) return { cols: 2, rows: 1 };
+    if (count === 3) return { cols: 3, rows: 1 };
+    if (count === 4) return { cols: 2, rows: 2 };
+    if (count <= 6) return { cols: 3, rows: 2 };
+    if (count <= 8) return { cols: 4, rows: 2 };
+    return { cols: 3, rows: Math.ceil(count / 3) };
+  };
+
+  const computeInitialLayout = (
+    agentsList: typeof visibleAgents,
+    containerW: number,
+    containerH: number
+  ): Record<string, WindowBounds> => {
+    const count = agentsList.length;
+    if (count === 0) return {};
+
+    const pad = 16;
+    const gap = 14;
+    const availW = Math.max(360, containerW - pad * 2);
+    const availH = Math.max(260, containerH - pad * 2);
+
+    const { cols, rows } = getGridDimensions(count);
+    const cellW = Math.floor((availW - (cols - 1) * gap) / cols);
+    const cellH = Math.floor((availH - (rows - 1) * gap) / rows);
+
     const layout: Record<string, WindowBounds> = {};
 
-    if (count === 0) {
-      return layout;
-    } else if (count === 1) {
-      // 1 Agent: Long full-height terminal, centered horizontally
-      const w = Math.min(880, Math.floor(availW * 0.62));
-      const fullH = availH;
-      const x = Math.floor(pad + (availW - w) / 2);
-      if (agentList[0]?.id) {
-        layout[agentList[0].id] = { x, y: pad, width: w, height: fullH, zIndex: 10 };
-      }
-    } else if (count === 2) {
-      // 2 Agents: 2 Long Full-Height Terminals Side-by-Side (50% / 50%)
-      const halfW = Math.floor((availW - gap) / 2);
-      const fullH = availH;
-      if (agentList[0]?.id) {
-        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
-      }
-      if (agentList[1]?.id) {
-        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: fullH, zIndex: 11 };
-      }
-    } else if (count === 3) {
-      // 3 Agents: Master-Stack (1st long full-height on left, 2nd & 3rd stacked up/down on right)
-      const halfW = Math.floor((availW - gap) / 2);
-      const halfH = Math.floor((availH - gap) / 2);
-      const fullH = availH;
-      // 1st Agent (Master): Left 50% width, 100% full height
-      if (agentList[0]?.id) {
-        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: fullH, zIndex: 10 };
-      }
-      // 2nd Agent: Top-right quadrant
-      if (agentList[1]?.id) {
-        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
-      }
-      // 3rd Agent: Bottom-right quadrant
-      if (agentList[2]?.id) {
-        layout[agentList[2].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
-      }
-    } else if (count === 4) {
-      // 4 Agents: 2x2 Grid (Each 50% width, 50% height)
-      const halfW = Math.floor((availW - gap) / 2);
-      const halfH = Math.floor((availH - gap) / 2);
-      if (agentList[0]?.id) {
-        layout[agentList[0].id] = { x: pad, y: pad, width: halfW, height: halfH, zIndex: 10 };
-      }
-      if (agentList[1]?.id) {
-        layout[agentList[1].id] = { x: pad + halfW + gap, y: pad, width: halfW, height: halfH, zIndex: 11 };
-      }
-      if (agentList[2]?.id) {
-        layout[agentList[2].id] = { x: pad, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 12 };
-      }
-      if (agentList[3]?.id) {
-        layout[agentList[3].id] = { x: pad + halfW + gap, y: pad + halfH + gap, width: halfW, height: halfH, zIndex: 13 };
-      }
-    } else {
-      // 5+ Agents: 3-column Grid
-      const cols = 3;
-      const rows = Math.ceil(count / cols);
-      const cellW = Math.floor((availW - (cols - 1) * gap) / cols);
-      const cellH = Math.floor((availH - (rows - 1) * gap) / rows);
-      agentList.forEach((agent, idx) => {
-        if (!agent?.id) return;
-        const c = idx % cols;
-        const r = Math.floor(idx / cols);
-        layout[agent.id] = {
-          x: pad + c * (cellW + gap),
-          y: pad + r * (cellH + gap),
-          width: cellW,
-          height: cellH,
-          zIndex: 10 + idx,
-        };
-      });
-    }
+    agentsList.forEach((agent, idx) => {
+      if (!agent?.id) return;
+      const c = idx % cols;
+      const r = Math.floor(idx / cols);
+
+      layout[agent.id] = {
+        x: pad + c * (cellW + gap),
+        y: pad + r * (cellH + gap),
+        width: cellW,
+        height: cellH,
+        zIndex: 10 + idx,
+      };
+    });
 
     return layout;
   };
 
-  // Place newly spawned agents while preserving custom positions of existing agents
+  // Adjust adjacent neighbor size & placement when a terminal resizes.
+  // When active terminal expands, the adjacent neighbor SHRINKS to accommodate it (does not move away).
+  // When active terminal shrinks, the adjacent neighbor EXPANDS to fill the space.
+  const adjustNeighborSizesAndPlacement = (
+    activeId: string,
+    newBounds: { x: number; y: number; width: number; height: number },
+    currentBounds: Record<string, WindowBounds>,
+    agentsList: typeof visibleAgents
+  ): Record<string, WindowBounds> => {
+    const gap = 14;
+    const minWidth = 260;
+    const minHeight = 180;
+    const result: Record<string, WindowBounds> = { ...currentBounds };
+
+    const oldTarget = currentBounds[activeId] || newBounds;
+    let targetW = newBounds.width;
+    let targetH = newBounds.height;
+    const deltaW = targetW - oldTarget.width;
+    const deltaH = targetH - oldTarget.height;
+
+    // 1. Horizontal neighbor adjustment:
+    if (Math.abs(deltaW) >= 1) {
+      // Find immediate neighbor to the right that overlaps vertically
+      const rightNeighbors = agentsList
+        .filter(other => other.id !== activeId && currentBounds[other.id])
+        .map(other => ({ id: other.id, bounds: { ...currentBounds[other.id] } }))
+        .filter(item => {
+          const wasToRight = item.bounds.x >= oldTarget.x + oldTarget.width - 30;
+          const vOverlap =
+            Math.max(item.bounds.y, oldTarget.y) <
+            Math.min(item.bounds.y + item.bounds.height, oldTarget.y + oldTarget.height);
+          return wasToRight && vOverlap;
+        })
+        .sort((a, b) => a.bounds.x - b.bounds.x);
+
+      if (rightNeighbors.length > 0) {
+        const immediateRight = rightNeighbors[0];
+        const neighborBounds = currentBounds[immediateRight.id];
+
+        // When active expands (+deltaW), neighbor shrinks (-deltaW).
+        // When active shrinks (-deltaW), neighbor expands (+deltaW).
+        const maxDeltaW = neighborBounds.width - minWidth;
+        const minDeltaW = -(oldTarget.width - minWidth);
+
+        const clampedDeltaW = Math.max(minDeltaW, Math.min(deltaW, maxDeltaW));
+
+        targetW = Math.max(minWidth, oldTarget.width + clampedDeltaW);
+        const newNeighborW = Math.max(minWidth, neighborBounds.width - clampedDeltaW);
+        const newNeighborX = Math.round(newBounds.x + targetW + gap);
+
+        result[immediateRight.id] = {
+          ...neighborBounds,
+          x: newNeighborX,
+          width: newNeighborW,
+        };
+      }
+    }
+
+    // 2. Vertical neighbor adjustment:
+    if (Math.abs(deltaH) >= 1) {
+      // Find immediate neighbor below that overlaps horizontally
+      const bottomNeighbors = agentsList
+        .filter(other => other.id !== activeId && currentBounds[other.id])
+        .map(other => ({ id: other.id, bounds: { ...currentBounds[other.id] } }))
+        .filter(item => {
+          const wasBelow = item.bounds.y >= oldTarget.y + oldTarget.height - 30;
+          const hOverlap =
+            Math.max(item.bounds.x, oldTarget.x) <
+            Math.min(item.bounds.x + item.bounds.width, oldTarget.x + oldTarget.width);
+          return wasBelow && hOverlap;
+        })
+        .sort((a, b) => a.bounds.y - b.bounds.y);
+
+      if (bottomNeighbors.length > 0) {
+        const immediateBottom = bottomNeighbors[0];
+        const neighborBounds = currentBounds[immediateBottom.id];
+
+        // When active expands (+deltaH), neighbor below shrinks (-deltaH).
+        // When active shrinks (-deltaH), neighbor below expands (+deltaH).
+        const maxDeltaH = neighborBounds.height - minHeight;
+        const minDeltaH = -(oldTarget.height - minHeight);
+
+        const clampedDeltaH = Math.max(minDeltaH, Math.min(deltaH, maxDeltaH));
+
+        targetH = Math.max(minHeight, oldTarget.height + clampedDeltaH);
+        const newNeighborH = Math.max(minHeight, neighborBounds.height - clampedDeltaH);
+        const newNeighborY = Math.round(newBounds.y + targetH + gap);
+
+        result[immediateBottom.id] = {
+          ...neighborBounds,
+          y: newNeighborY,
+          height: newNeighborH,
+        };
+      }
+    }
+
+    result[activeId] = {
+      ...(currentBounds[activeId] || { zIndex: 10 }),
+      x: newBounds.x,
+      y: newBounds.y,
+      width: targetW,
+      height: targetH,
+    };
+
+    return result;
+  };
+
+  const [isAnyInteracting, setIsAnyInteracting] = useState<boolean>(false);
+
+  // Synchronize all spawned agents across the grid automatically on first appearance
   useEffect(() => {
-    if (visibleAgents.length === 0) return;
+    if (visibleAgents.length === 0) {
+      setWindowBounds({});
+      return;
+    }
     const containerW = containerRef.current?.clientWidth || window.innerWidth - 260;
     const containerH = containerRef.current?.clientHeight || window.innerHeight - 80;
 
     setWindowBounds(prev => {
       const missingAgents = visibleAgents.filter(a => !prev[a.id]);
+
+      // If all agents already exist, keep their individual bounds
       if (missingAgents.length === 0) return prev;
 
-      const defaultLayout = calculateSmartLayout(visibleAgents, containerW, containerH);
-      const nextBounds = { ...prev };
-      missingAgents.forEach((agent) => {
-        nextBounds[agent.id] = defaultLayout[agent.id] || {
+      // When newly spawned agents arrive, calculate clean initial layout
+      const initialLayout = computeInitialLayout(visibleAgents, containerW, containerH);
+
+      if (isAutoReflowEnabled) {
+        return initialLayout;
+      }
+
+      // Freeform mode: only position missing agents
+      const next = { ...prev };
+      missingAgents.forEach(a => {
+        next[a.id] = initialLayout[a.id] || {
           x: 40,
           y: 40,
           width: 800,
@@ -190,13 +273,13 @@ export const AgentCanvas: React.FC = () => {
           zIndex: 10,
         };
       });
-      return nextBounds;
+      return next;
     });
 
     if (visibleAgents.length > 0 && !activeAgentId) {
       setActiveAgentId(visibleAgents[visibleAgents.length - 1].id);
     }
-  }, [visibleAgents.length]);
+  }, [visibleAgents.map(a => a.id).join(','), isAutoReflowEnabled, containerSize.width, containerSize.height]);
 
   const bringToFront = (agentId: string) => {
     setActiveAgentId(agentId);
@@ -221,88 +304,55 @@ export const AgentCanvas: React.FC = () => {
 
   const handlePositionChange = (
     agentId: string,
-    bounds: { x: number; y: number; width: number; height: number }
+    bounds: { x: number; y: number; width: number; height: number },
+    _direction?: string
   ) => {
     setWindowBounds(prev => {
-      const old = prev[agentId] || { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, zIndex: 10 };
-      const updated: Record<string, WindowBounds> = {
-        ...prev,
-        [agentId]: {
-          ...old,
-          ...bounds,
-        },
-      };
-
       if (!isAutoReflowEnabled) {
-        return updated;
+        return {
+          ...prev,
+          [agentId]: {
+            ...(prev[agentId] || { zIndex: 10 }),
+            ...bounds,
+          },
+        };
       }
 
-      const deltaW = bounds.width - old.width;
-      const deltaH = bounds.height - old.height;
-      const gap = 14;
-
-      // When resized horizontally: adjust right neighbor placement and width
-      if (Math.abs(deltaW) >= 1) {
-        visibleAgents.forEach(other => {
-          if (other.id === agentId) return;
-          const otherOld = prev[other.id];
-          if (!otherOld) return;
-
-          const isRightNeighbor =
-            otherOld.x >= old.x + old.width - 40 &&
-            otherOld.x <= old.x + old.width + gap + 40;
-
-          const hasVerticalOverlap =
-            Math.max(otherOld.y, bounds.y) < Math.min(otherOld.y + otherOld.height, bounds.y + bounds.height);
-
-          if (isRightNeighbor && hasVerticalOverlap) {
-            const nextX = Math.round(bounds.x + bounds.width + gap);
-            const nextWidth = Math.max(280, Math.round(otherOld.width - deltaW));
-            updated[other.id] = {
-              ...otherOld,
-              x: nextX,
-              width: nextWidth,
-            };
-          }
-        });
-      }
-
-      // When resized vertically: adjust bottom neighbor placement and height
-      if (Math.abs(deltaH) >= 1) {
-        visibleAgents.forEach(other => {
-          if (other.id === agentId) return;
-          const otherOld = prev[other.id];
-          if (!otherOld) return;
-
-          const isBottomNeighbor =
-            otherOld.y >= old.y + old.height - 40 &&
-            otherOld.y <= old.y + old.height + gap + 40;
-
-          const hasHorizontalOverlap =
-            Math.max(otherOld.x, bounds.x) < Math.min(otherOld.x + otherOld.width, bounds.x + bounds.width);
-
-          if (isBottomNeighbor && hasHorizontalOverlap) {
-            const nextY = Math.round(bounds.y + bounds.height + gap);
-            const nextHeight = Math.max(180, Math.round(otherOld.height - deltaH));
-            updated[other.id] = {
-              ...otherOld,
-              y: nextY,
-              height: nextHeight,
-            };
-          }
-        });
-      }
-
-      return updated;
+      // Auto-Reflow Mode: Inversely adjust neighbor dimensions without pushing them away
+      return adjustNeighborSizesAndPlacement(agentId, bounds, prev, visibleAgents);
     });
+  };
+
+  const handleInteractionStart = (
+    agentId: string,
+    _action: 'resize' | 'drag',
+    _bounds: { x: number; y: number; width: number; height: number }
+  ) => {
+    setActiveAgentId(agentId);
+    setIsAnyInteracting(true);
+  };
+
+  const handleInteractionUpdate = (
+    agentId: string,
+    action: 'resize' | 'drag',
+    bounds: { x: number; y: number; width: number; height: number },
+    direction?: string
+  ) => {
+    if (action === 'resize' && isAutoReflowEnabled) {
+      handlePositionChange(agentId, bounds, direction);
+    }
+  };
+
+  const handleInteractionEnd = () => {
+    setIsAnyInteracting(false);
   };
 
   // Auto-tile / Arrange all windows
   const handleAutoArrange = () => {
-    if (!containerRef.current || agents.length === 0) return;
+    if (!containerRef.current || visibleAgents.length === 0) return;
     const containerW = containerRef.current.clientWidth;
     const containerH = containerRef.current.clientHeight;
-    const newLayout = calculateSmartLayout(agents, containerW, containerH);
+    const newLayout = computeInitialLayout(visibleAgents, containerW, containerH);
     setWindowBounds(newLayout);
     setPan({ x: 0, y: 0 });
     setZoom(1);
@@ -602,11 +652,22 @@ export const AgentCanvas: React.FC = () => {
         </button>
         <div className="h-3.5 w-px bg-white/10 mx-0.5" />
         <button
-          onClick={() => setIsAutoReflowEnabled(prev => !prev)}
+          onClick={() => {
+            setIsAutoReflowEnabled(prev => {
+              const next = !prev;
+              if (next && containerRef.current && visibleAgents.length > 0) {
+                const containerW = containerRef.current.clientWidth;
+                const containerH = containerRef.current.clientHeight;
+                const res = computeInitialLayout(visibleAgents, containerW, containerH);
+                setWindowBounds(res);
+              }
+              return next;
+            });
+          }}
           className={clsx(
             'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10.5px] font-mono transition-all cursor-pointer select-none',
             isAutoReflowEnabled
-              ? 'bg-accent/20 text-accent font-semibold border border-accent/40 shadow-xs'
+              ? 'bg-white/10 text-text-primary font-medium border border-white/15 shadow-xs'
               : 'text-text-muted hover:text-white hover:bg-white/5 border border-transparent'
           )}
           title={
@@ -615,7 +676,7 @@ export const AgentCanvas: React.FC = () => {
               : 'Freeform Mode: Terminals can be positioned and resized completely independently'
           }
         >
-          <Sparkles size={11} className={isAutoReflowEnabled ? 'text-accent' : 'text-text-dim'} />
+          <Grid2x2 size={11} className={isAutoReflowEnabled ? 'text-text-primary' : 'text-text-dim'} />
           <span>{isAutoReflowEnabled ? 'Auto-Reflow' : 'Freeform'}</span>
         </button>
       </div>
@@ -694,12 +755,12 @@ export const AgentCanvas: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-text-primary text-background rounded-lg text-xs font-mono font-bold transition-all shadow-md hover:opacity-90 cursor-pointer"
               >
                 <Plus size={13} strokeWidth={3} />
-                <span>+ Spawn Worker</span>
+                <span>Spawn Worker</span>
               </button>
             </div>
           ) : (
             (() => {
-              const defaultLayout = calculateSmartLayout(
+              const defaultLayout = computeInitialLayout(
                 visibleAgents,
                 containerSize.width || (typeof window !== 'undefined' ? window.innerWidth - 260 : 1200),
                 containerSize.height || (typeof window !== 'undefined' ? window.innerHeight - 80 : 800)
@@ -724,16 +785,21 @@ export const AgentCanvas: React.FC = () => {
                       width: bounds.width,
                       height: bounds.height,
                     }}
-                  zIndex={bounds.zIndex}
-                  isActive={activeAgentId === agent.id}
-                  scale={zoom}
-                  onFocus={() => bringToFront(agent.id)}
-                  onPositionChange={pos => handlePositionChange(agent.id, pos)}
-                />
-              );
-            });
-          })()
-        )}
+                    zIndex={bounds.zIndex}
+                    isActive={activeAgentId === agent.id}
+                    scale={zoom}
+                    isInteractingWithSelf={activeAgentId === agent.id && isAnyInteracting}
+                    isAnyInteracting={isAnyInteracting}
+                    onFocus={() => bringToFront(agent.id)}
+                    onPositionChange={(pos, direction) => handlePositionChange(agent.id, pos, direction)}
+                    onInteractionStart={handleInteractionStart}
+                    onInteractionUpdate={handleInteractionUpdate}
+                    onInteractionEnd={handleInteractionEnd}
+                  />
+                );
+              });
+            })()
+          )}
         </div>
       </div>
 

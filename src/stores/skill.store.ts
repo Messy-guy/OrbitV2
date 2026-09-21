@@ -3,7 +3,8 @@ import { persist } from 'zustand/middleware';
 import { SkillItem, DraggedSkillPayload, SkillCategory, AgentSkillAssignment } from '../types/skills';
 import { skillAggregatorService } from '../services/skillAggregator.service';
 import { ProviderSkillAdapterService } from '../services/providerSkillAdapter.service';
-import { tauriService } from '../services';
+import { tauriService, isTauriAvailable } from '../services/tauri.service';
+import { useContextStore } from './context.store';
 
 interface SkillState {
   installedSkills: SkillItem[];
@@ -24,6 +25,7 @@ interface SkillState {
 
   installSkill: (skill: SkillItem) => Promise<void>;
   uninstallSkill: (skillId: string) => Promise<void>;
+  loadLocalProjectSkills: (projectPath: string) => Promise<SkillItem[]>;
   equipSkillToAgent: (agentId: string, skill: SkillItem) => Promise<AgentSkillAssignment>;
   unequipSkillFromAgent: (agentId: string, skillId: string) => Promise<void>;
   getEquippedSkills: (agentId: string) => SkillItem[];
@@ -93,12 +95,14 @@ export const useSkillStore = create<SkillState>()(
 
       isSkillInstalled: (skillId) => {
         const currentInstalled = get().installedSkills || [];
-        return currentInstalled.some((s) => s.id === skillId);
+        const slug = ProviderSkillAdapterService.sanitizeSkillSlug(skillId);
+        return currentInstalled.some((s) => s.id === skillId || s.id === `local-${slug}` || s.shortLabel === slug);
       },
 
       installSkill: async (skill) => {
         const current = get().installedSkills || [];
-        if (current.some((s) => s.id === skill.id)) return;
+        const slug = ProviderSkillAdapterService.sanitizeSkillSlug(skill);
+        const existing = current.find((s) => s.id === skill.id || s.id === `local-${slug}` || s.shortLabel === slug);
 
         let resolvedSkill = skill;
         try {
@@ -109,18 +113,90 @@ export const useSkillStore = create<SkillState>()(
           console.warn('Skill resolution notice during install:', e);
         }
 
+        // Persist locally to active workspace filesystem in .agents/skills/<slug>/SKILL.md
+        try {
+          const activeWorkspace = useWorkspaceStore.getState().getActiveWorkspace();
+          const projectPath = activeWorkspace?.projectPath;
+          if (projectPath && isTauriAvailable()) {
+            const relativeSkillPath = `.agents/skills/${slug}/SKILL.md`;
+
+            if (resolvedSkill.files?.length) {
+              const skillDirectory = `.agents/skills/${slug}/`;
+              for (const file of resolvedSkill.files) {
+                const cleanRel = file.relativePath.replace(/^\/+/, '');
+                const filePath = `${skillDirectory}${cleanRel}`;
+                await tauriService.writeProjectSkillFile(projectPath, filePath, file.content);
+              }
+            } else {
+              const markdownContent = ProviderSkillAdapterService.formatSkillMarkdown(resolvedSkill);
+              await tauriService.writeProjectSkillFile(projectPath, relativeSkillPath, markdownContent);
+            }
+            resolvedSkill.installedPath = relativeSkillPath;
+            // Notify GitPanel so git status immediately tracks the newly created local skill files
+            useContextStore.getState().loadGitState(projectPath).catch(() => {});
+          }
+        } catch (writeErr) {
+          console.warn('Failed to write skill locally to workspace:', writeErr);
+        }
+
         const newSkill: SkillItem = {
           ...resolvedSkill,
           isInstalled: true,
         };
 
-        set({ installedSkills: [...current, newSkill] });
+        if (existing) {
+          set({
+            installedSkills: current.map((s) => (s.id === existing.id ? newSkill : s)),
+          });
+        } else {
+          set({ installedSkills: [...current, newSkill] });
+        }
       },
 
       uninstallSkill: async (skillId) => {
+        const current = get().installedSkills || [];
+        const slug = ProviderSkillAdapterService.sanitizeSkillSlug(skillId);
+        const skill = current.find((s) => s.id === skillId || s.id === `local-${slug}` || s.shortLabel === slug);
+        if (skill) {
+          try {
+            const activeWorkspace = useWorkspaceStore.getState().getActiveWorkspace();
+            const projectPath = activeWorkspace?.projectPath;
+            if (projectPath && isTauriAvailable()) {
+              const relativeSkillPath = skill.installedPath || `.agents/skills/${slug}/SKILL.md`;
+              await tauriService.removeProjectSkillFile(projectPath, relativeSkillPath);
+              useContextStore.getState().loadGitState(projectPath).catch(() => {});
+            }
+          } catch (e) {
+            console.warn('Failed to remove skill file locally:', e);
+          }
+        }
         set({
-          installedSkills: (get().installedSkills || []).filter((s) => s.id !== skillId),
+          installedSkills: current.filter((s) => s.id !== skillId && s.id !== `local-${slug}` && s.shortLabel !== slug),
         });
+      },
+
+      loadLocalProjectSkills: async (projectPath: string) => {
+        if (!projectPath || !isTauriAvailable()) return [];
+        try {
+          const localSkills = await tauriService.listLocalProjectSkills(projectPath);
+          if (localSkills.length > 0) {
+            set((state) => {
+              const current = state.installedSkills || [];
+              const map = new Map<string, SkillItem>();
+              for (const s of current) {
+                map.set(s.id, s);
+              }
+              for (const ls of localSkills) {
+                map.set(ls.id, ls);
+              }
+              return { installedSkills: Array.from(map.values()) };
+            });
+          }
+          return localSkills;
+        } catch (e) {
+          console.warn('Failed to load local project skills:', e);
+          return [];
+        }
       },
 
       equipSkillToAgent: async (agentId: string, skill: SkillItem): Promise<AgentSkillAssignment> => {

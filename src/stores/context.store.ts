@@ -181,14 +181,20 @@ export const useContextStore = create<ContextState>((set, get) => ({
     try {
       const git = await contextService.getGitState(projectPath);
       const current = get().gitState;
+      const filesEqual = (a?: ChangedFileItem[], b?: ChangedFileItem[]) => {
+        if (!a && !b) return true;
+        if (!a || !b || a.length !== b.length) return false;
+        return a.every((item, idx) => item.path === b[idx].path && item.status === b[idx].status);
+      };
+
       const isUnchanged =
         current &&
         current.currentBranch === git.currentBranch &&
         current.headCommit === git.headCommit &&
-        current.modifiedFiles.length === git.modifiedFiles.length &&
-        current.stagedFiles?.length === git.stagedFiles?.length &&
-        current.unstagedFiles?.length === git.unstagedFiles?.length &&
-        current.untrackedFiles?.length === git.untrackedFiles?.length;
+        filesEqual(current.modifiedFiles, git.modifiedFiles) &&
+        filesEqual(current.stagedFiles, git.stagedFiles) &&
+        filesEqual(current.unstagedFiles, git.unstagedFiles) &&
+        filesEqual(current.untrackedFiles, git.untrackedFiles);
 
       if (!isUnchanged) {
         set({ gitState: git });

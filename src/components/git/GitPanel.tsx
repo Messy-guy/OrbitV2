@@ -54,6 +54,17 @@ export const GitPanel: React.FC = () => {
   const activeWorkspace = getActiveWorkspace();
   const projectPath = activeWorkspace?.projectPath;
 
+  const splitFilePath = (fullPath: string) => {
+    const lastSlash = fullPath.lastIndexOf('/');
+    if (lastSlash === -1) {
+      return { fileName: fullPath, dirPath: '' };
+    }
+    return {
+      fileName: fullPath.slice(lastSlash + 1),
+      dirPath: fullPath.slice(0, lastSlash),
+    };
+  };
+
   const refreshGit = async () => {
     if (!projectPath) return;
     setIsActionLoading(true);
@@ -65,9 +76,25 @@ export const GitPanel: React.FC = () => {
   };
 
   useEffect(() => {
-    if (projectPath) {
+    if (!projectPath) return;
+    refreshGit().catch(() => {});
+
+    // Refresh whenever user switches back to the application window
+    const onFocus = () => {
       refreshGit().catch(() => {});
-    }
+    };
+    window.addEventListener('focus', onFocus);
+
+    // Active live polling while GitPanel is open to mirror VS Code Source Control
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadGitState(projectPath).catch(() => {});
+    }, 3500);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(timer);
+    };
   }, [projectPath]);
 
   const stagedFiles = gitState?.stagedFiles || [];
@@ -287,46 +314,54 @@ export const GitPanel: React.FC = () => {
                     No staged changes. Use '+' to stage files.
                   </div>
                 ) : (
-                  stagedFiles.map((file) => (
-                    <div
-                      key={file.path}
-                      onClick={() => setActiveDiffFile(file.path, true)}
-                      className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
-                      title="Click to view staged diff"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        {getStatusBadge(file.status)}
-                        <span className="text-text-primary group-hover:text-amber-400 truncate">
-                          {file.path}
-                        </span>
-                      </div>
+                  stagedFiles.map((file) => {
+                    const { fileName, dirPath } = splitFilePath(file.path);
+                    return (
+                      <div
+                        key={file.path}
+                        onClick={() => setActiveDiffFile(file.path, true)}
+                        className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
+                        title="Click to view staged diff"
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0 flex-1 mr-2">
+                          {getStatusBadge(file.status)}
+                          <span className="text-text-primary group-hover:text-amber-400 font-medium shrink-0">
+                            {fileName}
+                          </span>
+                          {dirPath && (
+                            <span className="text-text-dim text-[10px] truncate">
+                              {dirPath}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* Open in File Editor */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFile(file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-                          title="Open & Edit in Orbit Editor"
-                        >
-                          <Edit3 size={11} />
-                        </button>
-                        {/* Unstage button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (projectPath) unstageFile(projectPath, file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-amber-400 hover:bg-well transition-colors cursor-pointer"
-                          title="Unstage this file (-)"
-                        >
-                          <Minus size={11} />
-                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          {/* Open in File Editor */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFile(file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                            title="Open & Edit in Orbit Editor"
+                          >
+                            <Edit3 size={11} />
+                          </button>
+                          {/* Unstage button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (projectPath) unstageFile(projectPath, file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-amber-400 hover:bg-well transition-colors cursor-pointer"
+                            title="Unstage this file (-)"
+                          >
+                            <Minus size={11} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -383,59 +418,67 @@ export const GitPanel: React.FC = () => {
                     Working tree is clean.
                   </div>
                 ) : (
-                  unstagedFiles.map((file) => (
-                    <div
-                      key={file.path}
-                      onClick={() => setActiveDiffFile(file.path, false)}
-                      className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
-                      title="Click to view file diff"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        {getStatusBadge(file.status)}
-                        <span className="text-text-primary group-hover:text-amber-400 truncate">
-                          {file.path}
-                        </span>
-                      </div>
+                  unstagedFiles.map((file) => {
+                    const { fileName, dirPath } = splitFilePath(file.path);
+                    return (
+                      <div
+                        key={file.path}
+                        onClick={() => setActiveDiffFile(file.path, false)}
+                        className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
+                        title="Click to view file diff"
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0 flex-1 mr-2">
+                          {getStatusBadge(file.status)}
+                          <span className="text-text-primary group-hover:text-amber-400 font-medium shrink-0">
+                            {fileName}
+                          </span>
+                          {dirPath && (
+                            <span className="text-text-dim text-[10px] truncate">
+                              {dirPath}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* Open in File Editor */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFile(file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-                          title="Open & Edit in Orbit Editor"
-                        >
-                          <Edit3 size={11} />
-                        </button>
-                        {/* Discard file changes */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (projectPath && window.confirm(`Discard changes to ${file.path}?`)) {
-                              discardFile(projectPath, file.path);
-                            }
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-red-400 hover:bg-well transition-colors cursor-pointer"
-                          title="Discard changes (↺)"
-                        >
-                          <RotateCcw size={11} />
-                        </button>
-                        {/* Stage file */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (projectPath) stageFile(projectPath, file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-emerald-400 hover:bg-well transition-colors cursor-pointer"
-                          title="Stage file (+)"
-                        >
-                          <Plus size={11} />
-                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          {/* Open in File Editor */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFile(file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                            title="Open & Edit in Orbit Editor"
+                          >
+                            <Edit3 size={11} />
+                          </button>
+                          {/* Discard file changes */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (projectPath && window.confirm(`Discard changes to ${file.path}?`)) {
+                                discardFile(projectPath, file.path);
+                              }
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-red-400 hover:bg-well transition-colors cursor-pointer"
+                            title="Discard changes (↺)"
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                          {/* Stage file */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (projectPath) stageFile(projectPath, file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-emerald-400 hover:bg-well transition-colors cursor-pointer"
+                            title="Stage file (+)"
+                          >
+                            <Plus size={11} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -472,59 +515,67 @@ export const GitPanel: React.FC = () => {
 
               {!untrackedCollapsed && (
                 <div className="p-1 space-y-0.5">
-                  {untrackedFiles.map((file) => (
-                    <div
-                      key={file.path}
-                      onClick={() => setActiveDiffFile(file.path, false)}
-                      className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
-                      title="Click to view file content diff"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        {getStatusBadge(file.status)}
-                        <span className="text-text-primary group-hover:text-emerald-400 truncate">
-                          {file.path}
-                        </span>
-                      </div>
+                  {untrackedFiles.map((file) => {
+                    const { fileName, dirPath } = splitFilePath(file.path);
+                    return (
+                      <div
+                        key={file.path}
+                        onClick={() => setActiveDiffFile(file.path, false)}
+                        className="px-2 py-1 rounded hover:bg-panel flex items-center justify-between text-[11px] group cursor-pointer transition-colors border border-transparent hover:border-border"
+                        title="Click to view file content diff"
+                      >
+                        <div className="flex items-center gap-2 truncate min-w-0 flex-1 mr-2">
+                          {getStatusBadge(file.status)}
+                          <span className="text-text-primary group-hover:text-emerald-400 font-medium shrink-0">
+                            {fileName}
+                          </span>
+                          {dirPath && (
+                            <span className="text-text-dim text-[10px] truncate">
+                              {dirPath}
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* Open in File Editor */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFile(file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
-                          title="Open & Edit in Orbit Editor"
-                        >
-                          <Edit3 size={11} />
-                        </button>
-                        {/* Delete Untracked file */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (projectPath && window.confirm(`Delete untracked file ${file.path}?`)) {
-                              discardFile(projectPath, file.path);
-                            }
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-red-400 hover:bg-well transition-colors cursor-pointer"
-                          title="Delete file"
-                        >
-                          <Trash2 size={11} />
-                        </button>
-                        {/* Stage file */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (projectPath) stageFile(projectPath, file.path);
-                          }}
-                          className="p-1 rounded text-text-muted hover:text-emerald-400 hover:bg-well transition-colors cursor-pointer"
-                          title="Stage file (+)"
-                        >
-                          <Plus size={11} />
-                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          {/* Open in File Editor */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFile(file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-well transition-colors cursor-pointer"
+                            title="Open & Edit in Orbit Editor"
+                          >
+                            <Edit3 size={11} />
+                          </button>
+                          {/* Delete Untracked file */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (projectPath && window.confirm(`Delete untracked file ${file.path}?`)) {
+                                discardFile(projectPath, file.path);
+                              }
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-red-400 hover:bg-well transition-colors cursor-pointer"
+                            title="Delete untracked file"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                          {/* Stage file */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (projectPath) stageFile(projectPath, file.path);
+                            }}
+                            className="p-1 rounded text-text-muted hover:text-emerald-400 hover:bg-well transition-colors cursor-pointer"
+                            title="Stage file (+)"
+                          >
+                            <Plus size={11} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

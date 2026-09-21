@@ -21,6 +21,7 @@ import { HandoffAnimationOverlay } from '../components/handoff/HandoffAnimationO
 import { FileEditorModal } from '../components/editor/FileEditorModal';
 import { DiffViewerModal } from '../components/git/DiffViewerModal';
 
+import { useSkillStore } from '../stores/skill.store';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 export const WorkspaceView: React.FC = () => {
@@ -37,6 +38,9 @@ export const WorkspaceView: React.FC = () => {
       loadAgentsForWorkspace(activeWorkspaceId, activeWorkspace.projectPath);
       loadContextForWorkspace(activeWorkspaceId, activeWorkspace.projectPath);
       loadWorkspaceData(activeWorkspaceId);
+      if (activeWorkspace.projectPath) {
+        useSkillStore.getState().loadLocalProjectSkills(activeWorkspace.projectPath);
+      }
     }
   }, [activeWorkspaceId, activeWorkspace?.projectPath, loadAgentsForWorkspace, loadContextForWorkspace, loadWorkspaceData]);
 

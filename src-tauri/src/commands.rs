@@ -1999,6 +1999,196 @@ pub fn remove_project_skill_file(
     Ok(false)
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct LocalSkillFile {
+    #[serde(rename = "relativePath")]
+    pub relative_path: String,
+    pub content: String,
+    pub size: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct LocalSkillItem {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "shortLabel")]
+    pub short_label: String,
+    pub description: String,
+    pub source: String,
+    #[serde(rename = "sourceLabel")]
+    pub source_label: String,
+    pub category: String,
+    pub author: Option<String>,
+    pub tags: Vec<String>,
+    #[serde(rename = "rawContent")]
+    pub raw_content: Option<String>,
+    pub directive: String,
+    #[serde(rename = "isInstalled")]
+    pub is_installed: bool,
+    #[serde(rename = "installedPath")]
+    pub installed_path: String,
+    pub files: Vec<LocalSkillFile>,
+}
+
+fn collect_skill_files(dir: &std::path::Path, rel_prefix: &str, files: &mut Vec<LocalSkillFile>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.ends_with(".tmp") || name == "target" || name == "node_modules" {
+            continue;
+        }
+        let rel = if rel_prefix.is_empty() {
+            name
+        } else {
+            format!("{}/{}", rel_prefix, name)
+        };
+        if path.is_dir() {
+            collect_skill_files(&path, &rel, files);
+        } else if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let size = content.len();
+                files.push(LocalSkillFile {
+                    relative_path: rel,
+                    content,
+                    size,
+                });
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn list_local_project_skills(project_path: String) -> Result<Vec<LocalSkillItem>, String> {
+    let base = std::path::Path::new(&project_path);
+    if !base.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut results = Vec::new();
+    let skill_dirs = [
+        base.join(".agents").join("skills"),
+        base.join(".claude").join("skills"),
+        base.join(".orbit").join("skills"),
+    ];
+
+    for skills_root in &skill_dirs {
+        if !skills_root.is_dir() {
+            continue;
+        }
+
+        let Ok(entries) = std::fs::read_dir(skills_root) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let skill_dir = entry.path();
+            if !skill_dir.is_dir() {
+                continue;
+            }
+
+            let slug = skill_dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if slug.is_empty() || slug.starts_with('.') {
+                continue;
+            }
+
+            let skill_md = skill_dir.join("SKILL.md");
+            if !skill_md.is_file() {
+                continue;
+            }
+
+            let Ok(content) = std::fs::read_to_string(&skill_md) else {
+                continue;
+            };
+
+            // Parse frontmatter / description / name from SKILL.md
+            let mut name = slug.clone();
+            let mut description = format!("Local skill: {}", slug);
+            let mut author = "Local Workspace".to_string();
+            let mut category = "workflow".to_string();
+            let tags = vec!["local".to_string(), "workspace".to_string()];
+            let mut directive = String::new();
+
+            let lines: Vec<&str> = content.lines().collect();
+            let mut in_frontmatter = false;
+
+            for (idx, line) in lines.iter().enumerate() {
+                let trimmed = line.trim();
+                if idx == 0 && trimmed == "---" {
+                    in_frontmatter = true;
+                    continue;
+                }
+                if in_frontmatter {
+                    if trimmed == "---" {
+                        in_frontmatter = false;
+                        continue;
+                    }
+                    if let Some(val) = trimmed.strip_prefix("name:") {
+                        let n = val.trim().trim_matches('"').trim_matches('\'');
+                        if !n.is_empty() {
+                            name = n.to_string();
+                        }
+                    } else if let Some(val) = trimmed.strip_prefix("description:") {
+                        let d = val.trim().trim_matches('"').trim_matches('\'');
+                        if !d.is_empty() {
+                            description = d.to_string();
+                        }
+                    } else if let Some(val) = trimmed.strip_prefix("author:") {
+                        let a = val.trim().trim_matches('"').trim_matches('\'');
+                        if !a.is_empty() {
+                            author = a.to_string();
+                        }
+                    } else if let Some(val) = trimmed.strip_prefix("category:") {
+                        let c = val.trim().trim_matches('"').trim_matches('\'');
+                        if !c.is_empty() {
+                            category = c.to_string();
+                        }
+                    }
+                } else if directive.is_empty() && !trimmed.is_empty() && !trimmed.starts_with('#') {
+                    directive = trimmed.to_string();
+                }
+            }
+
+            if directive.is_empty() {
+                directive = format!("Follow instructions in SKILL.md for {}.", name);
+            }
+
+            // Also collect any bundled files in the skill folder
+            let mut bundle_files = Vec::new();
+            collect_skill_files(&skill_dir, "", &mut bundle_files);
+
+            let rel_installed = skill_md
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| format!(".agents/skills/{}/SKILL.md", slug));
+
+            results.push(LocalSkillItem {
+                id: format!("local-{}", slug),
+                name: name.clone(),
+                short_label: slug,
+                description,
+                source: "local".to_string(),
+                source_label: "Local Workspace".to_string(),
+                category,
+                author: Some(author),
+                tags,
+                raw_content: Some(content),
+                directive,
+                is_installed: true,
+                installed_path: rel_installed,
+                files: bundle_files,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 #[tauri::command]
 pub fn refresh_detected_agents() -> Vec<DetectedAgent> {
     crate::discovery::invalidate_detection_cache();

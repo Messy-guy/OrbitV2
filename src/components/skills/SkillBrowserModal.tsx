@@ -12,6 +12,7 @@ export const SkillBrowserModal: React.FC = () => {
     isBrowserModalOpen, 
     setBrowserModalOpen, 
     installSkill, 
+    installedSkills,
     isSkillInstalled, 
     favoriteSkills, 
     toggleFavorite, 
@@ -22,7 +23,7 @@ export const SkillBrowserModal: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSource, setSelectedSource] = useState<'all' | 'anthropic' | 'skills_sh' | 'official' | 'github' | 'favorites'>('all');
+  const [selectedSource, setSelectedSource] = useState<'all' | 'anthropic' | 'skills_sh' | 'official' | 'github' | 'favorites' | 'local'>('all');
   const [selectedCategory, setSelectedCategory] = useState<SkillCategory>('all');
   const [githubUrl, setGithubUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -54,6 +55,7 @@ export const SkillBrowserModal: React.FC = () => {
     { id: 'official', label: '⭐ Verified' },
     { id: 'github', label: '🐙 GitHub' },
     { id: 'favorites', label: `★ Favorites (${favoriteSkills.length})` },
+    { id: 'local', label: `📁 Workspace (${installedSkills.filter(s => s.source === 'local').length})` },
   ] as const;
 
   const categories: { id: SkillCategory; label: string }[] = [
@@ -66,21 +68,24 @@ export const SkillBrowserModal: React.FC = () => {
     { id: 'workflow', label: 'Workflows & Docs' },
   ];
 
-  // Merge live items with local favorites so favorited skills always show up even offline
+  // Merge live items with local installed & favorites so they always show up even offline
   const allAvailableSkills = useMemo(() => {
     const map = new Map<string, SkillItem>();
+    for (const inst of installedSkills) map.set(inst.id, inst);
     for (const fav of favoriteSkills) map.set(fav.id, fav);
     for (const item of onlineSkills) {
       if (!map.has(item.id)) map.set(item.id, item);
     }
     return Array.from(map.values());
-  }, [onlineSkills, favoriteSkills]);
+  }, [installedSkills, onlineSkills, favoriteSkills]);
 
   const filteredSkills = useMemo(() => {
     return allAvailableSkills.filter((s) => {
       // Source filtering
       if (selectedSource === 'favorites') {
         if (!isFavorite(s.id)) return false;
+      } else if (selectedSource === 'local') {
+        if (s.source !== 'local') return false;
       } else if (selectedSource === 'anthropic') {
         if (s.source !== 'anthropic') return false;
       } else if (selectedSource === 'skills_sh') {
@@ -112,7 +117,7 @@ export const SkillBrowserModal: React.FC = () => {
     if (!searchQuery.trim()) return;
     setIsSearchingOnline(true);
     try {
-      const srcFilter = selectedSource === 'favorites' ? 'all' : selectedSource;
+      const srcFilter = (selectedSource === 'favorites' || selectedSource === 'local') ? 'all' : selectedSource;
       const results = await skillAggregatorService.searchOnlineSkills(searchQuery, srcFilter);
       setOnlineSkills((prev) => {
         const map = new Map(prev.map((p) => [p.id, p]));
@@ -170,6 +175,13 @@ export const SkillBrowserModal: React.FC = () => {
       return (
         <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-400 shrink-0">
           ⭐ Verified
+        </span>
+      );
+    }
+    if (skill.source === 'local') {
+      return (
+        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 shrink-0">
+          📁 Local
         </span>
       );
     }

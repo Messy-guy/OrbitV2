@@ -533,6 +533,16 @@ export const tauriService = {
     }
   },
 
+  async listLocalProjectSkills(projectPath: string): Promise<import('../types/skills').SkillItem[]> {
+    if (!isTauriAvailable()) return [];
+    try {
+      return await invoke<import('../types/skills').SkillItem[]>('list_local_project_skills', { projectPath });
+    } catch (e) {
+      console.warn('list_local_project_skills error:', e);
+      return [];
+    }
+  },
+
   async installAgentCli(provider: string, command: string): Promise<string> {
     if (!isTauriAvailable()) return 'Simulated install in web mode';
     return invoke<string>('install_agent_cli', { provider, command });

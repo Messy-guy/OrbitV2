@@ -61,9 +61,9 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
     let mut unstaged_files = Vec::new();
     let mut untracked_files = Vec::new();
 
-    // 3. Get changed files via git status --porcelain=v1
+    // 3. Get changed files via git status --porcelain=v1 --untracked-files=all (same as VS Code)
     if let Ok(status_out) = Command::new("git")
-        .args(["status", "--porcelain=v1"])
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
         .current_dir(path)
         .output()
     {
@@ -88,17 +88,23 @@ pub fn inspect_git_state(project_path: &str) -> GitState {
                 }
 
                 if x == '?' && y == '?' {
-                    let item = ChangedFileItem {
-                        path: file_path.clone(),
-                        status: "untracked".to_string(),
-                        staged: false,
-                        unstaged: true,
-                        is_untracked: true,
-                        diff_snippet: None,
-                        verification_level: None,
-                    };
-                    untracked_files.push(item.clone());
-                    modified_files.push(item);
+                    let clean_path = file_path.trim_end_matches('/').to_string();
+                    let full_item = path.join(&clean_path);
+                    if full_item.is_dir() {
+                        expand_dir_files(path, &clean_path, &mut untracked_files, &mut modified_files);
+                    } else {
+                        let item = ChangedFileItem {
+                            path: clean_path,
+                            status: "untracked".to_string(),
+                            staged: false,
+                            unstaged: true,
+                            is_untracked: true,
+                            diff_snippet: None,
+                            verification_level: None,
+                        };
+                        untracked_files.push(item.clone());
+                        modified_files.push(item);
+                    }
                 } else {
                     // Staged index status (X)
                     if x != ' ' && x != '?' {
@@ -207,6 +213,41 @@ pub fn get_git_diff_summary(project_path: &str) -> String {
         "Working tree is clean. No uncommitted diffs found.".to_string()
     } else {
         diff_output
+    }
+}
+
+fn expand_dir_files(
+    root: &Path,
+    rel_dir: &str,
+    untracked_files: &mut Vec<ChangedFileItem>,
+    modified_files: &mut Vec<ChangedFileItem>,
+) {
+    let full_dir = root.join(rel_dir);
+    if let Ok(entries) = std::fs::read_dir(&full_dir) {
+        let mut sorted_entries: Vec<_> = entries.flatten().collect();
+        sorted_entries.sort_by_key(|e| e.path());
+
+        for entry in sorted_entries {
+            let entry_path = entry.path();
+            if let Ok(rel) = entry_path.strip_prefix(root) {
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                if entry_path.is_dir() {
+                    expand_dir_files(root, &rel_str, untracked_files, modified_files);
+                } else if entry_path.is_file() {
+                    let item = ChangedFileItem {
+                        path: rel_str,
+                        status: "untracked".to_string(),
+                        staged: false,
+                        unstaged: true,
+                        is_untracked: true,
+                        diff_snippet: None,
+                        verification_level: None,
+                    };
+                    untracked_files.push(item.clone());
+                    modified_files.push(item);
+                }
+            }
+        }
     }
 }
 
