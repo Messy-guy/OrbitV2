@@ -64,7 +64,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb xauth
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb xauth rpm
 
       - name: Install dependencies
         run: npm ci || npm install
@@ -124,6 +124,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
 
       - name: Upload Windows Artifacts
         if: matrix.os_name == 'windows'
@@ -221,7 +222,7 @@ jobs:
         run: |
           mkdir -p dist-release
           if [ -d "all-artifacts" ]; then
-            find all-artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.exe" -o -name "*.msi" -o -name "*.apk" \) -exec cp {} dist-release/ \;
+            find all-artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.exe" -o -name "*.msi" -o -name "*.apk" \) -exec cp {} dist-release/ \;
           fi
           ls -la dist-release/
 
