@@ -137,7 +137,7 @@ class DesktopRelayService {
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => {
           this.broadcastLiveTelemetry();
-        }, 3000);
+        }, 30000);
       });
 
       this.socket.on('disconnect', () => {

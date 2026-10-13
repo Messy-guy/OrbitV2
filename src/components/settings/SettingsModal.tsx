@@ -823,7 +823,9 @@ export const SettingsModal: React.FC = () => {
                   </div>
                   <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
                     <span className="text-text-dim text-[10px] uppercase font-bold">Cloud Authority Relay</span>
-                    <span className="text-emerald-500 font-bold">orbit-cloud-backend.onrender.com (Live)</span>
+                    <span className="text-emerald-500 font-bold">
+                      {((import.meta as any).env?.VITE_API_URL || 'orbit-backend-green-beacon-1597.fly.dev').replace(/^https?:\/\//, '')} (Live)
+                    </span>
                   </div>
                   <div className="p-3 rounded-xl bg-well border border-border flex flex-col gap-1">
                     <span className="text-text-dim text-[10px] uppercase font-bold">Runtime Engine</span>
