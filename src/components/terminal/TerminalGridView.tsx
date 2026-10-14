@@ -194,9 +194,24 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
     return () => { active = false; };
   }, [renderCurrent]);
 
+  const prevScrollbackLenRef = useRef(0);
+
   useLayoutEffect(() => {
-    if (stickToBottomRef.current && hostRef.current) {
-      hostRef.current.scrollTop = hostRef.current.scrollHeight;
+    const host = hostRef.current;
+    if (!host || !snapshot) return;
+
+    const currentLen = snapshot.scrollback.length;
+    const prevLen = prevScrollbackLenRef.current;
+    prevScrollbackLenRef.current = currentLen;
+
+    if (stickToBottomRef.current) {
+      host.scrollTop = host.scrollHeight;
+    } else if (currentLen > prevLen && rendererRef.current) {
+      // Lines were pushed into scrollback at the top while user is scrolled up:
+      // Offset scrollTop by the added rows so the content the user is reading doesn't jump downwards
+      const addedRows = currentLen - prevLen;
+      const cellHeight = rendererRef.current.cellSize().height;
+      host.scrollTop += addedRows * cellHeight;
     }
   }, [snapshot]);
 
@@ -274,7 +289,29 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
       // If no selection, fall through to encodeKey (sends \x18)
     }
 
-    // 4. Standard terminal key encoding
+    // 4. PageUp / PageDown scrollback navigation (standard terminal behaviour when not in alt-screen)
+    if (!snapshot?.modes.alternateScreen && (event.key === 'PageUp' || event.key === 'PageDown')) {
+      const host = hostRef.current;
+      if (host) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pageDelta = host.clientHeight * 0.8;
+        if (event.key === 'PageUp') {
+          stickToBottomRef.current = false;
+          host.scrollTop = Math.max(0, host.scrollTop - pageDelta);
+        } else {
+          host.scrollTop = Math.min(host.scrollHeight, host.scrollTop + pageDelta);
+          stickToBottomRef.current = host.scrollTop + host.clientHeight >= host.scrollHeight - 16;
+        }
+        if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = requestAnimationFrame(() => {
+          renderCurrent();
+        });
+        return;
+      }
+    }
+
+    // 5. Standard terminal key encoding
     const encoded = encodeKey(event.key, {
       appCursor: snapshot?.modes.appCursor,
       ctrl: event.ctrlKey && !event.metaKey,
@@ -307,12 +344,14 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
     const host = hostRef.current;
     if (host) {
       if (event.deltaY < 0) {
-        // User scrolling up: immediately unstick from bottom so updates don't snap down
+        // User scrolling up: immediately unstick from bottom so incoming output doesn't snap down
         stickToBottomRef.current = false;
       }
       host.scrollTop += event.deltaY;
-      const atBottom = host.scrollTop + host.clientHeight >= host.scrollHeight - 34;
-      stickToBottomRef.current = atBottom;
+      const atBottom = host.scrollTop + host.clientHeight >= host.scrollHeight - 16;
+      if (event.deltaY > 0) {
+        stickToBottomRef.current = atBottom;
+      }
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = requestAnimationFrame(() => {
         renderCurrent();
@@ -431,7 +470,7 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
       onMouseUp={handleMouseUp}
       onScroll={(event) => {
         const host = event.currentTarget;
-        stickToBottomRef.current = host.scrollTop + host.clientHeight >= host.scrollHeight - 34;
+        stickToBottomRef.current = host.scrollTop + host.clientHeight >= host.scrollHeight - 16;
         if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = requestAnimationFrame(() => {
           renderCurrent();

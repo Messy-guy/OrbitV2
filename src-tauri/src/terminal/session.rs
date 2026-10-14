@@ -365,7 +365,9 @@ fn worker_loop(
                     snapshot: snapshot.clone(),
                 },
                 Some(previous)
-                    if previous.rows != snapshot.rows || previous.columns != snapshot.columns =>
+                    if previous.rows != snapshot.rows
+                        || previous.columns != snapshot.columns
+                        || previous.scrollback.len() != snapshot.scrollback.len() =>
                 {
                     TerminalEvent::Snapshot {
                         snapshot: snapshot.clone(),
