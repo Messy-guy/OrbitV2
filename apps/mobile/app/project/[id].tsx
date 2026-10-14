@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Pressable, StyleSheet,
 } from 'react-native';
@@ -16,7 +16,11 @@ import * as Haptics from 'expo-haptics';
 
 export default function ProjectDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, targetAgentId, targetSessionId } = useLocalSearchParams<{
+    id: string;
+    targetAgentId?: string;
+    targetSessionId?: string;
+  }>();
   const projectId = id || '';
 
   // Direct Live Zero-Cache Subscription
@@ -29,6 +33,22 @@ export default function ProjectDetailScreen() {
   );
 
   const [activeTerminalAgent, setActiveTerminalAgent] = useState<MobileAgentDetail | null>(null);
+
+  // Auto-open agent modal if deep linked from a notification
+  useEffect(() => {
+    if ((targetAgentId || targetSessionId) && projectAgents.length > 0) {
+      const target = projectAgents.find(
+        (a) =>
+          a.id === targetAgentId ||
+          a.sessionId === targetSessionId ||
+          a.id === targetSessionId ||
+          (targetAgentId && a.id.replace(/^sess-/, '') === targetAgentId.replace(/^sess-/, ''))
+      );
+      if (target) {
+        setActiveTerminalAgent(target);
+      }
+    }
+  }, [targetAgentId, targetSessionId, projectAgents]);
 
   // Categorize agents: Active Now vs Live & Ready vs Historical / Offline Conversations
   const workingAgents = projectAgents.filter(

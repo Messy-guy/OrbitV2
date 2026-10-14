@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Switch, Alert,
+  View, Text, ScrollView, StyleSheet, Switch, Alert, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -150,6 +150,30 @@ export default function SettingsScreen() {
                 thumbColor="#FFFFFF"
               />
             </View>
+
+            {Platform.OS === 'android' && (
+              <View style={[styles.toggleRow, { paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }]}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.settingLabel}>Background Optimization</Text>
+                  <Text style={styles.settingSubtext}>Prevent Android Doze from suspending live agent streaming</Text>
+                </View>
+                <AstryxButton
+                  label="Optimize"
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => {
+                    import('expo-linking').then(({ openSettings }) => {
+                      openSettings();
+                    }).catch(() => {
+                      Alert.alert(
+                        'Background Battery Settings',
+                        'Please disable battery optimization for Orbit Mobile in Android Settings -> Apps -> Orbit -> Battery so agent live stream stays active in the background.'
+                      );
+                    });
+                  }}
+                />
+              </View>
+            )}
           </GlassCard>
 
           {/* App Version & Automatic Update Checker */}

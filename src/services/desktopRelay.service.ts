@@ -360,7 +360,15 @@ class DesktopRelayService {
     }
   }
 
-  private scheduleSync() {
+  scheduleSync(immediate = false) {
+    if (immediate) {
+      if (this.syncThrottleTimer) {
+        clearTimeout(this.syncThrottleTimer);
+        this.syncThrottleTimer = null;
+      }
+      this.broadcastLiveTelemetry();
+      return;
+    }
     if (this.syncThrottleTimer) return;
     this.syncThrottleTimer = setTimeout(() => {
       this.syncThrottleTimer = null;

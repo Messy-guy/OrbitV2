@@ -1,6 +1,5 @@
 import { Alert, Linking } from 'react-native';
 import Constants from 'expo-constants';
-import packageJson from '../../package.json';
 
 interface GitHubRelease {
   tag_name: string;
@@ -22,7 +21,7 @@ class MobileAppUpdateService {
     this.checked = true;
 
     try {
-      const currentVersion = Constants.expoConfig?.version || packageJson.version || '0.1.0';
+      const currentVersion = Constants.expoConfig?.version || '0.1.75';
       const response = await fetch('https://api.github.com/repos/Messy-guy/OrbitV2/releases/latest', {
         headers: {
           'User-Agent': 'Orbit-Mobile-App',

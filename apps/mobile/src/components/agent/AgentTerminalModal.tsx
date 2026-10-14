@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, Modal, Pressable, ScrollView, TextInput,
   KeyboardAvoidingView, Platform, StyleSheet,
@@ -10,6 +10,7 @@ import {
 import { MobileAgentDetail } from '../../types/orbit';
 import { useLiveRelayStore } from '../../stores/liveRelay.store';
 import { mobileRelayService } from '../../services/mobileRelay.service';
+import { mobileNotificationService } from '../../services/notification.service';
 import { ConversationTimeline } from '../conversation/ConversationTimeline';
 import * as Haptics from 'expo-haptics';
 
@@ -46,6 +47,20 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
 
   const agent = liveAgent;
   const chatHistory = agent?.chatHistory || [];
+
+  // Track active session attention so relay knows which chat is open on mobile
+  useEffect(() => {
+    if (isOpen && agent) {
+      mobileNotificationService.setActiveViewingSession(
+        agent.workspaceId || agent.projectId,
+        agent.id,
+        agent.sessionId || agent.id
+      );
+      return () => {
+        mobileNotificationService.setActiveViewingSession(undefined, undefined, undefined);
+      };
+    }
+  }, [isOpen, agent?.id, agent?.sessionId, agent?.workspaceId, agent?.projectId]);
 
   if (!agent) return null;
 
@@ -165,7 +180,7 @@ export const AgentTerminalModal: React.FC<AgentTerminalModalProps> = ({
               messages={chatHistory}
               agentName={agent.name}
               isWorking={isWorking}
-              sessionId={agent.id}
+              sessionId={agent.sessionId || agent.id}
             />
 
             {/* Bottom Input Bar / Offline Notice */}

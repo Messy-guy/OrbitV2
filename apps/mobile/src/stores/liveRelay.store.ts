@@ -91,9 +91,9 @@ let state: LiveRelayState = {
 const listeners = new Set<Listener>();
 
 function emitChange() {
-  for (const listener of listeners) {
+  listeners.forEach((listener) => {
     listener();
-  }
+  });
 }
 
 export function useLiveRelayStore<T>(selector: (state: LiveRelayState) => T): T {

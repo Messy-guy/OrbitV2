@@ -144,8 +144,21 @@ class MobileNotificationService {
         return null;
       }
 
-      // Get Expo push token
-      const tokenData = await notif.getExpoPushTokenAsync().catch(() => null);
+      // Get Expo push token with explicit EAS Project ID
+      const easProjectId =
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        (Constants as any).easConfig?.projectId ||
+        '05d5dc95-fe6a-483f-8c31-c35bdd0bc114';
+
+      const tokenData = await notif
+        .getExpoPushTokenAsync({
+          projectId: easProjectId,
+        })
+        .catch((err: any) => {
+          console.warn('[Notifications] getExpoPushTokenAsync failed with projectId:', err);
+          return notif.getExpoPushTokenAsync().catch(() => null);
+        });
+
       if (!tokenData?.data) {
         console.log('ℹ️ [Notifications] Push tokens not available in current environment.');
         return null;
@@ -174,7 +187,7 @@ class MobileNotificationService {
         token: this.pushToken,
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
         appVersion: '1.0.0',
-        environment: __DEV__ ? 'development' : 'production',
+        environment: (typeof __DEV__ !== 'undefined' && __DEV__) ? 'development' : 'production',
       });
     } catch (err) {
       console.warn('[Notifications] syncTokenWithBackend error:', err);

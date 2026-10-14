@@ -154,6 +154,9 @@ class MobileRelayService {
         console.log('✅ [Mobile Relay] Connected to Live Relay! Socket ID:', this.socket?.id);
         useLiveRelayStore.getState().setConnectionStatus(true);
         this.socket?.emit('mobile:request_telemetry');
+        import('./notification.service').then(({ mobileNotificationService }) => {
+          mobileNotificationService.syncTokenWithBackend();
+        }).catch(() => {});
       });
 
       this.socket.on('relay:pairing_result', (res: { success: boolean; error?: string; device?: ConnectedDeviceMetadata }) => {

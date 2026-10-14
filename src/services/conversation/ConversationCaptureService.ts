@@ -184,6 +184,27 @@ class ConversationCaptureService {
             NotificationDispatcher.handleCanonicalEvent(sessionId, engineInfo.id, event);
           })
           .catch(() => {});
+
+        // Real-time mobile chat and telemetry sync
+        if (
+          event.type === 'assistant_completed' ||
+          event.type === 'user_message' ||
+          event.type === 'approval_requested' ||
+          event.type === 'error' ||
+          event.type === 'session_completed'
+        ) {
+          import('../desktopRelay.service')
+            .then(({ desktopRelayService }) => {
+              desktopRelayService.scheduleSync(true);
+            })
+            .catch(() => {});
+        } else if (event.type === 'assistant_delta') {
+          import('../desktopRelay.service')
+            .then(({ desktopRelayService }) => {
+              desktopRelayService.scheduleSync(false);
+            })
+            .catch(() => {});
+        }
       });
       this.activeSubscriptions.set(sessionId, unsub);
     }

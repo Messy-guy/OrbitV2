@@ -63,10 +63,14 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
   };
 
   useEffect(() => {
+    // Only auto-scroll down if user is already near bottom, without yanking the scroll view when reviewing older messages
     if (isNearBottom) {
-      scrollRef.current?.scrollToEnd({ animated: true });
+      const timer = setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [messages.length, messages[messages.length - 1]?.content, isNearBottom]);
+  }, [messages.length, messages[messages.length - 1]?.content]);
 
   if (!messages || messages.length === 0) {
     return (
@@ -88,9 +92,13 @@ export const ConversationTimeline: React.FC<ConversationTimelineProps> = ({
         ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
         onScroll={handleScroll}
-        scrollEventThrottle={32}
+        scrollEventThrottle={16}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+        bounces={true}
+        overScrollMode="always"
       >
         {messages.map((msg, index) => {
           const prevMsg = messages[index - 1];

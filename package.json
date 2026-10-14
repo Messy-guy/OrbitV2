@@ -1,7 +1,7 @@
 {
   "name": "orbit-desktop",
   "private": true,
-  "version": "0.1.75",
+  "version": "0.1.76",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,8 @@
     "cli": "node apps/cli/bin/orbit.js",
     "build:cli": "tsc -p apps/cli/tsconfig.json",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test-terminal-frontend.mjs",
     "test:terminal-frontend": "node scripts/test-terminal-frontend.mjs",
     "package:appimage": "node scripts/package-appimage.mjs",
     "validate:terminal-release": "node scripts/validate-terminal-release.mjs",

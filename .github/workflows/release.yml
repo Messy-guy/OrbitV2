@@ -180,6 +180,39 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
+      - name: Configure Firebase google-services.json
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > google-services.json
+          elif [ ! -f "google-services.json" ]; then
+            # Minimum stub required by Expo Prebuild when FCM is declared
+            cat << 'EOF' > google-services.json
+          {
+            "project_info": {
+              "project_number": "1234567890",
+              "project_id": "orbit-mobile-client",
+              "storage_bucket": "orbit-mobile-client.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:1234567890:android:05d5dc95fe6a483f",
+                  "android_client_info": {
+                    "package_name": "dev.useorbit.mobile"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "AIzaSyDummyKeyForBuildOnly123456789" }],
+                "services": {
+                  "appinvite_service": { "other_platform_oauth_client": [] }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
       - name: Prebuild Native Android Project
         run: npx expo prebuild --platform android --clean --no-install
 
@@ -188,10 +221,37 @@ jobs:
         run: |
           ./gradlew assembleRelease --no-daemon --parallel --build-cache -Dorg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC -Dfile.encoding=UTF-8" || ./gradlew assembleDebug --no-daemon
 
-      - name: Rename & Stage APK
+      - name: Sign & Stage Release APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           mkdir -p ../../release-assets
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk ../../release-assets/orbit-mobile.apk || cp android/app/build/outputs/apk/release/*.apk ../../release-assets/orbit-mobile.apk || cp android/app/build/outputs/apk/debug/*.apk ../../release-assets/orbit-mobile.apk
+          BUILD_APK=$(find android/app/build/outputs/apk/ -name "*.apk" | head -n 1)
+
+          if [ -z "$BUILD_APK" ]; then
+            echo "❌ No APK found in build outputs!"
+            exit 1
+          fi
+
+          echo "Found build APK: $BUILD_APK"
+
+          # If custom release keystore secret is configured, sign with it; otherwise generate release signing key
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+            KEY_PASS=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
+            $ANDROID_HOME/build-tools/35.0.0/apksigner sign --ks release.keystore --ks-pass "pass:$KEYSTORE_PASSWORD" --ks-key-alias "${KEY_ALIAS:-orbit}" --key-pass "pass:$KEY_PASS" --out ../../release-assets/orbit-mobile.apk "$BUILD_APK"
+          else
+            echo "Generating release signing keystore for standalone APK..."
+            keytool -genkey -v -keystore release.keystore -alias orbit-release -keyalg RSA -keysize 2048 -validity 10000 -storepass orbitpass -keypass orbitpass -dname "CN=Orbit, OU=Mobile, O=Orbit, L=San Francisco, S=CA, C=US"
+            $ANDROID_HOME/build-tools/35.0.0/apksigner sign --ks release.keystore --ks-pass pass:orbitpass --ks-key-alias orbit-release --key-pass pass:orbitpass --out ../../release-assets/orbit-mobile.apk "$BUILD_APK"
+          fi
+
+          # Verify APK signature
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose ../../release-assets/orbit-mobile.apk
+          echo "✅ Verified valid APK signature on release APK."
 
       - name: Upload Mobile Artifact
         uses: actions/upload-artifact@v4
