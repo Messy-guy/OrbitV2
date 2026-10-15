@@ -54,28 +54,30 @@ class MobileNotificationService {
 
       const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
-      if (!isExpoGo) {
-        // 1. Configure foreground presentation handler
-        try {
-          Notifications.setNotificationHandler({
-            handleNotification: async () => ({
-              shouldShowAlert: true,
-              shouldPlaySound: true,
-              shouldSetBadge: false,
-              shouldShowBanner: true,
-              shouldShowList: true,
-              priority: Notifications.AndroidNotificationPriority?.HIGH ?? 4,
-            }),
-          });
-        } catch (e) {
-          console.warn('[Notifications] setNotificationHandler error:', e);
-        }
+      // 1. Configure foreground presentation handler
+      try {
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+            priority: Notifications.AndroidNotificationPriority?.HIGH ?? 4,
+          }),
+        });
+      } catch (e) {
+        console.warn('[Notifications] setNotificationHandler error:', e);
+      }
 
-        // 2. Setup channels & tokens
-        await this.setupNotificationChannels(Notifications);
+      // 2. Setup notification channels
+      await this.setupNotificationChannels(Notifications);
+
+      // 3. Register for remote push tokens (native builds/production)
+      if (!isExpoGo) {
         await this.registerForPushNotificationsAsync(Notifications);
       } else {
-        console.log('ℹ️ [Notifications] Running in Expo Go');
+        console.log('ℹ️ [Notifications] Running in Expo Go: using real-time socket relay & local notification alerts');
       }
 
       this.setupListeners(Notifications);
@@ -176,15 +178,18 @@ class MobileNotificationService {
   }
 
   /**
-   * Sync push token to Orbit relay / device registry
+   * Sync push token to Orbit relay / device registry.
+   * If a native push token is available (production APK/build), registers it for Expo push.
+   * If running in development/Expo Go, registers the client device identifier so desktop
+   * knows this device is paired and targets it directly over live relay socket.
    */
   async syncTokenWithBackend() {
-    if (!this.pushToken) return;
     try {
       const userId = (await secureStorage.getAccessToken()) || 'default-user';
+      const effectiveToken = this.pushToken || `ExponentPushToken[dev_${Platform.OS}_${Date.now()}]`;
       mobileRelayService.registerDevicePushToken({
         userId,
-        token: this.pushToken,
+        token: effectiveToken,
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
         appVersion: '1.0.0',
         environment: (typeof __DEV__ !== 'undefined' && __DEV__) ? 'development' : 'production',

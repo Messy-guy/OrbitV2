@@ -153,13 +153,27 @@ export const AppHeader: React.FC = () => {
           </button>
         )}
 
-        {/* Pair Mobile Trigger */}
+        {/* Pair Mobile Trigger (PRO Feature) */}
         <button
-          onClick={() => setPairMobileOpen(true)}
-          className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-panel border border-transparent hover:border-border transition-colors cursor-pointer"
-          title="Pair Orbit Mobile Cockpit (QR Code)"
+          onClick={() => {
+            if (user?.plan === 'PRO') {
+              setPairMobileOpen(true);
+            } else {
+              useUIStore.getState().setProUpgradeModalOpen(true);
+            }
+          }}
+          className={clsx(
+            "p-2 rounded-lg border transition-colors cursor-pointer flex items-center gap-1.5",
+            user?.plan === 'PRO'
+              ? "text-text-muted hover:text-text-primary hover:bg-panel border-transparent hover:border-border"
+              : "text-amber-400/90 hover:text-amber-300 bg-amber-500/10 border-amber-500/20 hover:border-amber-500/40"
+          )}
+          title={user?.plan === 'PRO' ? "Pair Orbit Mobile Cockpit (QR Code)" : "Mobile Remote Cockpit (PRO Feature)"}
         >
           <Smartphone size={14} />
+          {user?.plan !== 'PRO' && (
+            <span className="text-[9px] font-mono font-bold tracking-wider uppercase text-amber-400">PRO</span>
+          )}
         </button>
 
         {/* Keyboard Shortcuts Trigger */}

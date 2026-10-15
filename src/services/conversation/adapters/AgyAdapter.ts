@@ -107,6 +107,24 @@ export class AgyAdapter implements EngineAdapter {
           if (item.tool_calls && Array.isArray(item.tool_calls)) {
             for (const call of item.tool_calls) {
               const name = call.name || 'tool';
+              if (name === 'ask_question') {
+                const args = call.arguments || call.args || {};
+                const questions = args.questions || [];
+                const firstQ = questions[0] || {};
+                const qText = firstQ.question || 'Question for user';
+                const opts = (firstQ.options || []).map((o: string, idx: number) => `  ${idx + 1}. ${o}`).join('\n');
+                contentText = `${qText}\n\n${opts}`.trim();
+
+                activities.push({
+                  id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                  category: 'other',
+                  summary: `Asked question: ${qText}`,
+                  startedAt: timestamp,
+                  completedAt: timestamp,
+                });
+                continue;
+              }
+
               const cat = name.includes('file') ? 'files' : name.includes('command') ? 'commands' : 'search';
               activities.push({
                 id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,

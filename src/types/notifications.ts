@@ -27,6 +27,9 @@ export interface NotificationRoutingData {
   notificationId: string;
   provider?: string;
   actionRequired?: boolean;
+  approvalId?: string;
+  action?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface NotificationIntent {

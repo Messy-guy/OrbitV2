@@ -151,17 +151,31 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({ agent }) => {
     if (!projectPath) return;
     void startSession();
 
-    const onVisibility = () => {
+    const onVisibility = async () => {
       if (!document.hidden && sessionRef.current) {
-        void tauriService.getNativeTerminalSnapshot(sessionRef.current)
-          .then((snapshot) => storeRef.current?.apply({ type: 'snapshot', snapshot }))
-          .catch(() => {});
+        try {
+          const isRunning = await tauriService.isAgentProcessRunning(agentId);
+          if (isRunning) {
+            const snapshot = await tauriService.getNativeTerminalSnapshot(sessionRef.current);
+            if (snapshot) {
+              storeRef.current?.apply({ type: 'snapshot', snapshot });
+              setPhase('active');
+            }
+          }
+        } catch {
+          // Fall back to snapshot refresh
+          void tauriService.getNativeTerminalSnapshot(sessionRef.current)
+            .then((snapshot) => storeRef.current?.apply({ type: 'snapshot', snapshot }))
+            .catch(() => {});
+        }
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisibility);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisibility);
       const subscription = subscriptionRef.current;
       subscriptionRef.current = null;
       void subscription?.detach().catch(() => {});

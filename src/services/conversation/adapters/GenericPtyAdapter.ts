@@ -294,6 +294,21 @@ export class GenericPtyAdapter implements EngineAdapter {
         });
       }
 
+      // 1b. Emit extracted approval and question prompts
+      if (result.approvals && result.approvals.length > 0) {
+        for (const app of result.approvals) {
+          this.emit(sessionId, {
+            type: 'approval_requested',
+            id: app.id,
+            title: app.title,
+            action: app.action,
+            metadata: app.metadata,
+            turnId: activeTurnId,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
       // 2. Emit compact thinking activity if present
       if (result.thought) {
         this.emit(sessionId, {

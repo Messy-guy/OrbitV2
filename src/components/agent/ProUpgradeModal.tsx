@@ -24,23 +24,12 @@ export const ProUpgradeModal: React.FC<ProUpgradeModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Active Slot Limit Reached"
-      subtitle={`Free Plan includes ${maxSlots} concurrent agents. Upgrade to Orbit Pro for unlimited swarms.`}
+      title="Orbit Pro Feature"
+      subtitle="Mobile Pairing, Remote Approvals, and Push Notifications are part of Orbit Pro."
       maxWidth="sm"
     >
       <div className="flex flex-col gap-4 font-sans text-xs pt-1 select-none">
         
-        {/* Sleek Minimalist Quota Bar */}
-        <div className="p-3 rounded-xl bg-well border border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="font-mono text-text-primary text-xs font-semibold">Active Agent Slots</span>
-          </div>
-          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-panel border border-border text-text-secondary">
-            {currentCount} / {maxSlots} Max
-          </span>
-        </div>
-
         {/* Pro Plan Feature Card */}
         <div className="p-4 rounded-xl bg-panel-elevated border border-border flex flex-col gap-3">
           <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -53,22 +42,22 @@ export const ProUpgradeModal: React.FC<ProUpgradeModalProps> = ({
             </span>
           </div>
 
-          <div className="space-y-2 text-[11px] text-text-secondary font-sans">
+          <div className="space-y-2.5 text-[11px] text-text-secondary font-sans">
             <div className="flex items-center gap-2">
               <Check size={12} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
-              <span className="text-text-primary font-medium">Unlimited Concurrent Agent Swarms</span>
+              <span className="text-text-primary font-medium">Mobile Cockpit Pairing & Remote Telemetry</span>
             </div>
             <div className="flex items-center gap-2">
               <Check size={12} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
-              <span>Multi-Account Profile Isolation (Work vs. Personal)</span>
+              <span className="text-text-primary font-medium">Instant Push Notifications for Approvals & Questions</span>
             </div>
             <div className="flex items-center gap-2">
               <Check size={12} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
-              <span>High-Density Context Memory (128k Tokens)</span>
+              <span className="text-text-primary font-medium">Emergency Stop & Mobile Remote Actions</span>
             </div>
             <div className="flex items-center gap-2">
               <Check size={12} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
-              <span>Cross-Device Cloud Session Sync (Desktop + Mobile)</span>
+              <span>Multi-Account Cloud Workspace Sync</span>
             </div>
           </div>
         </div>

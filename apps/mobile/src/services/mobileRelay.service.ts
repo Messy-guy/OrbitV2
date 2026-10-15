@@ -201,6 +201,7 @@ class MobileRelayService {
         useLiveRelayStore.getState().updateTelemetry({
           projects: data.projects || [],
           agents: data.agents || [],
+          approvals: data.approvals || [],
           activeWorkspaceId: data.activeWorkspaceId,
           device: resolvedDevice,
         });
@@ -208,6 +209,26 @@ class MobileRelayService {
 
       const handleNotification = (intent: any) => {
         if (intent) {
+          // If approval or choice required, add to live approvals store so modal displays it
+          if (intent.type === 'approval_required' || intent.type === 'agent_needs_input') {
+            const approvalItem = {
+              id: intent.data?.approvalId || intent.notificationId || `app_${Date.now()}`,
+              agentId: intent.agentId,
+              sessionId: intent.sessionId,
+              agentName: intent.data?.provider || 'Agent',
+              provider: intent.data?.provider || 'agent',
+              question: intent.title,
+              commandSnippet: intent.data?.action || intent.body,
+              options: intent.data?.metadata?.options || [],
+            };
+            const currentApprovals = useLiveRelayStore.getState().approvals || [];
+            if (!currentApprovals.some((a: any) => a.id === approvalItem.id)) {
+              useLiveRelayStore.getState().updateTelemetry({
+                approvals: [approvalItem, ...currentApprovals],
+              });
+            }
+          }
+
           import('./notification.service').then(({ mobileNotificationService }) => {
             mobileNotificationService.handleIncomingLiveNotification(intent);
           }).catch(() => {});
@@ -216,6 +237,14 @@ class MobileRelayService {
 
       this.socket.on('mobile:notification', handleNotification);
       this.socket.on('relay:notification', handleNotification);
+
+      this.socket.on('relay:action_error', (err: { code?: string; error?: string }) => {
+        console.warn('⚠️ [Mobile Relay] Remote action rejected by server:', err);
+        if (err.code === 'PRO_REQUIRED') {
+          // If the action was rejected by backend for PRO_REQUIRED, notify store/UI
+          alert(err.error || 'Orbit PRO plan required for mobile remote actions.');
+        }
+      });
     } catch (e) {
       this.isConnecting = false;
       console.error('[Mobile Relay] Connection setup failed:', e);
@@ -253,7 +282,12 @@ class MobileRelayService {
     useLiveRelayStore.getState().clearLiveState();
   }
 
-  sendAction(action: 'PAUSE' | 'STOP' | 'SEND_INPUT' | 'APPROVE' | 'EMERGENCY_STOP_ALL' | 'RESUME', agentId?: string, projectId?: string, data?: any) {
+  sendAction(
+    action: 'PAUSE' | 'STOP' | 'SEND_INPUT' | 'APPROVE' | 'EMERGENCY_STOP_ALL' | 'RESUME' | 'SELECT_OPTION' | 'RESPOND_QUESTION',
+    agentId?: string,
+    projectId?: string,
+    data?: any
+  ) {
     if (this.socket?.connected) {
       const requestId = `mob_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       this.socket.emit('mobile:remote_action', {

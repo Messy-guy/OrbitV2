@@ -17,6 +17,13 @@ export type CaptureDecision =
       activity: ActivitySummary;
     }
   | {
+      type: 'approval_requested';
+      id: string;
+      title: string;
+      action: string;
+      metadata?: Record<string, any>;
+    }
+  | {
       type: 'terminal_only';
       reason: string;
     };
@@ -24,6 +31,7 @@ export type CaptureDecision =
 export interface ClassifiedScreenOutput {
   userFacingText: string;
   activities: ActivitySummary[];
+  approvals: Array<{ id: string; title: string; action: string; metadata?: Record<string, any> }>;
   thought?: string;
   isThinking: boolean;
   decisions: CaptureDecision[];
@@ -92,7 +100,35 @@ export class PtyConversationClassifier {
     }
 
     // ----------------------------------------------------------------------
-    // 3. TOOL ACTIVITIES, FILE OPERATIONS, & TEST RUNS
+    // 3. APPROVAL REQUESTS, INTERACTIVE PROMPTS, & QUESTIONS
+    //    Detect [y/N], (y/n), Allow <tool>?, Apply changes?, etc.
+    // ----------------------------------------------------------------------
+    const approvalMatch =
+      cleanText.match(/^(?:Allow|Approve|Execute|Run|Apply)\s+(.+?)\?\s*(\[[^\]]+\]|\([^\)]+\))?$/i) ||
+      cleanText.match(/^(.+?\?)\s*(\[[yYnN\/aA\s]+\]|\([yYnN\/aA\s]+\))$/i) ||
+      cleanText.match(/^(.+?)\s*(\[[yY]\/[nN]\]|\([yY]\/[nN]\)|\[Yes\s*\/\s*No(?:\s*\/\s*Revise)?\])/i);
+
+    if (approvalMatch && cleanText.length < 160) {
+      const promptQuery = approvalMatch[1]?.trim() || cleanText;
+      const optionsText = approvalMatch[2] || '';
+      const extractedOptions = optionsText
+        ? optionsText.replace(/[[\]()]/g, '').split(/[\/,]/).map(o => o.trim()).filter(Boolean)
+        : ['Yes', 'No'];
+
+      return {
+        type: 'approval_requested',
+        id: `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        title: promptQuery,
+        action: cleanText,
+        metadata: {
+          prompt: cleanText,
+          options: extractedOptions.length > 0 ? extractedOptions : ['Yes', 'No'],
+        },
+      };
+    }
+
+    // ----------------------------------------------------------------------
+    // 4. TOOL ACTIVITIES, FILE OPERATIONS, & TEST RUNS
     //    Strict shapes only: verb + file path/extension, or verb + a known CLI
     //    command. Loose "Running <anything>" matching swallowed real assistant
     //    prose ("Running tests, builds, and linting. I can work directly…").
@@ -131,7 +167,7 @@ export class PtyConversationClassifier {
     }
 
     // ----------------------------------------------------------------------
-    // 4. METADATA & TERMINAL-ONLY NOISE (Discarded from canonical conversation)
+    // 5. METADATA & TERMINAL-ONLY NOISE (Discarded from canonical conversation)
     // ----------------------------------------------------------------------
 
     // 4.1 TUI Box Drawing Characters & Borders
@@ -295,6 +331,7 @@ export class PtyConversationClassifier {
   static classifyLines(candidateLines: string[], latestUserPrompt?: string, sessionId?: string, turnId?: string): ClassifiedScreenOutput {
     const cleanLines: string[] = [];
     const activities: ActivitySummary[] = [];
+    const approvals: Array<{ id: string; title: string; action: string; metadata?: Record<string, any> }> = [];
     const decisions: CaptureDecision[] = [];
     const seenActivitySet = new Set<string>();
     let latestThought: string | undefined;
@@ -308,6 +345,15 @@ export class PtyConversationClassifier {
         case 'user_echo':
         case 'terminal_only':
           // Discarded from canonical conversation
+          break;
+
+        case 'approval_requested':
+          approvals.push({
+            id: decision.id,
+            title: decision.title,
+            action: decision.action,
+            metadata: decision.metadata,
+          });
           break;
 
         case 'activity':
@@ -336,6 +382,7 @@ export class PtyConversationClassifier {
     return {
       userFacingText: cleanLines.join('\n').trim(),
       activities,
+      approvals,
       thought: latestThought,
       isThinking,
       decisions,

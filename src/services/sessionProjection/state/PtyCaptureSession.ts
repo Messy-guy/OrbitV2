@@ -9,6 +9,7 @@ import { pendingInputEchoQueue } from '../input/PendingInputEchoQueue';
 export interface ProcessedPtyTurnOutput {
   userFacingText: string;
   activities: ActivitySummary[];
+  approvals: Array<{ id: string; title: string; action: string; metadata?: Record<string, any> }>;
   thought?: string;
   isThinking: boolean;
   hasNewContent: boolean;
@@ -226,6 +227,7 @@ export class PtyCaptureSession {
       return {
         userFacingText: '',
         activities: [],
+        approvals: [],
         thought: undefined,
         isThinking: false,
         hasNewContent: false,
@@ -300,6 +302,7 @@ export class PtyCaptureSession {
       return {
         userFacingText: '',
         activities: [],
+        approvals: classified.approvals,
         thought: undefined,
         isThinking: false,
         hasNewContent: false,
@@ -337,6 +340,7 @@ export class PtyCaptureSession {
     return {
       userFacingText,
       activities: newActivities,
+      approvals: classified.approvals,
       thought: classified.thought,
       isThinking: classified.isThinking,
       hasNewContent,

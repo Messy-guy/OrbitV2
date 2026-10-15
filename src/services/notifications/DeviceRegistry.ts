@@ -86,19 +86,28 @@ export class DeviceRegistry {
   }
 
   /**
-   * Get all active, valid devices for a specific user and environment
+   * Get all active, valid devices for a specific user and environment.
+   * If userId is 'default-user' or no direct match exists in local single-tenant mode,
+   * falls back to all active paired devices so notifications reach the user's phone.
    */
   getValidDevicesForUser(
     userId: string,
     environment: 'development' | 'preview' | 'production' = 'development'
   ): DevicePushToken[] {
-    return Array.from(this.devices.values()).filter(
+    const allValid = Array.from(this.devices.values()).filter(
       (d) =>
-        d.userId === userId &&
         d.enabled &&
         !d.invalidatedAt &&
         (d.environment === environment || environment === 'development')
     );
+
+    const userSpecific = allValid.filter((d) => d.userId === userId);
+    if (userSpecific.length > 0) {
+      return userSpecific;
+    }
+
+    // Single-tenant local workstation fallback: fan out to all active paired mobile devices
+    return allValid;
   }
 
   /**

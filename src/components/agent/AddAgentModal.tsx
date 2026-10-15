@@ -107,7 +107,8 @@ export const AddAgentModal: React.FC = () => {
   };
 
   const isPro = user?.plan === 'PRO';
-  const maxAllowedSlots = isPro ? 999 : 2;
+  // Agent spawning is 100% free and unlimited on desktop!
+  const maxAllowedSlots = 999;
   const currentRunningAgents = agents.filter(a => a.status === 'working' || a.status === 'ready').length;
 
   const activeWorkspace = getActiveWorkspace();

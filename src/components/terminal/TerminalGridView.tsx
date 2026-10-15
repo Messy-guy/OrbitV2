@@ -171,11 +171,14 @@ export const TerminalGridView: React.FC<TerminalGridViewProps> = ({ snapshot, on
 
   const renderCurrent = React.useCallback(() => {
     if (!snapshot || !canvasRef.current || !rendererRef.current) return;
-    const host = hostRef.current;
-    const viewport = host && host.clientHeight > 0
-      ? { scrollTop: host.scrollTop, clientHeight: host.clientHeight }
-      : null;
-    rendererRef.current.render(snapshot, selection, viewport);
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      const host = hostRef.current;
+      const viewport = host && host.clientHeight > 0
+        ? { scrollTop: host.scrollTop, clientHeight: host.clientHeight }
+        : null;
+      rendererRef.current?.render(snapshot, selection, viewport);
+    });
   }, [snapshot, selection]);
 
   useLayoutEffect(() => {

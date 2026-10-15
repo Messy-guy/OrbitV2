@@ -153,6 +153,9 @@ export class NotificationPolicyEngine {
         notificationId,
         provider,
         actionRequired,
+        approvalId: event.type === 'approval_requested' ? event.id : undefined,
+        action: event.type === 'approval_requested' ? event.action : undefined,
+        metadata: event.type === 'approval_requested' ? event.metadata : undefined,
       },
     };
   }

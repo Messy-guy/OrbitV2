@@ -70,10 +70,30 @@ export const useAgentControls = (projectId?: string) => {
     }
   };
 
+  const selectOption = async (payload: { agentId?: string; approvalId?: string; selectedIndex: number; selectedOption?: string }) => {
+    setIsApproving(true);
+    try {
+      mobileRelayService.sendAction('SELECT_OPTION', payload.agentId, projectId, payload);
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const respondQuestion = async (payload: { agentId?: string; approvalId?: string; text: string }) => {
+    setIsApproving(true);
+    try {
+      mobileRelayService.sendAction('RESPOND_QUESTION', payload.agentId, projectId, payload);
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   return {
     pauseAgent,
     stopAgent,
     approveAction,
+    selectOption,
+    respondQuestion,
     isPausing,
     isStopping,
     isApproving,

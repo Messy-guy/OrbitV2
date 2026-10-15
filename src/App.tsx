@@ -40,7 +40,7 @@ export const App: React.FC = () => {
   });
 
   const isPro = user?.plan === 'PRO';
-  const maxAllowedSlots = isPro ? 999 : 2;
+  const maxAllowedSlots = 999;
   const currentRunningAgents = agents.filter(a => a.status === 'working' || a.status === 'ready').length;
 
   useEffect(() => {

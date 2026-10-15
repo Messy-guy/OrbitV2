@@ -195,6 +195,18 @@ class DesktopRelayService {
 
       // Handle mobile remote commands and conversation messages
       this.socket.on('desktop:execute_action', async (action: any) => {
+        // Strict Pro Plan Enforcement: Mobile remote control actions require Orbit Pro
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser?.plan !== 'PRO') {
+          console.warn('[Desktop Relay] Security rejection: Mobile remote execution requires an active Orbit PRO plan.');
+          this.socket?.emit('desktop:action_error', {
+            requestId: action?.requestId || action?.id,
+            error: 'Orbit PRO plan required for remote mobile cockpit operations.',
+            code: 'PRO_REQUIRED',
+          });
+          return;
+        }
+
         const actionType = String(action.type || action.action || '');
         const agentId = String(action.agentId || '');
         const payload = action.payload || action.data;
@@ -229,6 +241,28 @@ class DesktopRelayService {
                 cs.setSessionStatus(result.sessionId || sessionId, 'error');
               } catch {}
             }
+          }
+        } else if (actionType === 'EMERGENCY_STOP_ALL') {
+          const agents = useAgentStore.getState().agents;
+          for (const a of agents) {
+            if (isTauriAvailable()) {
+              tauriService.stopAgentSession(a.id).catch(() => {});
+            }
+            conversationStore.setSessionStatus(a.id, 'offline');
+            useAgentStore.getState().setAgentStatus(a.id, 'ready');
+          }
+        } else if (actionType === 'APPROVE_ALL') {
+          const agents = useAgentStore.getState().agents;
+          for (const a of agents) {
+            const targetSessionId = a.currentSessionId || a.id;
+            if (isTauriAvailable()) {
+              const bytes = new TextEncoder().encode('y\r');
+              tauriService.sendNativeTerminalInput(targetSessionId, bytes).catch(() => {
+                return tauriService.sendAgentInput(a.id, targetSessionId, 'y\r');
+              });
+            }
+            conversationStore.setSessionStatus(targetSessionId, 'working');
+            useAgentStore.getState().setAgentStatus(a.id, 'working');
           }
         } else if (actionType === 'PAUSE' || actionType === 'KILL' || actionType === 'STOP') {
           if (isTauriAvailable()) {
@@ -276,6 +310,34 @@ class DesktopRelayService {
 
           conversationStore.setSessionStatus(targetSessionId, decision === 'APPROVE' ? 'working' : 'waiting');
           useAgentStore.getState().setAgentStatus(agentId, decision === 'APPROVE' ? 'working' : 'ready');
+        } else if (actionType === 'RESPOND_QUESTION' || actionType === 'SELECT_OPTION') {
+          const agent = useAgentStore.getState().agents.find((a) => a.id === agentId);
+          const targetSessionId = agent?.currentSessionId || payload?.sessionId || agentId;
+
+          // Determine what keystroke or response to send:
+          // 1. Explicit text answer / write-in
+          // 2. Option index (1-based: "1\r", "2\r", etc.)
+          // 3. Option value / key string
+          let inputToSend = '';
+          if (payload?.text !== undefined && String(payload.text).trim().length > 0) {
+            inputToSend = `${String(payload.text).trim()}\r`;
+          } else if (typeof payload?.selectedIndex === 'number') {
+            inputToSend = `${payload.selectedIndex + 1}\r`;
+          } else if (payload?.selectedOption !== undefined) {
+            inputToSend = `${String(payload.selectedOption).trim()}\r`;
+          } else if (payload?.value !== undefined) {
+            inputToSend = `${String(payload.value).trim()}\r`;
+          }
+
+          if (inputToSend && isTauriAvailable()) {
+            const bytes = new TextEncoder().encode(inputToSend);
+            await tauriService.sendNativeTerminalInput(targetSessionId, bytes).catch(() => {
+              return tauriService.sendAgentInput(agentId, targetSessionId, inputToSend);
+            });
+          }
+
+          conversationStore.setSessionStatus(targetSessionId, 'working');
+          useAgentStore.getState().setAgentStatus(agentId, 'working');
         }
         this.scheduleSync();
       });
@@ -753,6 +815,9 @@ class DesktopRelayService {
         }
       }
 
+      const currentUser = useAuthStore.getState().user;
+      const isPro = currentUser?.plan === 'PRO';
+
       const packet = {
         projects,
         agents: mappedAgents,
@@ -760,6 +825,8 @@ class DesktopRelayService {
         runtimeSnapshot,
         activeWorkspaceId,
         device: deviceMeta,
+        plan: currentUser?.plan || 'FREE',
+        proEnabled: isPro,
       };
 
       this.socket.emit('desktop:telemetry', packet);
@@ -769,6 +836,11 @@ class DesktopRelayService {
   }
 
   broadcastNotification(intent: any) {
+    const currentUser = useAuthStore.getState().user;
+    if (currentUser?.plan !== 'PRO') {
+      console.warn('[Desktop Relay] Push notification skipped: Orbit PRO required.');
+      return;
+    }
     if (this.socket && this.socket.connected) {
       this.socket.emit('desktop:notification', intent);
     }

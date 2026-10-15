@@ -63,9 +63,15 @@ export const AuthModal: React.FC = () => {
             {/* Account Details & Plan Info */}
             <div className="p-4 rounded-2xl bg-well border border-border space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-text-muted text-[11px] uppercase font-bold">Concurrent Agents</span>
-                <span className="font-mono font-bold text-text-primary text-xs">
-                  {user.plan === 'PRO' ? 'Unlimited' : '2 Active Agents (Free)'}
+                <span className="font-mono text-text-muted text-[11px] uppercase font-bold">Agent Spawning</span>
+                <span className="font-mono font-bold text-emerald-400 text-xs">
+                  Unlimited (Free)
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-text-muted text-[11px] uppercase font-bold">Mobile Remote Cockpit</span>
+                <span className={`font-mono font-bold text-xs ${user.plan === 'PRO' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {user.plan === 'PRO' ? 'Enabled (PRO)' : 'Pro Only'}
                 </span>
               </div>
               <div className="flex items-center justify-between">

@@ -18,7 +18,7 @@ interface ApprovalsModalProps {
 
 export const ApprovalsModal: React.FC<ApprovalsModalProps> = ({ isOpen, onClose }) => {
   const { data: approvals } = usePendingApprovals();
-  const { approveAction, isApproving } = useAgentControls();
+  const { approveAction, selectOption, isApproving } = useAgentControls();
 
   if (!isOpen) return null;
 
@@ -76,8 +76,40 @@ export const ApprovalsModal: React.FC<ApprovalsModalProps> = ({ isOpen, onClose 
                   <AstryxBadge label="Requires Approval" variant="danger" />
                 </View>
 
-                {/* Question */}
+                {/* Question or Prompt */}
                 <Text style={styles.questionText}>{item.question}</Text>
+
+                {/* Selectable Choice Options (if present) */}
+                {Array.isArray(item.options) && item.options.length > 0 && (
+                  <View style={styles.optionsContainer}>
+                    <Text style={styles.optionsLabel}>SELECT AN OPTION:</Text>
+                    <View style={styles.optionsGrid}>
+                      {item.options.map((opt: string, idx: number) => (
+                        <Pressable
+                          key={idx}
+                          style={({ pressed }) => [
+                            styles.optionChip,
+                            pressed && styles.optionChipPressed,
+                          ]}
+                          onPress={() => {
+                            try {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            } catch {}
+                            selectOption({
+                              agentId: item.agentId,
+                              approvalId: item.id,
+                              selectedIndex: idx,
+                              selectedOption: opt,
+                            });
+                          }}
+                        >
+                          <Text style={styles.optionIndex}>{idx + 1}</Text>
+                          <Text style={styles.optionText}>{opt}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )}
 
                 {/* Command Block */}
                 {item.commandSnippet && (
@@ -261,5 +293,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  optionsContainer: {
+    marginBottom: 16,
+  },
+  optionsLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#D6C7B8',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  optionsGrid: {
+    gap: 8,
+  },
+  optionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255, 247, 237, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 247, 237, 0.12)',
+    borderRadius: OrbitTokens.radii.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  optionChipPressed: {
+    backgroundColor: 'rgba(251, 146, 60, 0.2)',
+    borderColor: '#FB923C',
+  },
+  optionIndex: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(251, 146, 60, 0.25)',
+    color: '#FB923C',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  optionText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#FFF7ED',
+    fontWeight: '500',
   },
 });
